@@ -30,10 +30,6 @@ struct ComposerBar: View {
                     .transition(.opacity)
             }
 
-            if showsQuickChips {
-                quickChips
-            }
-
             inputCard
 
             if features.usageMetrics {
@@ -48,40 +44,32 @@ struct ComposerBar: View {
         .animation(DSHAnim.standard, value: engine.isStreaming)
     }
 
-    // MARK: - 输入卡片（独立于上方胶囊）
+    // MARK: - 输入卡片（对齐官方客户端：输入行在上，胶囊与按钮在下，同卡片内）
 
     private var inputCard: some View {
-        HStack(alignment: .bottom, spacing: DSHTheme.Spacing.small) {
-            if features.pluginCommands {
-                plusButton
-            }
-
+        VStack(alignment: .leading, spacing: 6) {
             inputField
 
-            sendButton
+            controlRow
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.top, 9)
+        .padding(.bottom, 7)
         .background(DSHTheme.composerCard)
         .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.composer, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: DSHTheme.Radius.composer, style: .continuous)
                 .stroke(
-                    focused ? DSHTheme.brand.opacity(0.55) : DSHTheme.separator.opacity(0.45),
-                    lineWidth: focused ? 1.2 : 0.8
+                    focused ? DSHTheme.brand.opacity(0.55) : Color.clear,
+                    lineWidth: 1.2
                 )
         )
         .shadow(color: .black.opacity(0.05), radius: 8, y: 2)
         .animation(DSHAnim.standard, value: focused)
     }
 
-    // MARK: - 快捷胶囊（独立成行，不放进输入卡片）
-
-    private var showsQuickChips: Bool {
-        features.deepThinkingToggle || features.modelPicker
-    }
-
-    private var quickChips: some View {
+    /// 卡片底部一行：左侧快捷胶囊，右侧「+」与发送按钮，统一 28pt 高度
+    private var controlRow: some View {
         HStack(spacing: DSHTheme.Spacing.small) {
             if features.deepThinkingToggle {
                 thinkingChip
@@ -90,11 +78,14 @@ struct ComposerBar: View {
                 modelChip
             }
             Spacer(minLength: 0)
+            if features.pluginCommands {
+                plusButton
+            }
+            sendButton
         }
-        .padding(.leading, 4)
     }
 
-    /// 「深度思考」开关：开/关使用同一图标，仅背景色变化
+    /// 「深度思考」开关：开/关使用同一图标，仅背景色变化；高度与模型按钮保持一致
     private var thinkingChip: some View {
         Button {
             engine.toggleDeepThinking()
@@ -107,7 +98,7 @@ struct ComposerBar: View {
             }
             .foregroundStyle(.primary)
             .padding(.horizontal, 10)
-            .padding(.vertical, 5)
+            .frame(height: 28)
             .background(settings.thinkingEnabled ? DSHTheme.brandSoft : DSHTheme.chipFill)
             .clipShape(Capsule())
             .overlay(
@@ -116,6 +107,7 @@ struct ComposerBar: View {
                     lineWidth: 1
                 )
             )
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .animation(DSHAnim.standard, value: settings.thinkingEnabled)
@@ -124,7 +116,7 @@ struct ComposerBar: View {
         .accessibilityValue(settings.thinkingEnabled ? "已开启" : "已关闭")
     }
 
-    /// 模型选择：只列出可选模型，服务端拉取入口只在设置页提供
+    /// 模型选择：无底色、黑色文字（深色模式自动转为白色），高度与左侧胶囊一致
     private var modelChip: some View {
         Menu {
             ForEach(engine.availableModels) { model in
@@ -147,12 +139,12 @@ struct ComposerBar: View {
                     .lineLimit(1)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 8, weight: .bold))
+                    .opacity(0.55)
             }
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(DSHTheme.chipFill)
-            .clipShape(Capsule())
+            .foregroundStyle(Color(uiColor: .label))
+            .padding(.horizontal, 6)
+            .frame(height: 28)
+            .contentShape(Rectangle())
         }
         .accessibilityIdentifier("composer.model")
         .accessibilityLabel("选择模型")
@@ -167,7 +159,7 @@ struct ComposerBar: View {
             .lineLimit(1...5)
             .focused($focused)
             .submitLabel(.return)
-            .padding(.vertical, 6)
+            .padding(.vertical, 4)
             .accessibilityIdentifier("composer.input")
     }
 
@@ -189,10 +181,11 @@ struct ComposerBar: View {
             }
         } label: {
             Image(systemName: "plus")
-                .font(.system(size: 15, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
-                .frame(width: 26, height: 26)
-                .contentShape(Rectangle())
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(DSHTheme.chipFill))
+                .contentShape(Circle())
         }
         .disabled(engine.isStreaming)
         .accessibilityIdentifier("composer.plus")
@@ -211,9 +204,9 @@ struct ComposerBar: View {
                 engine.stopStreaming()
             } label: {
                 Image(systemName: "stop.fill")
-                    .font(.system(size: 12, weight: .bold))
+                    .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(.white)
-                    .frame(width: 30, height: 30)
+                    .frame(width: 28, height: 28)
                     .background(Color(uiColor: .systemGray))
                     .clipShape(Circle())
             }
@@ -226,9 +219,9 @@ struct ComposerBar: View {
                 engine.send()
             } label: {
                 Image(systemName: "arrow.up")
-                    .font(.system(size: 14, weight: .bold))
+                    .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(canSend ? .white : Color.secondary)
-                    .frame(width: 30, height: 30)
+                    .frame(width: 28, height: 28)
                     .background {
                         Circle().fill(
                             canSend

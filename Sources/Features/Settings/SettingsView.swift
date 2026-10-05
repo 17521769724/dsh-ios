@@ -244,7 +244,7 @@ struct APIKeySettingsView: View {
     var body: some View {
         List {
             Section {
-                HStack {
+                HStack(spacing: DSHTheme.Spacing.small) {
                     Group {
                         if revealed {
                             TextField("sk-…", text: $settingsStore.apiKey)
@@ -255,14 +255,20 @@ struct APIKeySettingsView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .font(.system(size: 15, design: .monospaced))
+                    // 与引导页保持一致：明文/密文切换时输入框宽度不变
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     Button {
                         revealed.toggle()
                     } label: {
                         Image(systemName: revealed ? "eye.slash" : "eye")
                             .foregroundStyle(.secondary)
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .frame(width: 28, height: 28)
+                    .accessibilityLabel(revealed ? "隐藏 Key" : "显示 Key")
                 }
             } header: {
                 Text("API Key")
@@ -483,6 +489,7 @@ struct ThinkingEffortSettingsView: View {
                                     .foregroundStyle(DSHTheme.brand)
                             }
                         }
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
@@ -573,6 +580,8 @@ struct ThemeSettingsView: View {
                                     .foregroundStyle(DSHTheme.brand)
                             }
                         }
+                        // plain 按钮默认只有文字本身可点，这里让整行都可点
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("theme.\(theme.rawValue)")
@@ -582,6 +591,7 @@ struct ThemeSettingsView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .animation(DSHAnim.standard, value: settingsStore.settings.appTheme)
         .navigationTitle("外观")
         .navigationBarTitleDisplayMode(.inline)
     }

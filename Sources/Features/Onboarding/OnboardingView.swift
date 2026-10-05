@@ -20,21 +20,26 @@ struct OnboardingView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: DSHTheme.Spacing.section) {
-                header
-                formCard
-                actions
-                footer
+        // 背景与滚动内容分层：键盘弹出/收起时只有内容区随安全区变化，
+        // 背景是独立的静态层，不会在状态栏附近出现闪动。
+        ZStack {
+            DSHTheme.page.ignoresSafeArea()
+
+            ScrollView {
+                VStack(spacing: DSHTheme.Spacing.section) {
+                    header
+                    formCard
+                    actions
+                    footer
+                }
+                .padding(.horizontal, DSHTheme.Spacing.section)
+                .padding(.vertical, 40)
+                .frame(maxWidth: 520)
+                .frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, DSHTheme.Spacing.section)
-            .padding(.vertical, 40)
-            .frame(maxWidth: 520)
-            .frame(maxWidth: .infinity)
+            // 上下滑动页面即可收起键盘；点击空白收起由 RootView 的全局手势负责
+            .scrollDismissesKeyboard(.immediately)
         }
-        // 上下滑动页面即可收起键盘；点击空白收起由 RootView 的全局手势负责
-        .scrollDismissesKeyboard(.immediately)
-        .background(DSHTheme.page.ignoresSafeArea())
         .onAppear {
             baseURLInput = settingsStore.settings.baseURL
             keyInput = settingsStore.apiKey
@@ -56,13 +61,10 @@ struct OnboardingView: View {
             VStack(spacing: 6) {
                 Text("欢迎使用 DeepSeek")
                     .font(.system(size: 24, weight: .bold))
-                HStack(spacing: 5) {
-                    Image(systemName: "lock.fill")
-                        .font(.system(size: 11))
-                    Text("先填写 API Key，即可开始对话")
-                        .font(.system(size: 15))
-                }
-                .foregroundStyle(.secondary)
+                Text("先填写 API Key，即可开始对话")
+                    .font(.system(size: 15))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
         }
     }
@@ -95,6 +97,8 @@ struct OnboardingView: View {
                     .font(.system(size: 15, design: .monospaced))
                     .focused($focusedField, equals: .key)
                     .submitLabel(.go)
+                    // 占满剩余宽度：明文/密文切换时输入框宽度保持不变
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("onboarding.key")
                     .onSubmit { if canSubmit { validateAndEnter() } }
 
@@ -104,8 +108,12 @@ struct OnboardingView: View {
                         Image(systemName: revealed ? "eye.slash" : "eye")
                             .font(.system(size: 14))
                             .foregroundStyle(.secondary)
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    // 固定按钮尺寸，避免切换图标时挤压输入框
+                    .frame(width: 28, height: 28)
                     .accessibilityLabel(revealed ? "隐藏 Key" : "显示 Key")
                 }
             }
@@ -130,6 +138,7 @@ struct OnboardingView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .foregroundStyle(DSHTheme.danger)
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .padding(DSHTheme.Spacing.large)
@@ -139,6 +148,7 @@ struct OnboardingView: View {
             RoundedRectangle(cornerRadius: DSHTheme.Radius.card, style: .continuous)
                 .stroke(DSHTheme.separator.opacity(0.4), lineWidth: 0.8)
         )
+        .animation(DSHAnim.standard, value: errorText)
     }
 
     /// 统一的输入分组：小图标 + 标题 + 输入框（+ 可选说明）
@@ -189,6 +199,8 @@ struct OnboardingView: View {
 
     private var actions: some View {
         VStack(spacing: DSHTheme.Spacing.medium) {
+            // 验证失败（isValidating 回到 false）后按钮保持可见可用，
+            // 只把错误信息展示在上方卡片里，不清空/隐藏入口。
             Button {
                 validateAndEnter()
             } label: {
@@ -228,17 +240,16 @@ struct OnboardingView: View {
             .buttonStyle(.plain)
             .disabled(!canSubmit)
         }
+        .animation(DSHAnim.standard, value: isValidating)
+        .animation(DSHAnim.standard, value: canSubmit)
     }
 
     private var footer: some View {
-        HStack(spacing: 5) {
-            Image(systemName: "lock.fill")
-                .font(.system(size: 10))
-            Text("API Key 仅保存在本机钥匙串，不会上传到任何第三方服务。")
-                .font(.system(size: 12))
-        }
-        .foregroundStyle(.secondary)
-        .multilineTextAlignment(.center)
+        Text("API Key 仅保存在本机钥匙串，不会上传到任何第三方服务。")
+            .font(.system(size: 12))
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
     }
 
     // MARK: - 行为

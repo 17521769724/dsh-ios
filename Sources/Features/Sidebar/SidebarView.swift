@@ -194,6 +194,7 @@ struct SidebarView: View {
                     .font(.system(size: 15, weight: selected ? .semibold : .regular))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
+                    .accessibilityIdentifier("sidebar.title")
 
                 Spacer(minLength: 4)
 
@@ -213,14 +214,15 @@ struct SidebarView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .animation(DSHAnim.standard, value: selected)
         .contextMenu {
             Button {
-                engine.togglePin(conversation)
+                withAnimation(DSHAnim.list) { engine.togglePin(conversation) }
             } label: {
                 Label(conversation.isPinned ? "取消置顶" : "置顶", systemImage: "pin")
             }
             Button(role: .destructive) {
-                engine.delete(conversation)
+                withAnimation(DSHAnim.list) { engine.delete(conversation) }
             } label: {
                 Label("删除", systemImage: "trash")
             }

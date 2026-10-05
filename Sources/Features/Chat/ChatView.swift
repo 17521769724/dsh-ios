@@ -8,13 +8,18 @@ struct ChatView: View {
     @FocusState private var inputFocused: Bool
 
     var body: some View {
-        conversation
-            .background(DSHTheme.page)
+        // 输入框与消息列表同处一个竖向栈：键盘弹出/收起时整栈跟随系统安全区平滑位移，
+        // 不再使用 safeAreaInset（此前会导致收起键盘瞬间输入框先弹到高处再落回底部）。
+        VStack(spacing: 0) {
+            conversationScroll
+            ComposerBar(focused: $inputFocused)
+        }
+        .background(DSHTheme.page)
     }
 
     // MARK: - 对话区
 
-    private var conversation: some View {
+    private var conversationScroll: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: DSHTheme.Spacing.large) {
@@ -52,18 +57,6 @@ struct ChatView: View {
             }
             .scrollDismissesKeyboard(.immediately)
             .background(DSHTheme.page)
-            .contentShape(Rectangle())
-            .onTapGesture { inputFocused = false }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                ComposerBar(focused: $inputFocused)
-            }
-            .toolbar {
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("完成") { inputFocused = false }
-                        .accessibilityIdentifier("keyboard.done")
-                }
-            }
             .onChange(of: engine.streamingTick) { _ in
                 guard engine.isStreaming, isConversationEmpty == false else { return }
                 proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)

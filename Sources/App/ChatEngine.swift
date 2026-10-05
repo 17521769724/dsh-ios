@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import SwiftUI
 import UIKit
 
@@ -29,6 +30,7 @@ final class ChatEngine: ObservableObject {
 
     private var streamTask: Task<Void, Never>?
     private var client: DeepSeekClient
+    private var cancellables: Set<AnyCancellable> = []
 
     init(
         settingsStore: SettingsStore,
@@ -43,6 +45,15 @@ final class ChatEngine: ObservableObject {
         if let latest = conversationStore.sortedConversations.first {
             self.currentConversation = latest
         }
+
+        // ConversationStore 是嵌套的 ObservableObject：把它的变更桥接到 engine，
+        // 否则「侧边栏长按删除会话」这类只改 store、不改 engine 状态的操作，
+        // 正在显示的列表不会立即刷新（需要重开抽屉才看到结果）。
+        conversationStore.objectWillChange
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - 模型

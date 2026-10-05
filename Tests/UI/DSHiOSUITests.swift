@@ -2,7 +2,7 @@ import XCTest
 import UIKit
 
 /// 端到端 UI 测试：覆盖引导门禁与表单、主页极简、输入框高度与键盘、设置即时生效、
-/// 功能开关、模型列表、聊天渲染与抽屉。
+/// 功能开关、模型列表、聊天渲染与抽屉、抽屉删除即时刷新、引导页验证失败回归。
 final class DSHiOSUITests: XCTestCase {
 
     private var app: XCUIApplication!
@@ -258,7 +258,7 @@ final class DSHiOSUITests: XCTestCase {
 
     // MARK: - 键盘收起（真机问题回归）
 
-    func test04_键盘可通过完成按钮与点击空白收起() throws {
+    func test04_键盘可通过点击空白收起且不再有完成按钮() throws {
         let composer = element("composer.input")
         XCTAssertTrue(composer.waitForExistence(timeout: 10))
         composer.tap()
@@ -266,14 +266,10 @@ final class DSHiOSUITests: XCTestCase {
         try XCTSkipIf(app.keyboards.count == 0, "模拟器未启用软键盘，跳过键盘断言")
 
         XCTAssertTrue(app.keyboards.element.waitForExistence(timeout: 5), "键盘未弹出")
-        element("keyboard.done").tap()
-        XCTAssertTrue(
-            app.keyboards.element.waitForNonExistence(timeout: 3),
-            "点击「完成」后键盘未收起"
-        )
+        // 真机反馈：键盘上方不再保留用于收起键盘的「完成」按钮
+        XCTAssertFalse(element("keyboard.done").exists, "键盘不应再出现「完成」按钮")
+        XCTAssertFalse(app.buttons["完成"].exists, "键盘不应再出现「完成」按钮")
 
-        composer.tap()
-        XCTAssertTrue(app.keyboards.element.waitForExistence(timeout: 5), "键盘未再次弹出")
         app.staticTexts["有什么可以帮你的吗？"].tap()
         XCTAssertTrue(
             app.keyboards.element.waitForNonExistence(timeout: 3),
@@ -467,5 +463,58 @@ final class DSHiOSUITests: XCTestCase {
 
         XCTAssertTrue(app.navigationBars["DeepSeek"].waitForExistence(timeout: 5), "新建对话后标题不正确")
         XCTAssertTrue(element("composer.input").waitForExistence(timeout: 5))
+    }
+
+    // MARK: - 抽屉删除即时刷新（真机问题回归）
+
+    func test13_抽屉长按删除会话后列表立即刷新() {
+        // 新建一个会话，让抽屉里有一条记录
+        element("topbar.newchat").tap()
+        element("topbar.sidebar").tap()
+
+        let row = app.staticTexts.matching(identifier: "sidebar.title").firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "抽屉里未出现会话行")
+        row.press(forDuration: 1.2)
+
+        let delete = app.buttons["删除"].firstMatch
+        XCTAssertTrue(delete.waitForExistence(timeout: 5), "长按未出现删除菜单")
+        delete.tap()
+
+        // 关键回归点：不关闭抽屉，列表就应该立即刷新为空态
+        XCTAssertTrue(
+            app.staticTexts["还没有对话"].waitForExistence(timeout: 5),
+            "删除后抽屉列表未立即刷新（此前需要重开抽屉才更新）"
+        )
+        capture("15-drawer-delete-refresh")
+    }
+
+    // MARK: - 引导页验证失败（真机问题回归）
+
+    func test14_验证失败后按钮不消失() {
+        launchApp(configured: false, seed: false)
+
+        let keyField = app.secureTextFields.firstMatch
+        XCTAssertTrue(keyField.waitForExistence(timeout: 10), "缺少 API Key 输入框")
+        keyField.tap()
+        keyField.typeText("sk-invalid-for-test")
+        // 收起键盘，避免遮挡按钮
+        app.staticTexts["欢迎使用 DeepSeek"].tap()
+
+        let submit = element("onboarding.submit")
+        XCTAssertTrue(submit.waitForExistence(timeout: 5), "缺少「验证并进入」按钮")
+        submit.tap()
+
+        // 验证结束（网络错误或 401）前后，按钮都必须一直存在：
+        // 真机上曾出现验证失败后按钮被整个移除的问题。
+        let start = Date()
+        while Date().timeIntervalSince(start) < 45 {
+            XCTAssertTrue(submit.exists, "验证过程中「验证并进入」按钮消失了")
+            if Date().timeIntervalSince(start) > 8, submit.isEnabled {
+                break
+            }
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        XCTAssertTrue(submit.exists, "验证失败后「验证并进入」按钮消失了")
+        capture("16-onboarding-validation-failed")
     }
 }
