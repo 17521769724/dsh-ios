@@ -148,15 +148,14 @@ struct ComposerBar: View {
         .accessibilityLabel("选择模型")
     }
 
-    /// 输入框：限制最大高度，超出后内部滚动，不会撑满屏幕。
+    /// 输入框：空态保持单行高度，随内容增长，最多 5 行后内部滚动。
+    /// 不额外套 frame(maxHeight:)，否则纵向 TextField 会按上限高度占位、撑高输入区。
     /// 键盘回车键换行（与官方客户端一致），发送由右侧按钮触发。
     private var inputField: some View {
         TextField("给 DeepSeek 发送消息", text: $engine.draft, axis: .vertical)
             .textFieldStyle(.plain)
             .font(.system(size: 16))
             .lineLimit(1...5)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxHeight: DSHTheme.composerMaxHeight, alignment: .top)
             .focused($focused)
             .submitLabel(.return)
             .padding(.vertical, 6)

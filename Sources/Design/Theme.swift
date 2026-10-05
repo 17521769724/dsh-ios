@@ -46,8 +46,6 @@ enum DSHTheme {
         static let section: CGFloat = 24
     }
 
-    /// 输入框最大高度：超过后内部滚动，避免撑满屏幕
-    static let composerMaxHeight: CGFloat = 116
     /// 消息区域左右边距
     static let messageHorizontalPadding: CGFloat = 16
 }

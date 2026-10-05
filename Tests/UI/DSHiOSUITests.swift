@@ -147,6 +147,14 @@ final class DSHiOSUITests: XCTestCase {
     func test03_输入框不会撑满屏幕且支持多行() {
         let composer = element("composer.input")
         XCTAssertTrue(composer.waitForExistence(timeout: 10))
+
+        // 空态应保持单行高度，不允许预留多行空白
+        XCTAssertLessThanOrEqual(
+            composer.frame.height,
+            60,
+            "空态输入框高度 \(composer.frame.height) 偏大，疑似按上限高度占位"
+        )
+
         composer.tap()
 
         let screenHeight = app.windows.firstMatch.frame.height
