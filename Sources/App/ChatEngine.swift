@@ -408,7 +408,7 @@ final class ChatEngine: ObservableObject {
     }
 
     func showToast(_ message: String) {
-        withAnimation(DSHAnim.emphasis) { toast = message }
+        withAnimation(DSHAnim.standard) { toast = message }
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 1_800_000_000)
             withAnimation(DSHAnim.standard) { self.toast = nil }

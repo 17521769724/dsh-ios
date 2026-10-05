@@ -120,6 +120,6 @@ struct TrajectoryView: View {
                 }
             }
         }
-        .background(DSHTheme.pageBackground)
+        .background(DSHTheme.page)
     }
 }
