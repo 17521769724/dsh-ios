@@ -164,4 +164,50 @@ final class DSHiOSUITests: XCTestCase {
         XCTAssertTrue(element("composer.input").waitForExistence(timeout: 5))
         capture("12-dark-appearance")
     }
+
+    /// 注入演示会话，验证聊天界面的完整渲染（用户气泡、Markdown、代码块、操作行、思考折叠）
+    func test09_对话与Markdown渲染() {
+        relaunch(withSeed: true)
+
+        // 用户消息气泡
+        let userText = app.staticTexts["用 Swift 写一个防抖函数，并解释它的用途。"]
+        XCTAssertTrue(userText.waitForExistence(timeout: 15), "未渲染用户消息")
+
+        // 代码块：语言标签 + 复制按钮
+        XCTAssertTrue(app.staticTexts["SWIFT"].waitForExistence(timeout: 5), "代码块未渲染")
+        XCTAssertTrue(app.staticTexts["复制"].exists, "代码块缺少复制入口")
+
+        // Markdown 列表内容（整段文本为一个可访问元素，用包含匹配）
+        let listItem = app.staticTexts
+            .matching(NSPredicate(format: "label CONTAINS %@", "减少无效请求与重复计算"))
+            .firstMatch
+        XCTAssertTrue(listItem.exists, "Markdown 正文未渲染")
+
+        // 操作行
+        XCTAssertTrue(app.buttons["有帮助"].exists, "缺少点赞按钮")
+        XCTAssertTrue(app.buttons["没帮助"].exists, "缺少点踩按钮")
+        XCTAssertTrue(app.buttons["重新生成"].exists, "缺少重新生成按钮")
+        capture("13-chat-markdown")
+
+        // 展开思考过程
+        app.staticTexts["Think"].tap()
+        let reasoning = app.staticTexts["用户要的是防抖函数，需要给出可运行实现并说明使用场景。先确认防抖与节流的区别，再组织代码与要点。"]
+        XCTAssertTrue(reasoning.waitForExistence(timeout: 5), "思考内容未展开")
+        capture("14-reasoning-expanded")
+
+        // 轨迹页应展示会话事件
+        element("tab.trajectory").tap()
+        XCTAssertTrue(app.staticTexts["模型回复"].waitForExistence(timeout: 5), "轨迹未记录模型回复")
+        XCTAssertTrue(app.staticTexts["用户输入"].exists, "轨迹未记录用户输入")
+        capture("15-trajectory-filled")
+    }
+
+    private func relaunch(withSeed: Bool) {
+        app.terminate()
+        let fresh = XCUIApplication()
+        fresh.launchArguments = ["-uitest-reset"] + (withSeed ? ["-uitest-seed"] : [])
+        fresh.launch()
+        app = fresh
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20))
+    }
 }

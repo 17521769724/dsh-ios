@@ -79,6 +79,53 @@ final class ConversationStore: ObservableObject {
         scheduleSave()
     }
 
+    /// 仅用于 UI 测试与演示：写入一条包含 Markdown、代码块与思考过程的会话，
+    /// 以便在无法真实调用模型的情况下验证聊天界面的渲染。
+    @discardableResult
+    func seedDemoConversation(model: String) -> Conversation {
+        var conversation = Conversation(model: model)
+        conversation.messages = [
+            ChatMessage(
+                role: .user,
+                content: "用 Swift 写一个防抖函数，并解释它的用途。"
+            ),
+            ChatMessage(
+                role: .assistant,
+                content: """
+                下面是一个通用的防抖实现：
+
+                ```swift
+                final class Debouncer {
+                    private var workItem: DispatchWorkItem?
+
+                    func schedule(delay: TimeInterval, action: @escaping () -> Void) {
+                        workItem?.cancel()
+                        let item = DispatchWorkItem(block: action)
+                        workItem = item
+                        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+                    }
+                }
+                ```
+
+                **用途**：把短时间内连续触发的事件合并为一次执行，常见于搜索输入、按钮连点与滚动回调。
+
+                - 减少无效请求与重复计算
+                - 保证只在用户停下来之后处理
+                - 与节流（`throttle`）的区别是：防抖只触发最后一次
+                """,
+                reasoning: "用户要的是防抖函数，需要给出可运行实现并说明使用场景。先确认防抖与节流的区别，再组织代码与要点。",
+                isStreaming: false,
+                model: model,
+                promptTokens: 86,
+                completionTokens: 214,
+                rating: 1
+            )
+        ]
+        conversation.refreshTitleFromFirstUserMessage()
+        upsert(conversation)
+        return conversation
+    }
+
     /// 导出全部会话为 Markdown 文本
     func exportMarkdown() -> String {
         var output = "# DSH iOS 会话导出\n\n"

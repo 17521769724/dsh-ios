@@ -37,6 +37,8 @@ struct RootView: View {
 
                 SidebarView(close: { closeSidebar() }, openPlugins: { showPlugins = true; closeSidebar() }, openSettings: { showSettings = true; closeSidebar() })
                     .frame(width: sidebarWidth)
+                    // 背景需延伸进上下安全区，抽屉才是整块面板
+                    .background(DSHTheme.elevatedBackground.ignoresSafeArea())
                     .offset(x: sidebarOffset)
                     .gesture(dragToClose)
             }

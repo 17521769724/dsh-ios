@@ -17,6 +17,10 @@ struct DSHiOSApp: App {
         if ProcessInfo.processInfo.arguments.contains("-uitest-reset") {
             conversations.deleteAll()
         }
+        // UI 测试用：-uitest-seed 注入演示会话，用于验证聊天界面渲染
+        if ProcessInfo.processInfo.arguments.contains("-uitest-seed") {
+            conversations.seedDemoConversation(model: settings.settings.defaultModel)
+        }
 
         _settingsStore = StateObject(wrappedValue: settings)
         _conversationStore = StateObject(wrappedValue: conversations)
