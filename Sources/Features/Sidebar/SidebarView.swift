@@ -4,6 +4,7 @@ import UIKit
 /// 会话抽屉：新对话入口 + 按时间分组的会话列表 + 设置入口。
 struct SidebarView: View {
     @EnvironmentObject private var engine: ChatEngine
+    @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var plugins: PluginManager
 
     var close: () -> Void
@@ -12,7 +13,7 @@ struct SidebarView: View {
 
     @State private var query = ""
 
-    private var features: FeatureFlags { engine.settingsStore.settings.features }
+    private var features: FeatureFlags { settingsStore.settings.features }
 
     private var filtered: [Conversation] {
         let all = engine.conversationStore.sortedConversations

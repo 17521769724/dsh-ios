@@ -4,6 +4,7 @@ import UIKit
 /// 对话主界面：极简主页，高级能力通过设置开关按需出现。
 struct ChatView: View {
     @EnvironmentObject private var engine: ChatEngine
+    @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var plugins: PluginManager
 
     @FocusState private var inputFocused: Bool
@@ -15,7 +16,7 @@ struct ChatView: View {
         var id: String { rawValue }
     }
 
-    private var features: FeatureFlags { engine.settingsStore.settings.features }
+    private var features: FeatureFlags { settingsStore.settings.features }
 
     var body: some View {
         Group {
@@ -145,7 +146,7 @@ struct ChatView: View {
 // MARK: - 空会话
 
 struct EmptyChatView: View {
-    @EnvironmentObject private var engine: ChatEngine
+    @EnvironmentObject private var settingsStore: SettingsStore
 
     var onPick: (String) -> Void
 
@@ -156,7 +157,7 @@ struct EmptyChatView: View {
         ("头脑风暴", "给我 5 个适合移动端 AI 助手的功能点子。")
     ]
 
-    private var features: FeatureFlags { engine.settingsStore.settings.features }
+    private var features: FeatureFlags { settingsStore.settings.features }
 
     var body: some View {
         VStack(spacing: DSHTheme.Spacing.section) {

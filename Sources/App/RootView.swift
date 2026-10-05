@@ -5,6 +5,7 @@ import UIKit
 /// iPhone 为抽屉式会话列表，iPad 为分栏布局。
 struct RootView: View {
     @EnvironmentObject private var engine: ChatEngine
+    @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var plugins: PluginManager
     @Environment(\.horizontalSizeClass) private var sizeClass
 
@@ -14,7 +15,7 @@ struct RootView: View {
     @State private var showPlugins = false
     @State private var showSessionLog = false
 
-    private var settings: AppSettings { engine.settingsStore.settings }
+    private var settings: AppSettings { settingsStore.settings }
     private var features: FeatureFlags { settings.features }
 
     private var isRegular: Bool { sizeClass == .regular }
@@ -22,7 +23,7 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if engine.settingsStore.isConfigured {
+            if settingsStore.isConfigured {
                 mainInterface
             } else {
                 OnboardingView()

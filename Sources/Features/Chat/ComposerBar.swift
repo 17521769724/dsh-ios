@@ -5,11 +5,12 @@ import UIKit
 /// 圆角容器内上方是「深度思考 / 模型」胶囊，下方是输入框与圆形发送键。
 struct ComposerBar: View {
     @EnvironmentObject private var engine: ChatEngine
+    @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var plugins: PluginManager
 
     @FocusState.Binding var focused: Bool
 
-    private var settings: AppSettings { engine.settingsStore.settings }
+    private var settings: AppSettings { settingsStore.settings }
     private var features: FeatureFlags { settings.features }
 
     /// 与输入框联动的插件命令候选

@@ -104,16 +104,47 @@ final class DSHiOSUITests: XCTestCase {
         XCTAssertTrue(toggle.waitForExistence(timeout: 5), "未找到开关 \(identifier)")
         let expected = on ? "1" : "0"
         for _ in 0..<5 {
-            if (toggle.value as? String) == expected { return }
-            // 开关位于行尾：与系统设置一致，点击行标签不会切换，需点右侧开关本体
-            toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+            if (toggle.value as? String) == expected {
+                Thread.sleep(forTimeInterval: 0.4)
+                return
+            }
+            tapToggle(toggle)
             // 等待开关状态刷新，避免重复点击把开关又切回去
             for _ in 0..<15 {
-                if (toggle.value as? String) == expected { return }
+                if (toggle.value as? String) == expected {
+                    Thread.sleep(forTimeInterval: 0.4)
+                    return
+                }
                 Thread.sleep(forTimeInterval: 0.1)
             }
         }
         XCTFail("开关 \(identifier) 未切换到\(on ? "开启" : "关闭")")
+    }
+
+    /// 与系统设置一致，点击开关行标签区不会切换：优先点开关本体，其次点行尾区域
+    private func tapToggle(_ toggle: XCUIElement) {
+        let switchElement = toggle.switches.firstMatch
+        if switchElement.exists {
+            switchElement.tap()
+        } else {
+            toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
+        }
+    }
+
+    /// 轨迹标签是否出现（同时兜底按可见文案判断，避免标识未暴露时误报）
+    private func trajectoryTabExists() -> Bool {
+        element("tab.trajectory").exists
+            || app.buttons["轨迹"].exists
+            || app.staticTexts["轨迹"].exists
+    }
+
+    private func waitForTrajectoryTab(timeout: TimeInterval = 8) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if trajectoryTabExists() { return true }
+            Thread.sleep(forTimeInterval: 0.3)
+        }
+        return false
     }
 
     // MARK: - 引导门禁
@@ -255,9 +286,11 @@ final class DSHiOSUITests: XCTestCase {
         toggleFeature("feature.trajectoryTab", on: true)
         toggleFeature("feature.modelPicker", on: true)
         toggleFeature("feature.usageMetrics", on: true)
+        capture("06-settings-features")
         closeSettings()
+        capture("06-home-after-toggles")
 
-        XCTAssertTrue(element("tab.trajectory").waitForExistence(timeout: 5), "开启后仍未出现轨迹标签")
+        XCTAssertTrue(waitForTrajectoryTab(), "开启后仍未出现轨迹标签")
         XCTAssertTrue(element("composer.model").waitForExistence(timeout: 5), "开启后仍未出现模型选择")
         capture("06-features-on")
 
@@ -271,10 +304,8 @@ final class DSHiOSUITests: XCTestCase {
         toggleFeature("feature.modelPicker", on: false)
         toggleFeature("feature.usageMetrics", on: false)
         closeSettings()
-        XCTAssertTrue(
-            element("tab.trajectory").waitForNonExistence(timeout: 3),
-            "关闭开关后轨迹标签仍然存在"
-        )
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertFalse(trajectoryTabExists(), "关闭开关后轨迹标签仍然存在")
     }
 
     func test07_插件命令开关与抽屉入口() {
