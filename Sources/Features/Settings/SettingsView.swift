@@ -3,6 +3,7 @@ import SwiftUI
 /// 设置页：服务配置、对话偏好、数据管理。
 struct SettingsView: View {
     @EnvironmentObject private var engine: ChatEngine
+    @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var plugins: PluginManager
     @Environment(\.dismiss) private var dismiss
 
@@ -12,8 +13,6 @@ struct SettingsView: View {
     @State private var showClearConfirm = false
     @State private var showResetUsageConfirm = false
     @State private var revealKey = false
-
-    private var settingsStore: SettingsStore { engine.settingsStore }
 
     var body: some View {
         NavigationStack {

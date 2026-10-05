@@ -205,7 +205,7 @@ final class ChatEngine: ObservableObject {
                         case .reasoning(let delta):
                             self.appendReasoning(delta, assistantID: assistantID)
                         case .finished(let tokenUsage):
-                            usage = tokenUsage
+                            if let tokenUsage { usage = tokenUsage }
                         }
                     }
                     self.finish(assistantID: assistantID, conversationID: conversationID, usage: usage)

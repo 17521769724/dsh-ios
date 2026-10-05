@@ -47,6 +47,7 @@ struct RootView: View {
         .sheet(isPresented: $showSettings) {
             SettingsView()
                 .environmentObject(engine)
+                .environmentObject(engine.settingsStore)
                 .environmentObject(plugins)
         }
         .sheet(isPresented: $showPlugins) {
