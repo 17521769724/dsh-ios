@@ -62,12 +62,12 @@ struct DeepSeekClient {
 
     private let session: URLSession
 
-    init(timeout: Double = 120) {
-        let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = timeout
-        configuration.timeoutIntervalForResource = timeout * 3
-        configuration.waitsForConnectivity = false
-        self.session = URLSession(configuration: configuration)
+    init(timeout: Double = 120, configuration: URLSessionConfiguration = .default) {
+        let config = configuration.copy() as? URLSessionConfiguration ?? configuration
+        config.timeoutIntervalForRequest = timeout
+        config.timeoutIntervalForResource = timeout * 3
+        config.waitsForConnectivity = false
+        self.session = URLSession(configuration: config)
     }
 
     // MARK: URL 组装

@@ -375,4 +375,148 @@ final class NetworkingTests: XCTestCase {
         XCTAssertEqual(DSHError.rateLimited.errorDescription, "请求过于频繁或额度不足（429）。")
         XCTAssertTrue(DSHError.http(status: 500, body: "boom").errorDescription?.contains("500") ?? false)
     }
+
+    // MARK: 流式链路
+
+    /// 注入本地 mock 传输层，验证 SSE 解析、推理字段与用量统计
+    func testStreamingChatParsesSSE() async throws {
+        let body = [
+            #"data: {"choices":[{"delta":{"reasoning_content":"先想一想"}}]}"#,
+            "",
+            #"data: {"choices":[{"delta":{"content":"你好"}}]}"#,
+            "",
+            #"data: {"choices":[{"delta":{"content":"，世界"}}]}"#,
+            "",
+            #"data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":11,"completion_tokens":7}}"#,
+            "",
+            "data: [DONE]",
+            ""
+        ].joined(separator: "\n")
+
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertTrue(request.url?.path.hasSuffix("/chat/completions") ?? false)
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer sk-test")
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "text/event-stream"]
+            )!
+            return (response, Data(body.utf8))
+        }
+
+        let client = DeepSeekClient(timeout: 10, configuration: MockURLProtocol.configuration)
+        var content = ""
+        var reasoning = ""
+        var usage: TokenUsage?
+
+        let stream = client.streamChat(
+            messages: [APIMessage(role: "user", content: "在吗")],
+            model: "deepseek-reasoner",
+            settings: .default,
+            apiKey: "sk-test"
+        )
+        for try await event in stream {
+            switch event {
+            case .content(let delta): content += delta
+            case .reasoning(let delta): reasoning += delta
+            case .finished(let value): if let value { usage = value }
+            }
+        }
+
+        XCTAssertEqual(reasoning, "先想一想")
+        XCTAssertEqual(content, "你好，世界")
+        XCTAssertEqual(usage?.promptTokens, 11)
+        XCTAssertEqual(usage?.completionTokens, 7)
+    }
+
+    func testStreamingSurfacesHTTPError() async {
+        MockURLProtocol.handler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!
+            return (response, Data(#"{"error":"unauthorized"}"#.utf8))
+        }
+
+        let client = DeepSeekClient(timeout: 10, configuration: MockURLProtocol.configuration)
+        do {
+            for try await _ in client.streamChat(
+                messages: [APIMessage(role: "user", content: "hi")],
+                model: "deepseek-chat",
+                settings: .default,
+                apiKey: "sk-bad"
+            ) {}
+            XCTFail("应抛出 401 错误")
+        } catch {
+            XCTAssertEqual((error as? DSHError)?.errorDescription, DSHError.unauthorized.errorDescription)
+        }
+    }
+
+    func testNonStreamingCompletionParsesContentAndUsage() async throws {
+        MockURLProtocol.handler = { request in
+            let json = """
+            {"choices":[{"message":{"content":"答案","reasoning_content":"推理"}}],
+             "usage":{"prompt_tokens":3,"completion_tokens":9}}
+            """
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, Data(json.utf8))
+        }
+
+        let client = DeepSeekClient(timeout: 10, configuration: MockURLProtocol.configuration)
+        let result = try await client.complete(
+            messages: [APIMessage(role: "user", content: "问题")],
+            model: "deepseek-reasoner",
+            settings: .default,
+            apiKey: "sk-test"
+        )
+        XCTAssertEqual(result.text, "答案")
+        XCTAssertEqual(result.reasoning, "推理")
+        XCTAssertEqual(result.usage?.completionTokens, 9)
+    }
+
+    func testBaseURLTrailingSlashIsHandled() async throws {
+        MockURLProtocol.handler = { request in
+            XCTAssertEqual(request.url?.absoluteString, "https://example.com/v1/models")
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, Data(#"{"data":[{"id":"deepseek-chat"},{"id":"deepseek-reasoner"}]}"#.utf8))
+        }
+        var settings = AppSettings.default
+        settings.baseURL = "https://example.com/v1/"
+
+        let client = DeepSeekClient(timeout: 10, configuration: MockURLProtocol.configuration)
+        let ids = try await client.fetchModelIDs(settings: settings, apiKey: "sk-test")
+        XCTAssertEqual(ids, ["deepseek-chat", "deepseek-reasoner"])
+    }
+}
+
+/// 用于替换真实网络的测试传输层
+final class MockURLProtocol: URLProtocol {
+
+    static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+
+    static var configuration: URLSessionConfiguration {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [MockURLProtocol.self]
+        return config
+    }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let handler = MockURLProtocol.handler else {
+            client?.urlProtocol(self, didFailWithError: DSHError.emptyResponse)
+            return
+        }
+        do {
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
 }
