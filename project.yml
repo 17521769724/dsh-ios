@@ -14,7 +14,6 @@ settings:
     IPHONEOS_DEPLOYMENT_TARGET: "16.2"
     ENABLE_USER_SCRIPT_SANDBOXING: NO
     SWIFT_STRICT_CONCURRENCY: minimal
-    PRODUCT_MODULE_NAME: DSHiOS
 
 targets:
   DSHiOS:
@@ -29,6 +28,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.dshdesktop.ios
         PRODUCT_NAME: DSH
+        PRODUCT_MODULE_NAME: DSHiOS
         INFOPLIST_FILE: Resources/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         TARGETED_DEVICE_FAMILY: "1,2"
