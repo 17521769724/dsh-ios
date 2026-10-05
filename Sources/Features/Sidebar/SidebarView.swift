@@ -194,7 +194,6 @@ struct SidebarView: View {
                     .font(.system(size: 15, weight: selected ? .semibold : .regular))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
-                    .accessibilityIdentifier("sidebar.title")
 
                 Spacer(minLength: 4)
 
@@ -214,6 +213,7 @@ struct SidebarView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("sidebar.row")
         .animation(DSHAnim.standard, value: selected)
         .contextMenu {
             Button {

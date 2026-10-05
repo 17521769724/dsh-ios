@@ -472,11 +472,13 @@ final class DSHiOSUITests: XCTestCase {
         element("topbar.newchat").tap()
         element("topbar.sidebar").tap()
 
-        let row = app.staticTexts.matching(identifier: "sidebar.title").firstMatch
+        let row = app.buttons.matching(identifier: "sidebar.row").firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 5), "抽屉里未出现会话行")
-        row.press(forDuration: 1.2)
+        row.press(forDuration: 1.4)
 
-        let delete = app.buttons["删除"].firstMatch
+        let delete = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "删除"))
+            .firstMatch
         XCTAssertTrue(delete.waitForExistence(timeout: 5), "长按未出现删除菜单")
         delete.tap()
 
