@@ -1,10 +1,13 @@
 import SwiftUI
 import UIKit
 
-/// 聊天主界面：对话/轨迹切换 + 消息流 + 输入舱。
+/// 对话主界面：极简主页，高级能力通过设置开关按需出现。
 struct ChatView: View {
     @EnvironmentObject private var engine: ChatEngine
     @EnvironmentObject private var plugins: PluginManager
+
+    @FocusState private var inputFocused: Bool
+    @State private var tab: ContentTab = .chat
 
     enum ContentTab: String, CaseIterable, Identifiable {
         case chat = "对话"
@@ -12,25 +15,104 @@ struct ChatView: View {
         var id: String { rawValue }
     }
 
-    @State private var tab: ContentTab = .chat
+    private var features: FeatureFlags { engine.settingsStore.settings.features }
 
     var body: some View {
-        VStack(spacing: 0) {
-            tabBar
-            Divider().opacity(0.4)
-
-            switch tab {
-            case .chat:
-                messageList
-                InputBar()
-            case .trajectory:
-                TrajectoryView()
+        Group {
+            if features.trajectoryTab {
+                VStack(spacing: 0) {
+                    tabBar
+                    Divider().opacity(0.5)
+                    if tab == .chat {
+                        conversation
+                    } else {
+                        TrajectoryView()
+                    }
+                }
+            } else {
+                conversation
             }
         }
-        .background(DSHTheme.pageBackground)
+        .background(DSHTheme.page)
     }
 
-    // MARK: - 标签栏（下划线指示器，对齐桌面端）
+    // MARK: - 对话区
+
+    private var conversation: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: DSHTheme.Spacing.large) {
+                    ForEach(engine.currentConversation?.messages ?? []) { message in
+                        MessageBubble(
+                            message: message,
+                            isLastAssistant: isLastAssistant(message),
+                            onCopy: {
+                                UIPasteboard.general.string = message.content
+                                engine.showToast("已复制")
+                            },
+                            onDelete: {
+                                withAnimation(DSHAnim.list) { engine.deleteMessage(message) }
+                            },
+                            onEdit: { engine.editAndResend(message) },
+                            onRegenerate: { engine.regenerateLast() },
+                            onRate: { engine.rate(message, value: $0) }
+                        )
+                        .id(message.id)
+                    }
+
+                    if isConversationEmpty {
+                        EmptyChatView(onPick: { prompt in
+                            inputFocused = false
+                            engine.send(prompt)
+                        })
+                    }
+
+                    Color.clear
+                        .frame(height: 1)
+                        .id(Self.bottomAnchor)
+                }
+                .padding(.top, DSHTheme.Spacing.medium)
+                .padding(.bottom, DSHTheme.Spacing.small)
+            }
+            .scrollDismissesKeyboard(.immediately)
+            .background(DSHTheme.page)
+            .contentShape(Rectangle())
+            .onTapGesture { inputFocused = false }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                ComposerBar(focused: $inputFocused)
+            }
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("完成") { inputFocused = false }
+                        .accessibilityIdentifier("keyboard.done")
+                }
+            }
+            .onChange(of: engine.streamingTick) { _ in
+                guard engine.isStreaming, isConversationEmpty == false else { return }
+                proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+            }
+            .onChange(of: engine.currentConversation?.messages.count ?? 0) { _ in
+                withAnimation(DSHAnim.list) {
+                    proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                }
+            }
+        }
+    }
+
+    private static let bottomAnchor = "chat.bottom"
+
+    private var isConversationEmpty: Bool {
+        (engine.currentConversation?.messages.isEmpty ?? true)
+    }
+
+    private func isLastAssistant(_ message: ChatMessage) -> Bool {
+        guard message.role == .assistant else { return false }
+        let messages = engine.currentConversation?.messages ?? []
+        return messages.last(where: { $0.role == .assistant })?.id == message.id
+    }
+
+    // MARK: - 对话 / 轨迹 切换（可选）
 
     private var tabBar: some View {
         HStack(spacing: DSHTheme.Spacing.section) {
@@ -40,8 +122,8 @@ struct ChatView: View {
                 } label: {
                     VStack(spacing: 6) {
                         Text(item.rawValue)
-                            .font(.system(size: 14, weight: tab == item ? .semibold : .regular))
-                            .foregroundStyle(tab == item ? .primary : .secondary)
+                            .font(.system(size: 15, weight: tab == item ? .semibold : .regular))
+                            .foregroundStyle(tab == item ? Color.primary : Color.secondary)
                         Rectangle()
                             .fill(tab == item ? DSHTheme.brand : Color.clear)
                             .frame(height: 2)
@@ -53,153 +135,88 @@ struct ChatView: View {
                 .accessibilityIdentifier(item == .chat ? "tab.chat" : "tab.trajectory")
             }
             Spacer()
-            if tab == .chat, let count = engine.currentConversation?.messages.count, count > 0 {
-                Text("\(count) 条消息")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
-            }
         }
         .padding(.horizontal, DSHTheme.Spacing.large)
-        .padding(.top, 10)
+        .padding(.top, 8)
         .animation(DSHAnim.standard, value: tab)
-    }
-
-    // MARK: - 消息流
-
-    private var messageList: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 2) {
-                    ForEach(engine.currentConversation?.messages ?? []) { message in
-                        MessageBubble(
-                            message: message,
-                            isLastAssistant: isLastAssistant(message),
-                            isStreaming: engine.isStreaming,
-                            onCopy: {
-                                UIPasteboard.general.string = message.content
-                                engine.showToast("已复制到剪贴板")
-                            },
-                            onDelete: {
-                                withAnimation(DSHAnim.list) {
-                                    engine.deleteMessage(message)
-                                }
-                            },
-                            onEdit: {
-                                engine.editAndResend(message)
-                            },
-                            onRegenerate: {
-                                engine.regenerateLast()
-                            },
-                            onRate: { value in
-                                engine.rate(message, value: value)
-                            }
-                        )
-                        .id(message.id)
-                    }
-
-                    if isConversationEmpty {
-                        WelcomeView()
-                            .padding(.top, DSHTheme.Spacing.section)
-                    }
-
-                    Color.clear
-                        .frame(height: 1)
-                        .id("bottom-anchor")
-                }
-                .padding(.vertical, DSHTheme.Spacing.medium)
-            }
-            .scrollDismissesKeyboard(.interactively)
-            .onChange(of: engine.currentConversation?.messages.count ?? 0) { _ in
-                withAnimation(DSHAnim.list) {
-                    proxy.scrollTo("bottom-anchor", anchor: .bottom)
-                }
-            }
-            .onChange(of: engine.streamingTick) { _ in
-                guard engine.isStreaming else { return }
-                proxy.scrollTo("bottom-anchor", anchor: .bottom)
-            }
-        }
-    }
-
-    private var isConversationEmpty: Bool {
-        (engine.currentConversation?.messages.isEmpty ?? true)
-    }
-
-    private func isLastAssistant(_ message: ChatMessage) -> Bool {
-        guard message.role == .assistant else { return false }
-        let messages = engine.currentConversation?.messages ?? []
-        return messages.last(where: { $0.role == .assistant })?.id == message.id
     }
 }
 
-// MARK: - 空态欢迎页
+// MARK: - 空会话
 
-struct WelcomeView: View {
+struct EmptyChatView: View {
     @EnvironmentObject private var engine: ChatEngine
 
-    private let suggestions: [(icon: String, title: String, prompt: String)] = [
-        ("chevron.left.forwardslash.chevron.right", "写代码", "用 Swift 写一个防抖函数，并解释它的用途。"),
-        ("text.alignleft", "润色文案", "把下面这段话润色得更专业：\n"),
-        ("lightbulb", "头脑风暴", "给我 5 个适合移动端 AI 助手的功能点子。"),
-        ("doc.text.magnifyingglass", "总结长文", "帮我总结下面这段内容的要点：\n")
+    var onPick: (String) -> Void
+
+    private let suggestions: [(String, String)] = [
+        ("写一段代码", "用 Swift 写一个防抖函数，并说明使用场景。"),
+        ("润色文案", "把下面这段话润色得更专业："),
+        ("总结要点", "帮我总结下面这段内容的要点："),
+        ("头脑风暴", "给我 5 个适合移动端 AI 助手的功能点子。")
     ]
+
+    private var features: FeatureFlags { engine.settingsStore.settings.features }
 
     var body: some View {
         VStack(spacing: DSHTheme.Spacing.section) {
-            VStack(spacing: DSHTheme.Spacing.medium) {
-                ZStack {
-                    Circle()
-                        .fill(LinearGradient(
+            VStack(spacing: DSHTheme.Spacing.small) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(.white)
+                    .frame(width: 54, height: 54)
+                    .background(
+                        LinearGradient(
                             colors: [DSHTheme.brand, DSHTheme.brandDeep],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
-                        ))
-                        .frame(width: 60, height: 60)
-                        .shadow(color: DSHTheme.brand.opacity(0.35), radius: 14, y: 6)
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 26, weight: .semibold))
-                        .foregroundStyle(.white)
-                }
-                VStack(spacing: 4) {
-                    Text("有什么可以帮你？")
-                        .font(.system(size: 20, weight: .bold))
-                    Text("基于 DeepSeek Harness 的原生移动客户端")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                }
+                        )
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+                Text("有什么可以帮你的吗？")
+                    .font(.system(size: 20, weight: .semibold))
+                    .padding(.top, 6)
             }
 
-            LazyVGrid(
-                columns: [GridItem(.flexible(), spacing: DSHTheme.Spacing.medium),
-                          GridItem(.flexible(), spacing: DSHTheme.Spacing.medium)],
-                spacing: DSHTheme.Spacing.medium
-            ) {
-                ForEach(suggestions, id: \.title) { item in
-                    Button {
-                        engine.send(item.prompt)
-                    } label: {
-                        VStack(alignment: .leading, spacing: DSHTheme.Spacing.small) {
-                            Image(systemName: item.icon)
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(DSHTheme.brand)
-                            Text(item.title)
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(.primary)
-                            Text(item.prompt.replacingOccurrences(of: "\n", with: " "))
-                                .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(2)
-                                .multilineTextAlignment(.leading)
+            if features.examplePrompts {
+                VStack(spacing: 0) {
+                    ForEach(Array(suggestions.enumerated()), id: \.offset) { index, item in
+                        Button {
+                            onPick(item.1)
+                        } label: {
+                            HStack(spacing: DSHTheme.Spacing.medium) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.0)
+                                        .font(.system(size: 15, weight: .medium))
+                                        .foregroundStyle(.primary)
+                                    Text(item.1)
+                                        .font(.system(size: 13))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                Spacer(minLength: 0)
+                                Image(systemName: "arrow.up.right")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .padding(.horizontal, DSHTheme.Spacing.large)
+                            .padding(.vertical, 13)
+                            .contentShape(Rectangle())
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(DSHTheme.Spacing.medium)
-                        .dshCard(background: DSHTheme.inputBackground)
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("empty.suggestion.\(index)")
+
+                        if index < suggestions.count - 1 {
+                            Divider().padding(.leading, DSHTheme.Spacing.large)
+                        }
                     }
-                    .buttonStyle(PressableCardStyle())
                 }
+                .background(DSHTheme.grouped)
+                .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.card, style: .continuous))
             }
-            .padding(.horizontal, DSHTheme.Spacing.large)
         }
-        .padding(.horizontal, DSHTheme.Spacing.small)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, DSHTheme.Spacing.large)
+        .padding(.top, 40)
     }
 }

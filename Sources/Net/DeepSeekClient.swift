@@ -104,6 +104,12 @@ struct DeepSeekClient {
         if stream {
             body["stream_options"] = ["include_usage": true]
         }
+        // 思考模式为 DeepSeek 专有参数，仅在 DeepSeek 系模型上发送，
+        // 避免自定义 OpenAI 兼容中转服务因未知字段报错。
+        if settings.thinkingEnabled, model.lowercased().contains("deepseek") {
+            body["thinking"] = ["type": "enabled"]
+            body["reasoning_effort"] = settings.reasoningEffort.rawValue
+        }
         return body
     }
 

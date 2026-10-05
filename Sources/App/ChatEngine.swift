@@ -22,6 +22,10 @@ final class ChatEngine: ObservableObject {
     @Published var commandPaletteVisible: Bool = false
     /// 流式内容每次变化自增，用于驱动视图滚动
     @Published var streamingTick: Int = 0
+    /// 可用模型列表（可来自服务端 /models，失败时回退内置列表）
+    @Published var availableModels: [DSHModel] = DSHModel.catalog
+    @Published var isRefreshingModels: Bool = false
+    @Published var modelsError: String?
 
     private var streamTask: Task<Void, Never>?
     private var client: DeepSeekClient
@@ -39,6 +43,63 @@ final class ChatEngine: ObservableObject {
         if let latest = conversationStore.sortedConversations.first {
             self.currentConversation = latest
         }
+    }
+
+    // MARK: - 模型
+
+    /// 当前会话使用的模型 ID
+    var activeModelID: String {
+        currentConversation?.model ?? settingsStore.settings.defaultModel
+    }
+
+    var activeModelName: String {
+        DSHModel.describe(id: activeModelID).name
+    }
+
+    /// 从服务端拉取真实模型列表，避免内置名称与实际不符
+    func refreshModels() {
+        guard !isRefreshingModels else { return }
+        guard settingsStore.isConfigured else {
+            modelsError = DSHError.missingAPIKey.localizedDescription
+            return
+        }
+        isRefreshingModels = true
+        modelsError = nil
+        let settings = settingsStore.settings
+        let key = settingsStore.apiKey
+
+        Task { @MainActor in
+            defer { isRefreshingModels = false }
+            do {
+                let ids = try await client.fetchModelIDs(settings: settings, apiKey: key)
+                guard !ids.isEmpty else {
+                    modelsError = "服务端未返回任何模型"
+                    return
+                }
+                availableModels = ids.sorted().map { DSHModel.describe(id: $0) }
+                if !ids.contains(settingsStore.settings.defaultModel) {
+                    settingsStore.settings.defaultModel = ids[0]
+                }
+                showToast("已获取 \(ids.count) 个模型")
+            } catch {
+                modelsError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+        }
+    }
+
+    func selectModel(_ id: String) {
+        settingsStore.settings.defaultModel = id
+        if var conversation = currentConversation {
+            conversation.model = id
+            currentConversation = conversation
+            conversationStore.upsert(conversation)
+        }
+    }
+
+    /// 主页「深度思考」开关
+    func toggleDeepThinking() {
+        settingsStore.settings.thinkingEnabled.toggle()
+        haptic(.light)
     }
 
     // MARK: - 会话操作
@@ -179,7 +240,7 @@ final class ChatEngine: ObservableObject {
 
     private func startStreaming(conversationID: UUID, assistantID: UUID, outgoing: String) {
         let apiMessages = buildAPIMessages(conversationID: conversationID, latestUserText: outgoing)
-        let model = settingsStore.settings.defaultModel
+        let model = activeModelID
         let settings = settingsStore.settings
         let apiKey = settingsStore.apiKey
 

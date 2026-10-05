@@ -12,7 +12,7 @@ enum MessageRole: String, Codable, Hashable {
         switch self {
         case .system: return "系统"
         case .user: return "我"
-        case .assistant: return "DSH"
+        case .assistant: return "DeepSeek"
         case .tool: return "工具"
         }
     }
@@ -74,7 +74,7 @@ struct Conversation: Identifiable, Codable, Hashable {
 
     init(
         id: UUID = UUID(),
-        title: String = "新会话",
+        title: String = "新对话",
         messages: [ChatMessage] = [],
         model: String,
         createdAt: Date = Date(),
@@ -96,26 +96,132 @@ struct Conversation: Identifiable, Codable, Hashable {
         let trimmed = first.content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         let line = trimmed.split(separator: "\n").first.map(String.init) ?? trimmed
-        title = line.count > 24 ? String(line.prefix(24)) + "…" : line
+        title = line.count > 20 ? String(line.prefix(20)) + "…" : line
     }
 }
 
-// MARK: - 模型能力
+// MARK: - 模型
 
+/// 模型描述。名称与 ID 均以官方 API 文档为准（2026-09 更新）：
+/// `deepseek-flash` = DeepSeek-V4.1-Flash，`deepseek-v4-pro` = DeepSeek-V4-Pro。
+/// `deepseek-chat` / `deepseek-reasoner` 已于 2026/07/24 弃用，仅作兼容保留。
 struct DSHModel: Identifiable, Codable, Hashable {
     var id: String
     var name: String
-    var supportsReasoning: Bool
-    var contextWindow: Int
+    var supportsThinking: Bool
+    var isDeprecated: Bool
 
+    init(id: String, name: String, supportsThinking: Bool = true, isDeprecated: Bool = false) {
+        self.id = id
+        self.name = name
+        self.supportsThinking = supportsThinking
+        self.isDeprecated = isDeprecated
+    }
+
+    /// 内置兜底列表；实际使用时可用「获取模型列表」从服务端拉取真实 ID
     static let catalog: [DSHModel] = [
-        DSHModel(id: "deepseek-chat", name: "DeepSeek Chat", supportsReasoning: false, contextWindow: 64_000),
-        DSHModel(id: "deepseek-reasoner", name: "DeepSeek Reasoner", supportsReasoning: true, contextWindow: 64_000)
+        DSHModel(id: "deepseek-flash", name: "DeepSeek-V4.1-Flash"),
+        DSHModel(id: "deepseek-v4-pro", name: "DeepSeek-V4-Pro"),
+        DSHModel(id: "deepseek-chat", name: "deepseek-chat（已弃用）", supportsThinking: false, isDeprecated: true),
+        DSHModel(id: "deepseek-reasoner", name: "deepseek-reasoner（已弃用）", isDeprecated: true)
     ]
 
-    static func model(for id: String) -> DSHModel {
-        catalog.first(where: { $0.id == id }) ?? catalog[0]
+    static let defaultModelID = "deepseek-flash"
+
+    /// 未知 ID 时保持原样展示，避免再次出现「名字对不上」的问题
+    static func describe(id: String) -> DSHModel {
+        catalog.first(where: { $0.id == id }) ?? DSHModel(id: id, name: id, supportsThinking: true)
     }
+
+    static var current: [DSHModel] { catalog.filter { !$0.isDeprecated } }
+}
+
+// MARK: - 思考强度
+
+enum ReasoningEffort: String, Codable, CaseIterable, Identifiable {
+    case low
+    case high
+    case max
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .low: return "快速"
+        case .high: return "标准"
+        case .max: return "深入"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .low: return "简单任务，响应更快"
+        case .high: return "日常使用，平衡速度与质量"
+        case .max: return "复杂问题，思考更充分"
+        }
+    }
+}
+
+// MARK: - 功能开关（主页保持简洁，高级能力按需开启）
+
+struct FeatureFlags: Codable, Equatable {
+    /// 对话页顶部的「轨迹」标签
+    var trajectoryTab: Bool = false
+    /// 顶栏的「会话日志」入口
+    var sessionLog: Bool = false
+    /// 输入框的插件命令面板（输入 / 呼出）
+    var pluginCommands: Bool = false
+    /// 输入框右侧的模型选择器
+    var modelPicker: Bool = false
+    /// 底部运行指标行（轮次 / tokens）
+    var usageMetrics: Bool = false
+    /// 主页「深度思考」开关
+    var deepThinkingToggle: Bool = true
+    /// 空会话示例提示
+    var examplePrompts: Bool = true
+
+    init() {}
+
+    /// 宽容解码：新增开关在旧数据中缺失时取默认值
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = FeatureFlags()
+        self.trajectoryTab = try container.decodeIfPresent(Bool.self, forKey: .trajectoryTab) ?? fallback.trajectoryTab
+        self.sessionLog = try container.decodeIfPresent(Bool.self, forKey: .sessionLog) ?? fallback.sessionLog
+        self.pluginCommands = try container.decodeIfPresent(Bool.self, forKey: .pluginCommands) ?? fallback.pluginCommands
+        self.modelPicker = try container.decodeIfPresent(Bool.self, forKey: .modelPicker) ?? fallback.modelPicker
+        self.usageMetrics = try container.decodeIfPresent(Bool.self, forKey: .usageMetrics) ?? fallback.usageMetrics
+        self.deepThinkingToggle = try container.decodeIfPresent(Bool.self, forKey: .deepThinkingToggle) ?? fallback.deepThinkingToggle
+        self.examplePrompts = try container.decodeIfPresent(Bool.self, forKey: .examplePrompts) ?? fallback.examplePrompts
+    }
+
+    init(
+        trajectoryTab: Bool,
+        sessionLog: Bool,
+        pluginCommands: Bool,
+        modelPicker: Bool,
+        usageMetrics: Bool,
+        deepThinkingToggle: Bool,
+        examplePrompts: Bool
+    ) {
+        self.trajectoryTab = trajectoryTab
+        self.sessionLog = sessionLog
+        self.pluginCommands = pluginCommands
+        self.modelPicker = modelPicker
+        self.usageMetrics = usageMetrics
+        self.deepThinkingToggle = deepThinkingToggle
+        self.examplePrompts = examplePrompts
+    }
+
+    static let allOn = FeatureFlags(
+        trajectoryTab: true,
+        sessionLog: true,
+        pluginCommands: true,
+        modelPicker: true,
+        usageMetrics: true,
+        deepThinkingToggle: true,
+        examplePrompts: true
+    )
 }
 
 // MARK: - 应用设置
@@ -129,17 +235,67 @@ struct AppSettings: Codable, Equatable {
     var requestTimeout: Double
     var hapticsEnabled: Bool
     var appTheme: AppThemePreference
+    /// 深度思考（发送 thinking 参数）
+    var thinkingEnabled: Bool
+    var reasoningEffort: ReasoningEffort
+    var features: FeatureFlags
 
     static let `default` = AppSettings(
         baseURL: "https://api.deepseek.com",
-        defaultModel: "deepseek-chat",
+        defaultModel: DSHModel.defaultModelID,
         temperature: 0.7,
         systemPrompt: "",
         streamEnabled: true,
         requestTimeout: 120,
         hapticsEnabled: true,
-        appTheme: .system
+        appTheme: .system,
+        thinkingEnabled: true,
+        reasoningEffort: .high,
+        features: FeatureFlags()
     )
+
+    init(
+        baseURL: String,
+        defaultModel: String,
+        temperature: Double,
+        systemPrompt: String,
+        streamEnabled: Bool,
+        requestTimeout: Double,
+        hapticsEnabled: Bool,
+        appTheme: AppThemePreference,
+        thinkingEnabled: Bool,
+        reasoningEffort: ReasoningEffort,
+        features: FeatureFlags
+    ) {
+        self.baseURL = baseURL
+        self.defaultModel = defaultModel
+        self.temperature = temperature
+        self.systemPrompt = systemPrompt
+        self.streamEnabled = streamEnabled
+        self.requestTimeout = requestTimeout
+        self.hapticsEnabled = hapticsEnabled
+        self.appTheme = appTheme
+        self.thinkingEnabled = thinkingEnabled
+        self.reasoningEffort = reasoningEffort
+        self.features = features
+    }
+
+    /// 宽容解码：旧版本写入的设置缺少新增字段时按默认值补齐，避免升级后偏好被整体重置
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = AppSettings.default
+        self.baseURL = try container.decodeIfPresent(String.self, forKey: .baseURL) ?? fallback.baseURL
+        self.defaultModel = try container.decodeIfPresent(String.self, forKey: .defaultModel) ?? fallback.defaultModel
+        self.temperature = try container.decodeIfPresent(Double.self, forKey: .temperature) ?? fallback.temperature
+        self.systemPrompt = try container.decodeIfPresent(String.self, forKey: .systemPrompt) ?? fallback.systemPrompt
+        self.streamEnabled = try container.decodeIfPresent(Bool.self, forKey: .streamEnabled) ?? fallback.streamEnabled
+        self.requestTimeout = try container.decodeIfPresent(Double.self, forKey: .requestTimeout) ?? fallback.requestTimeout
+        self.hapticsEnabled = try container.decodeIfPresent(Bool.self, forKey: .hapticsEnabled) ?? fallback.hapticsEnabled
+        self.appTheme = try container.decodeIfPresent(AppThemePreference.self, forKey: .appTheme) ?? fallback.appTheme
+        self.thinkingEnabled = try container.decodeIfPresent(Bool.self, forKey: .thinkingEnabled) ?? fallback.thinkingEnabled
+        self.reasoningEffort = try container.decodeIfPresent(ReasoningEffort.self, forKey: .reasoningEffort) ?? fallback.reasoningEffort
+        self.features = try container.decodeIfPresent(FeatureFlags.self, forKey: .features) ?? fallback.features
+    }
 }
 
 enum AppThemePreference: String, Codable, CaseIterable, Identifiable {

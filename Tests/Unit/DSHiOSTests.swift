@@ -69,7 +69,7 @@ final class MarkdownParserTests: XCTestCase {
 final class ConversationModelTests: XCTestCase {
 
     func testTitleDerivesFromFirstUserMessage() {
-        var conversation = Conversation(model: "deepseek-chat")
+        var conversation = Conversation(model: "deepseek-flash")
         conversation.messages = [
             ChatMessage(role: .user, content: "帮我写一个 Swift 单元测试\n第二行"),
             ChatMessage(role: .assistant, content: "好的")
@@ -79,11 +79,11 @@ final class ConversationModelTests: XCTestCase {
     }
 
     func testLongTitleIsTruncated() {
-        var conversation = Conversation(model: "deepseek-chat")
+        var conversation = Conversation(model: "deepseek-flash")
         let long = String(repeating: "长", count: 60)
         conversation.messages = [ChatMessage(role: .user, content: long)]
         conversation.refreshTitleFromFirstUserMessage()
-        XCTAssertEqual(conversation.title.count, 25) // 24 字 + 省略号
+        XCTAssertEqual(conversation.title.count, 21) // 20 字 + 省略号
         XCTAssertTrue(conversation.title.hasSuffix("…"))
     }
 
@@ -107,11 +107,24 @@ final class ConversationModelTests: XCTestCase {
         XCTAssertEqual(decoded.completionTokens, 20)
     }
 
-    func testModelCatalogLookup() {
-        XCTAssertEqual(DSHModel.model(for: "deepseek-reasoner").supportsReasoning, true)
-        XCTAssertEqual(DSHModel.model(for: "deepseek-chat").supportsReasoning, false)
-        // 未知模型回退到第一个
-        XCTAssertEqual(DSHModel.model(for: "不存在").id, DSHModel.catalog[0].id)
+    func testModelNamingMatchesOfficialDocs() {
+        // 官方 API 文档（2026-09）：deepseek-flash = V4.1-Flash，deepseek-v4-pro = V4-Pro
+        XCTAssertEqual(DSHModel.defaultModelID, "deepseek-flash")
+        XCTAssertEqual(DSHModel.describe(id: "deepseek-flash").name, "DeepSeek-V4.1-Flash")
+        XCTAssertEqual(DSHModel.describe(id: "deepseek-v4-pro").name, "DeepSeek-V4-Pro")
+
+        // 已弃用的旧模型名不应出现在当前可选列表中
+        let currentIDs = DSHModel.current.map(\.id)
+        XCTAssertTrue(currentIDs.contains("deepseek-flash"))
+        XCTAssertTrue(currentIDs.contains("deepseek-v4-pro"))
+        XCTAssertFalse(currentIDs.contains("deepseek-chat"))
+        XCTAssertFalse(currentIDs.contains("deepseek-reasoner"))
+
+        // 未知模型按原 ID 展示，不臆造名称
+        XCTAssertEqual(DSHModel.describe(id: "my-custom-model").name, "my-custom-model")
+
+        // 支持思考模式的模型
+        XCTAssertTrue(DSHModel.describe(id: "deepseek-flash").supportsThinking)
     }
 
     func testThemeDisplayNames() {
@@ -128,9 +141,49 @@ final class SettingsStoreTests: XCTestCase {
     func testDefaults() {
         let settings = AppSettings.default
         XCTAssertEqual(settings.baseURL, "https://api.deepseek.com")
-        XCTAssertEqual(settings.defaultModel, "deepseek-chat")
+        XCTAssertEqual(settings.defaultModel, "deepseek-flash")
         XCTAssertTrue(settings.streamEnabled)
         XCTAssertEqual(settings.requestTimeout, 120)
+        XCTAssertTrue(settings.thinkingEnabled)
+        XCTAssertEqual(settings.reasoningEffort, .high)
+        // 主页默认保持简洁：高级入口默认关闭
+        XCTAssertFalse(settings.features.trajectoryTab)
+        XCTAssertFalse(settings.features.sessionLog)
+        XCTAssertFalse(settings.features.pluginCommands)
+        XCTAssertFalse(settings.features.modelPicker)
+        XCTAssertFalse(settings.features.usageMetrics)
+        // 核心体验默认开启
+        XCTAssertTrue(settings.features.deepThinkingToggle)
+        XCTAssertTrue(settings.features.examplePrompts)
+    }
+
+    /// 升级场景：旧版本写入的设置缺少新字段时，旧值应保留、新字段取默认值
+    func testLenientDecodingKeepsOldValues() {
+        let legacy = """
+        {
+          "baseURL": "https://my-relay.example.com/v1",
+          "defaultModel": "deepseek-v4-pro",
+          "temperature": 1.35,
+          "systemPrompt": "你是助手",
+          "streamEnabled": false,
+          "requestTimeout": 60,
+          "hapticsEnabled": false,
+          "appTheme": "dark"
+        }
+        """
+        guard let decoded = try? JSONDecoder().decode(AppSettings.self, from: Data(legacy.utf8)) else {
+            return XCTFail("旧版设置应能解码")
+        }
+        XCTAssertEqual(decoded.baseURL, "https://my-relay.example.com/v1")
+        XCTAssertEqual(decoded.defaultModel, "deepseek-v4-pro")
+        XCTAssertEqual(decoded.temperature, 1.35)
+        XCTAssertEqual(decoded.systemPrompt, "你是助手")
+        XCTAssertFalse(decoded.streamEnabled)
+        XCTAssertEqual(decoded.appTheme, .dark)
+        // 新增字段回落到默认值
+        XCTAssertTrue(decoded.thinkingEnabled)
+        XCTAssertEqual(decoded.reasoningEffort, .high)
+        XCTAssertFalse(decoded.features.trajectoryTab)
     }
 
     func testIsConfiguredReflectsAPIKey() {
@@ -486,17 +539,103 @@ final class NetworkingTests: XCTestCase {
         let ids = try await client.fetchModelIDs(settings: settings, apiKey: "sk-test")
         XCTAssertEqual(ids, ["deepseek-chat", "deepseek-reasoner"])
     }
+
+    // MARK: 思考模式参数
+
+    /// 只关心发出去的请求体，因此用最小 SSE 响应收尾
+    private func runStream(model: String, settings: AppSettings) async {
+        MockURLProtocol.handler = { request in
+            MockURLProtocol.lastRequestBody = MockURLProtocol.body(of: request)
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": "text/event-stream"]
+            )!
+            return (response, Data("data: [DONE]\n".utf8))
+        }
+        let client = DeepSeekClient(timeout: 10, configuration: MockURLProtocol.configuration)
+        let stream = client.streamChat(
+            messages: [APIMessage(role: "user", content: "hi")],
+            model: model,
+            settings: settings,
+            apiKey: "sk-test"
+        )
+        do {
+            for try await _ in stream {}
+        } catch {
+            // 请求体已捕获，这里忽略流本身的结束方式
+        }
+    }
+
+    func testThinkingParamsAreSentForDeepSeekModels() async throws {
+        var settings = AppSettings.default
+        settings.thinkingEnabled = true
+        settings.reasoningEffort = .max
+
+        await runStream(model: "deepseek-flash", settings: settings)
+
+        let body = try XCTUnwrap(MockURLProtocol.decodedLastRequestBody())
+        XCTAssertEqual(body["model"] as? String, "deepseek-flash")
+        XCTAssertEqual((body["thinking"] as? [String: Any])?["type"] as? String, "enabled")
+        XCTAssertEqual(body["reasoning_effort"] as? String, "max")
+        XCTAssertEqual(body["stream"] as? Bool, true)
+    }
+
+    func testThinkingParamsAreOmittedForCustomModels() async throws {
+        var settings = AppSettings.default
+        settings.thinkingEnabled = true
+
+        await runStream(model: "my-relay-model", settings: settings)
+
+        let body = try XCTUnwrap(MockURLProtocol.decodedLastRequestBody())
+        XCTAssertNil(body["thinking"], "自定义模型不应携带 DeepSeek 专有参数，避免中转服务报错")
+        XCTAssertNil(body["reasoning_effort"])
+    }
+
+    func testThinkingParamsAreOmittedWhenDisabled() async throws {
+        var settings = AppSettings.default
+        settings.thinkingEnabled = false
+
+        await runStream(model: "deepseek-flash", settings: settings)
+
+        let body = try XCTUnwrap(MockURLProtocol.decodedLastRequestBody())
+        XCTAssertNil(body["thinking"])
+    }
 }
 
 /// 用于替换真实网络的测试传输层
 final class MockURLProtocol: URLProtocol {
 
     static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+    static var lastRequestBody: Data?
 
     static var configuration: URLSessionConfiguration {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
         return config
+    }
+
+    /// URLProtocol 中请求体以流的形式提供，这里统一读成 Data
+    static func body(of request: URLRequest) -> Data? {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { return nil }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        let bufferSize = 4096
+        var buffer = [UInt8](repeating: 0, count: bufferSize)
+        while stream.hasBytesAvailable {
+            let read = stream.read(&buffer, maxLength: bufferSize)
+            if read <= 0 { break }
+            data.append(buffer, count: read)
+        }
+        return data.isEmpty ? nil : data
+    }
+
+    static func decodedLastRequestBody() -> [String: Any]? {
+        guard let data = lastRequestBody else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }

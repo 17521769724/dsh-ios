@@ -1,70 +1,41 @@
 import SwiftUI
 import UIKit
 
-/// DSH 视觉规范：颜色、圆角、间距、动效曲线。
-/// 参考 DSH Desktop 的品牌色 #4D6BFE 与深色聊天界面。
+/// 视觉规范：以 iOS 系统语义色为主，DeepSeek 品牌蓝作为唯一强调色，
+/// 避免多种色相互相干扰，整体接近系统「设置」与原生 App 的观感。
 enum DSHTheme {
 
-    // MARK: - 品牌色
+    // MARK: - 品牌色（DeepSeek #4D6BFE）
 
-    static let brand = Color(red: 0.302, green: 0.420, blue: 0.996)          // #4D6BFE
-    static let brandSoft = Color(red: 0.302, green: 0.420, blue: 0.996).opacity(0.14)
-    static let brandDeep = Color(red: 0.212, green: 0.310, blue: 0.847)      // #364FD8
+    static let brand = Color(red: 0.302, green: 0.420, blue: 0.996)
+    static let brandDeep = Color(red: 0.212, green: 0.310, blue: 0.847)
+    static let brandSoft = Color(red: 0.302, green: 0.420, blue: 0.996).opacity(0.12)
 
-    // MARK: - 语义色（对齐 DSH Desktop 深色界面）
+    // MARK: - 语义色（全部走系统语义色，自动适配深浅色）
 
-    /// 用户气泡：深色模式下为深灰 #2E2E2E，浅色模式下为浅灰
-    static let userBubble = Color(UIColor { traits in
-        traits.userInterfaceStyle == .dark
-            ? UIColor(white: 0.18, alpha: 1)
-            : UIColor(white: 0.92, alpha: 1)
-    })
+    static let page = Color(uiColor: .systemBackground)
+    static let grouped = Color(uiColor: .secondarySystemBackground)
+    /// 用户气泡：系统灰，右侧对齐
+    static let userBubble = Color(uiColor: .tertiarySystemFill)
+    static let userText = Color(uiColor: .label)
+    /// 助手消息不使用气泡，直接铺在页面背景上
+    static let assistantText = Color(uiColor: .label)
+    static let inputBackground = Color(uiColor: .secondarySystemBackground)
+    static let reasoningBackground = Color(uiColor: .secondarySystemBackground)
+    static let separator = Color(uiColor: .separator)
 
-    static let userText = Color(UIColor { traits in
-        traits.userInterfaceStyle == .dark ? .white : .black
-    })
-
-    /// 页面背景：深色 #1B1B1B
-    static let pageBackground = Color(UIColor { traits in
-        traits.userInterfaceStyle == .dark
-            ? UIColor(white: 0.106, alpha: 1)
-            : .systemBackground
-    })
-
-    /// 侧边栏/卡片背景：深色 #151515
-    static let elevatedBackground = Color(UIColor { traits in
-        traits.userInterfaceStyle == .dark
-            ? UIColor(white: 0.082, alpha: 1)
-            : .secondarySystemBackground
-    })
-
-    /// 思考内容底色
-    static let reasoningBackground = Color(UIColor { traits in
-        traits.userInterfaceStyle == .dark
-            ? UIColor(white: 0.145, alpha: 1)
-            : UIColor(white: 0.96, alpha: 1)
-    })
-
-    /// 输入舱底色
-    static let inputBackground = Color(UIColor { traits in
-        traits.userInterfaceStyle == .dark
-            ? UIColor(white: 0.135, alpha: 1)
-            : .secondarySystemBackground
-    })
-
-    static let separator = Color(uiColor: .separator).opacity(0.5)
-
-    static let success = Color(red: 0.204, green: 0.780, blue: 0.349)
-    static let warning = Color(red: 1.000, green: 0.624, blue: 0.039)
-    static let danger = Color(red: 0.937, green: 0.267, blue: 0.267)
+    static let danger = Color(uiColor: .systemRed)
+    static let warning = Color(uiColor: .systemOrange)
+    static let success = Color(uiColor: .systemGreen)
 
     // MARK: - 尺寸
 
     enum Radius {
-        static let bubble: CGFloat = 16
-        static let card: CGFloat = 14
-        static let chip: CGFloat = 10
-        static let composer: CGFloat = 24
+        /// 输入框胶囊
+        static let composer: CGFloat = 22
+        static let bubble: CGFloat = 18
+        static let card: CGFloat = 12
+        static let chip: CGFloat = 8
     }
 
     enum Spacing {
@@ -74,31 +45,50 @@ enum DSHTheme {
         static let large: CGFloat = 16
         static let section: CGFloat = 24
     }
+
+    /// 输入框最大高度：超过后内部滚动，避免撑满屏幕
+    static let composerMaxHeight: CGFloat = 116
+    /// 消息区域左右边距
+    static let messageHorizontalPadding: CGFloat = 16
 }
 
-/// 统一动效曲线，贴近桌面端的顺滑手感。
+/// 交互动效：统一使用系统常用曲线，克制、不抢注意力。
 enum DSHAnim {
     /// 常规状态切换
-    static let standard = Animation.spring(response: 0.34, dampingFraction: 0.86)
-    /// 列表增删
-    static let list = Animation.spring(response: 0.40, dampingFraction: 0.82)
-    /// 弹出/抽屉
-    static let sheet = Animation.spring(response: 0.32, dampingFraction: 0.88)
-    /// 流式文字刷新（短、轻，避免抖动）
-    static let stream = Animation.linear(duration: 0.12)
-    /// 强调反馈
-    static let emphasis = Animation.spring(response: 0.28, dampingFraction: 0.70)
+    static let standard = Animation.easeInOut(duration: 0.22)
+    /// 列表插入与删除
+    static let list = Animation.easeInOut(duration: 0.26)
+    /// 抽屉与浮层
+    static let drawer = Animation.spring(response: 0.34, dampingFraction: 0.92)
+    /// 流式文本刷新
+    static let stream = Animation.linear(duration: 0.1)
 }
 
 extension View {
-    /// 卡片风格背景，带轻描边
-    func dshCard(background: Color = DSHTheme.elevatedBackground) -> some View {
+    /// 卡片风格：系统分组背景 + 细描边
+    func dshCard(background: Color = DSHTheme.grouped) -> some View {
         self
             .background(background)
             .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.card, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: DSHTheme.Radius.card, style: .continuous)
-                    .stroke(DSHTheme.separator, lineWidth: 0.5)
+                    .stroke(DSHTheme.separator.opacity(0.5), lineWidth: 0.5)
             )
+    }
+
+    /// 统一应用主题偏好。需要在每个浮层（sheet）的根视图上单独调用，
+    /// 否则在设置页内切换深浅色时当前浮层不会立即刷新。
+    func dshAppearance(_ preference: AppThemePreference) -> some View {
+        self.preferredColorScheme(preference.colorScheme)
+    }
+}
+
+extension AppThemePreference {
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
     }
 }

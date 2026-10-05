@@ -1,20 +1,36 @@
 import XCTest
+import UIKit
 
-/// 端到端 UI 测试：验证界面渲染、插件命令、错误引导、抽屉与各面板。
-/// 截图会写入运行器沙盒的 Documents 目录，并由 CI 收集为构建产物。
+/// 端到端 UI 测试：覆盖引导门禁、主页极简、输入框高度与键盘、设置即时生效、
+/// 功能开关、模型名称、聊天渲染与抽屉。
 final class DSHiOSUITests: XCTestCase {
 
     private var app: XCUIApplication!
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        app = XCUIApplication()
-        app.launchArguments = ["-uitest-reset"]
-        app.launch()
-        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20), "应用未能进入前台")
+        app = launchApp(configured: true, seed: false)
     }
 
     // MARK: - 工具
+
+    @discardableResult
+    private func launchApp(configured: Bool, seed: Bool) -> XCUIApplication {
+        if let existing = app, existing.state == .runningForeground { existing.terminate() }
+        let instance = XCUIApplication()
+        var arguments = ["-uitest-reset"]
+        if configured { arguments.append("-uitest-apikey") }
+        if seed { arguments.append("-uitest-seed") }
+        instance.launchArguments = arguments
+        instance.launch()
+        app = instance
+        XCTAssertTrue(instance.wait(for: .runningForeground, timeout: 20), "应用未能进入前台")
+        return instance
+    }
+
+    private func element(_ identifier: String) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+    }
 
     private func capture(_ name: String) {
         let screenshot = XCUIScreen.main.screenshot()
@@ -22,192 +38,287 @@ final class DSHiOSUITests: XCTestCase {
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
-
         let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let url = directory.appendingPathComponent("\(name).png")
-        try? screenshot.pngRepresentation.write(to: url)
+        try? screenshot.pngRepresentation.write(to: directory.appendingPathComponent("\(name).png"))
     }
 
-    private func element(_ identifier: String) -> XCUIElement {
-        app.descendants(matching: .any).matching(identifier: identifier).firstMatch
+    /// 整屏平均亮度，用于验证深浅色是否真的切换
+    private func averageBrightness() -> CGFloat {
+        let image = XCUIScreen.main.screenshot().image
+        guard let cgImage = image.cgImage else { return -1 }
+        var pixel: [UInt8] = [0, 0, 0, 0]
+        let space = CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: &pixel,
+            width: 1,
+            height: 1,
+            bitsPerComponent: 8,
+            bytesPerRow: 4,
+            space: space,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return -1 }
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        let red = CGFloat(pixel[0]) / 255
+        let green = CGFloat(pixel[1]) / 255
+        let blue = CGFloat(pixel[2]) / 255
+        return 0.299 * red + 0.587 * green + 0.114 * blue
     }
 
-    // MARK: - 用例
-
-    func test01_欢迎页与输入舱渲染() {
-        let composer = element("composer.input")
-        XCTAssertTrue(composer.waitForExistence(timeout: 10), "未找到输入框")
-        XCTAssertTrue(app.staticTexts["有什么可以帮你？"].exists, "未显示欢迎文案")
-        XCTAssertTrue(element("composer.send").exists, "未找到发送按钮")
-        XCTAssertTrue(element("composer.model").exists, "未找到模型选择器")
-        XCTAssertTrue(element("composer.plus").exists, "未找到加号入口")
-        XCTAssertTrue(element("tab.chat").exists)
-        XCTAssertTrue(element("tab.trajectory").exists)
-        capture("01-welcome")
+    private func openSettings() {
+        element("topbar.sidebar").tap()
+        let entry = element("sidebar.settings")
+        XCTAssertTrue(entry.waitForExistence(timeout: 5), "抽屉未打开或缺少设置入口")
+        entry.tap()
+        XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5), "设置页未打开")
     }
 
-    func test02_插件命令面板与执行() {
+    private func closeSettings() {
+        let done = app.buttons["完成"].firstMatch
+        if done.exists { done.tap() }
+        XCTAssertTrue(element("composer.input").waitForExistence(timeout: 5))
+    }
+
+    private func toggleFeature(_ identifier: String, on: Bool) {
+        let toggle = element(identifier)
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5), "未找到开关 \(identifier)")
+        var attempts = 0
+        while attempts < 4 {
+            let isOn = (toggle.value as? String) == "1"
+            if isOn == on { break }
+            toggle.tap()
+            attempts += 1
+        }
+    }
+
+    // MARK: - 引导门禁
+
+    func test01_未配置Key时强制进入引导页() {
+        launchApp(configured: false, seed: false)
+
+        XCTAssertTrue(app.staticTexts["欢迎使用 DeepSeek"].waitForExistence(timeout: 10), "未进入引导页")
+        XCTAssertFalse(element("composer.input").exists, "未配置 Key 时不应进入主页")
+        capture("01-onboarding")
+
+        // 填写 Key 后进入主页
+        let field = app.textFields.matching(identifier: "onboarding.key").firstMatch
+        let target = field.exists ? field : app.secureTextFields.firstMatch
+        XCTAssertTrue(target.waitForExistence(timeout: 5), "未找到 Key 输入框")
+        target.tap()
+        target.typeText("sk-uitest-onboarding")
+
+        app.buttons["跳过验证，直接保存"].tap()
+
+        XCTAssertTrue(element("composer.input").waitForExistence(timeout: 10), "保存 Key 后未进入主页")
+        capture("02-after-onboarding")
+    }
+
+    // MARK: - 主页默认极简
+
+    func test02_主页默认只保留核心元素() {
+        XCTAssertTrue(element("composer.input").waitForExistence(timeout: 10))
+        XCTAssertTrue(element("topbar.sidebar").exists, "缺少会话列表入口")
+        XCTAssertTrue(element("topbar.newchat").exists, "缺少新对话入口")
+        XCTAssertTrue(app.staticTexts["有什么可以帮你的吗？"].exists, "缺少空态标题")
+        XCTAssertTrue(element("composer.thinking").exists, "默认应显示深度思考开关")
+
+        // 高级入口默认关闭
+        XCTAssertFalse(element("tab.trajectory").exists, "轨迹标签默认不该出现")
+        XCTAssertFalse(element("composer.model").exists, "模型选择默认不该出现")
+        XCTAssertFalse(element("composer.plus").exists, "插件命令默认不该出现")
+        XCTAssertFalse(element("topbar.sessionlog").exists, "会话日志入口默认不该出现")
+        capture("03-home-minimal")
+    }
+
+    // MARK: - 输入框高度（真机问题回归）
+
+    func test03_输入框不会撑满屏幕且支持多行() {
         let composer = element("composer.input")
         XCTAssertTrue(composer.waitForExistence(timeout: 10))
+        composer.tap()
+
+        let screenHeight = app.windows.firstMatch.frame.height
+        for index in 1...12 {
+            composer.typeText("第 \(index) 行文字\n")
+        }
+
+        let height = composer.frame.height
+        XCTAssertLessThan(
+            height,
+            screenHeight * 0.5,
+            "输入框高度 \(height) 超过半屏（屏高 \(screenHeight)），仍存在撑满屏幕的问题"
+        )
+        XCTAssertLessThanOrEqual(height, 140, "输入框高度应被限制在 140pt 以内，实际 \(height)")
+
+        // 对话区域仍可见
+        XCTAssertTrue(app.staticTexts["有什么可以帮你的吗？"].exists, "输入框疑似遮挡了对话区域")
+        capture("04-composer-multiline")
+    }
+
+    // MARK: - 键盘收起（真机问题回归）
+
+    func test04_键盘可通过完成按钮与点击空白收起() throws {
+        let composer = element("composer.input")
+        XCTAssertTrue(composer.waitForExistence(timeout: 10))
+        composer.tap()
+
+        try XCTSkipIf(app.keyboards.count == 0, "模拟器未启用软键盘，跳过键盘断言")
+
+        XCTAssertTrue(app.keyboards.element.waitForExistence(timeout: 5), "键盘未弹出")
+        element("keyboard.done").tap()
+        XCTAssertTrue(
+            app.keyboards.element.waitForNonExistence(timeout: 3),
+            "点击「完成」后键盘未收起"
+        )
+
+        composer.tap()
+        XCTAssertTrue(app.keyboards.element.waitForExistence(timeout: 5), "键盘未再次弹出")
+        app.staticTexts["有什么可以帮你的吗？"].tap()
+        XCTAssertTrue(
+            app.keyboards.element.waitForNonExistence(timeout: 3),
+            "点击空白处后键盘未收起"
+        )
+    }
+
+    // MARK: - 外观即时生效（真机问题回归）
+
+    func test05_设置内切换深浅色立即生效() {
+        openSettings()
+
+        let before = averageBrightness()
+        element("settings.theme").tap()
+        assertTrueNavigation("外观")
+        element("theme.dark").tap()
+        Thread.sleep(forTimeInterval: 0.6)
+        let afterDark = averageBrightness()
+        capture("05-settings-dark")
+
+        XCTAssertLessThan(
+            afterDark,
+            before - 0.15,
+            "切换到深色后界面亮度未下降（前 \(before) / 后 \(afterDark)），设置页可能未立即刷新"
+        )
+
+        // 切回浅色
+        element("theme.light").tap()
+        Thread.sleep(forTimeInterval: 0.6)
+        let afterLight = averageBrightness()
+        XCTAssertGreaterThan(afterLight, afterDark + 0.15, "切回浅色后亮度未恢复")
+
+        // 恢复跟随系统
+        element("theme.system").tap()
+        app.navigationBars.buttons.firstMatch.tap()
+        closeSettings()
+    }
+
+    private func assertTrueNavigation(_ title: String) {
+        XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 5), "未进入「\(title)」页面")
+    }
+
+    // MARK: - 功能开关
+
+    func test06_功能开关可开启轨迹与模型选择() {
+        openSettings()
+        toggleFeature("feature.trajectoryTab", on: true)
+        toggleFeature("feature.modelPicker", on: true)
+        toggleFeature("feature.usageMetrics", on: true)
+        closeSettings()
+
+        XCTAssertTrue(element("tab.trajectory").waitForExistence(timeout: 5), "开启后仍未出现轨迹标签")
+        XCTAssertTrue(element("composer.model").waitForExistence(timeout: 5), "开启后仍未出现模型选择")
+        capture("06-features-on")
+
+        element("tab.trajectory").tap()
+        XCTAssertTrue(app.staticTexts["当前会话还没有轨迹记录"].waitForExistence(timeout: 5))
+        element("tab.chat").tap()
+
+        // 关闭后应恢复简洁
+        openSettings()
+        toggleFeature("feature.trajectoryTab", on: false)
+        toggleFeature("feature.modelPicker", on: false)
+        toggleFeature("feature.usageMetrics", on: false)
+        closeSettings()
+        XCTAssertTrue(
+            element("tab.trajectory").waitForNonExistence(timeout: 3),
+            "关闭开关后轨迹标签仍然存在"
+        )
+    }
+
+    func test07_插件命令开关与抽屉入口() {
+        openSettings()
+        toggleFeature("feature.pluginCommands", on: true)
+        closeSettings()
+
+        let composer = element("composer.input")
         composer.tap()
         composer.typeText("/")
 
         let timeCommand = element("plugin.command.time")
-        XCTAssertTrue(timeCommand.waitForExistence(timeout: 5), "未出现插件命令面板，插件运行时可能未加载")
+        XCTAssertTrue(timeCommand.waitForExistence(timeout: 5), "插件命令面板未出现")
         XCTAssertTrue(element("plugin.command.upper").exists, "缺少 /upper 命令")
-        XCTAssertTrue(element("plugin.command.count").exists, "缺少 /count 命令")
-        capture("02-command-palette")
+        capture("07-plugin-commands")
 
         timeCommand.tap()
-
-        // 命令返回短文本时会以 Toast 提示 /time → 时间
         let toast = app.staticTexts.matching(
             NSPredicate(format: "label BEGINSWITH %@", "/time →")
         ).firstMatch
-        XCTAssertTrue(toast.waitForExistence(timeout: 5), "命令执行后未出现结果提示")
-        capture("03-command-result")
-    }
+        XCTAssertTrue(toast.waitForExistence(timeout: 5), "命令执行后未出现结果")
 
-    func test03_未配置APIKey时给出引导() {
-        let composer = element("composer.input")
-        XCTAssertTrue(composer.waitForExistence(timeout: 10))
-        composer.tap()
-        composer.typeText("你好")
-
-        element("composer.send").tap()
-
-        let alert = app.alerts.firstMatch
-        XCTAssertTrue(alert.waitForExistence(timeout: 5), "未弹出错误提示")
-        XCTAssertTrue(
-            alert.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "API Key")).count > 0,
-            "错误提示未说明缺少 API Key"
-        )
-        capture("04-missing-api-key")
-        alert.buttons.firstMatch.tap()
-    }
-
-    func test04_抽屉侧边栏与新建会话() {
+        // 抽屉中出现插件入口
         element("topbar.sidebar").tap()
-
-        let newConversation = element("sidebar.new")
-        XCTAssertTrue(newConversation.waitForExistence(timeout: 5), "抽屉未打开")
-        XCTAssertTrue(element("sidebar.settings").exists)
-        XCTAssertTrue(element("sidebar.plugins").exists)
-        capture("05-sidebar")
-
-        newConversation.tap()
-
-        // 新建后顶栏标题应为「新会话」
-        let title = app.staticTexts["新会话"]
-        XCTAssertTrue(title.waitForExistence(timeout: 5), "未创建新会话")
-        capture("06-new-conversation")
+        XCTAssertTrue(element("sidebar.plugins").waitForExistence(timeout: 5), "抽屉缺少插件中心入口")
+        capture("08-drawer-with-plugins")
+        element("sidebar.settings").tap()
     }
 
-    func test05_轨迹标签页() {
-        element("tab.trajectory").tap()
-        let emptyHint = app.staticTexts["当前会话还没有轨迹记录"]
-        XCTAssertTrue(emptyHint.waitForExistence(timeout: 5), "轨迹页未渲染")
-        capture("07-trajectory")
+    // MARK: - 模型名称（真机问题回归）
+
+    func test08_模型名称与官方一致() {
+        openSettings()
+        element("settings.model").tap()
+        assertTrueNavigation("模型")
+
+        XCTAssertTrue(app.staticTexts["DeepSeek-V4.1-Flash"].waitForExistence(timeout: 5), "缺少 V4.1-Flash")
+        XCTAssertTrue(app.staticTexts["deepseek-flash"].exists, "缺少模型 ID")
+        XCTAssertTrue(app.staticTexts["DeepSeek-V4-Pro"].exists, "缺少 V4-Pro")
+        capture("09-models")
+
+        app.navigationBars.buttons.firstMatch.tap()
+        closeSettings()
     }
 
-    func test06_设置面板() {
-        element("topbar.sidebar").tap()
-        let settings = element("sidebar.settings")
-        XCTAssertTrue(settings.waitForExistence(timeout: 5))
-        settings.tap()
+    // MARK: - 聊天渲染
 
-        XCTAssertTrue(app.staticTexts["API Key"].waitForExistence(timeout: 5), "设置页未打开")
-        XCTAssertTrue(app.staticTexts["Base URL"].exists)
-        XCTAssertTrue(app.staticTexts["默认模型"].exists)
-        XCTAssertTrue(app.staticTexts["流式输出"].exists)
-        capture("08-settings")
+    func test09_聊天渲染与思考折叠() {
+        launchApp(configured: true, seed: true)
 
-        app.buttons["完成"].tap()
-    }
-
-    func test07_插件中心() {
-        element("topbar.sidebar").tap()
-        let plugins = element("sidebar.plugins")
-        XCTAssertTrue(plugins.waitForExistence(timeout: 5))
-        plugins.tap()
-
-        XCTAssertTrue(app.staticTexts["插件中心"].waitForExistence(timeout: 5), "插件中心未打开")
-        XCTAssertTrue(app.staticTexts["时间戳助手"].exists, "未列出内置插件")
-        XCTAssertTrue(app.staticTexts["文本工具"].exists)
-        capture("09-plugins")
-
-        app.buttons["命令"].tap()
-        XCTAssertTrue(app.staticTexts["/time"].waitForExistence(timeout: 5), "命令列表为空")
-        capture("10-plugin-commands")
-
-        app.buttons["日志"].tap()
-        XCTAssertTrue(app.staticTexts["运行日志"].waitForExistence(timeout: 5))
-        capture("11-plugin-logs")
-    }
-
-    func test08_深色模式外观() {
-        element("topbar.sidebar").tap()
-        let settings = element("sidebar.settings")
-        XCTAssertTrue(settings.waitForExistence(timeout: 5))
-        settings.tap()
-
-        // 外观选择器 → 深色
-        let appearance = app.staticTexts["外观"]
-        XCTAssertTrue(appearance.waitForExistence(timeout: 5))
-        appearance.tap()
-        let dark = app.buttons["深色"].firstMatch
-        if dark.waitForExistence(timeout: 5) {
-            dark.tap()
-        }
-        app.buttons["完成"].tap()
-
-        XCTAssertTrue(element("composer.input").waitForExistence(timeout: 5))
-        capture("12-dark-appearance")
-    }
-
-    /// 注入演示会话，验证聊天界面的完整渲染（用户气泡、Markdown、代码块、操作行、思考折叠）
-    func test09_对话与Markdown渲染() {
-        relaunch(withSeed: true)
-
-        // 用户消息气泡
         let userText = app.staticTexts["用 Swift 写一个防抖函数，并解释它的用途。"]
         XCTAssertTrue(userText.waitForExistence(timeout: 15), "未渲染用户消息")
-
-        // 代码块：语言标签 + 复制按钮
         XCTAssertTrue(app.staticTexts["SWIFT"].waitForExistence(timeout: 5), "代码块未渲染")
-        XCTAssertTrue(app.staticTexts["复制"].exists, "代码块缺少复制入口")
 
-        // Markdown 列表内容（整段文本为一个可访问元素，用包含匹配）
         let listItem = app.staticTexts
             .matching(NSPredicate(format: "label CONTAINS %@", "减少无效请求与重复计算"))
             .firstMatch
         XCTAssertTrue(listItem.exists, "Markdown 正文未渲染")
-
-        // 操作行
         XCTAssertTrue(app.buttons["有帮助"].exists, "缺少点赞按钮")
-        XCTAssertTrue(app.buttons["没帮助"].exists, "缺少点踩按钮")
         XCTAssertTrue(app.buttons["重新生成"].exists, "缺少重新生成按钮")
-        capture("13-chat-markdown")
+        capture("10-chat-render")
 
-        // 展开思考过程
-        app.staticTexts["Think"].tap()
+        element("message.thinking").tap()
         let reasoning = app.staticTexts["用户要的是防抖函数，需要给出可运行实现并说明使用场景。先确认防抖与节流的区别，再组织代码与要点。"]
         XCTAssertTrue(reasoning.waitForExistence(timeout: 5), "思考内容未展开")
-        capture("14-reasoning-expanded")
-
-        // 轨迹页应展示会话事件
-        element("tab.trajectory").tap()
-        XCTAssertTrue(app.staticTexts["模型回复"].waitForExistence(timeout: 5), "轨迹未记录模型回复")
-        XCTAssertTrue(app.staticTexts["用户输入"].exists, "轨迹未记录用户输入")
-        capture("15-trajectory-filled")
+        capture("11-thinking-expanded")
     }
 
-    private func relaunch(withSeed: Bool) {
-        app.terminate()
-        let fresh = XCUIApplication()
-        fresh.launchArguments = ["-uitest-reset"] + (withSeed ? ["-uitest-seed"] : [])
-        fresh.launch()
-        app = fresh
-        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 20))
+    // MARK: - 抽屉
+
+    func test10_抽屉新建对话() {
+        element("topbar.sidebar").tap()
+        let newConversation = element("sidebar.new")
+        XCTAssertTrue(newConversation.waitForExistence(timeout: 5), "抽屉未打开")
+        capture("12-drawer")
+        newConversation.tap()
+
+        XCTAssertTrue(app.navigationBars["DeepSeek"].waitForExistence(timeout: 5), "新建对话后标题不正确")
+        XCTAssertTrue(element("composer.input").waitForExistence(timeout: 5))
     }
 }

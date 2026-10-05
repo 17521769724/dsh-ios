@@ -12,14 +12,18 @@ struct DSHiOSApp: App {
         let settings = SettingsStore()
         let conversations = ConversationStore()
         let pluginManager = PluginManager()
+        let arguments = ProcessInfo.processInfo.arguments
 
-        // UI 测试用：-uitest-reset 启动参数清空历史，保证用例从干净状态开始
-        if ProcessInfo.processInfo.arguments.contains("-uitest-reset") {
+        // UI 测试用：-uitest-reset 清空历史，-uitest-seed 注入演示会话，
+        // -uitest-apikey 预置 Key 以便跳过引导页
+        if arguments.contains("-uitest-reset") {
             conversations.deleteAll()
         }
-        // UI 测试用：-uitest-seed 注入演示会话，用于验证聊天界面渲染
-        if ProcessInfo.processInfo.arguments.contains("-uitest-seed") {
+        if arguments.contains("-uitest-seed") {
             conversations.seedDemoConversation(model: settings.settings.defaultModel)
+        }
+        if arguments.contains("-uitest-apikey") {
+            settings.apiKey = "sk-uitest-placeholder"
         }
 
         _settingsStore = StateObject(wrappedValue: settings)
@@ -39,16 +43,7 @@ struct DSHiOSApp: App {
                 .environmentObject(settingsStore)
                 .environmentObject(conversationStore)
                 .environmentObject(pluginManager)
-                .preferredColorScheme(preferredScheme)
                 .tint(DSHTheme.brand)
-        }
-    }
-
-    private var preferredScheme: ColorScheme? {
-        switch settingsStore.settings.appTheme {
-        case .system: return nil
-        case .light: return .light
-        case .dark: return .dark
         }
     }
 }

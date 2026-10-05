@@ -1,59 +1,10 @@
 import SwiftUI
 
-/// 插件中心：查看插件清单、启停、命令与运行日志。
+/// 插件中心：系统列表风格，插件启停、命令清单与运行日志拆分到子页面。
 struct PluginsView: View {
     @EnvironmentObject private var plugins: PluginManager
-    @Environment(\.dismiss) private var dismiss
-
-    private enum Tab: String, CaseIterable, Identifiable {
-        case installed = "已安装"
-        case commands = "命令"
-        case logs = "日志"
-        var id: String { rawValue }
-    }
-
-    @State private var tab: Tab = .installed
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                Picker("视图", selection: $tab) {
-                    ForEach(Tab.allCases) { item in
-                        Text(item.rawValue).tag(item)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, DSHTheme.Spacing.large)
-                .padding(.vertical, DSHTheme.Spacing.small)
-
-                Divider().opacity(0.4)
-
-                switch tab {
-                case .installed: installedList
-                case .commands: commandList
-                case .logs: logList
-                }
-            }
-            .navigationTitle("插件中心")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("关闭") { dismiss() }
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        plugins.refresh()
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: - 已安装
-
-    private var installedList: some View {
         List {
             Section {
                 ForEach(plugins.manifests) { manifest in
@@ -64,9 +15,34 @@ struct PluginsView: View {
                         .foregroundStyle(.secondary)
                 }
             } header: {
-                Text("\(plugins.manifests.count) 个插件")
+                Text("已安装（\(plugins.manifests.count)）")
             } footer: {
-                Text("内置插件随 App 分发；用户插件放在 Documents/Plugins 目录下。关闭插件会立即卸载其注册的命令与钩子，无需重启。")
+                Text("内置插件随 App 分发；用户插件放在 Documents/Plugins 目录。关闭插件会立即卸载其命令与钩子。")
+            }
+
+            Section {
+                NavigationLink {
+                    PluginCommandsView()
+                        .environmentObject(plugins)
+                } label: {
+                    SettingsValueRow(
+                        symbol: "command",
+                        color: .blue,
+                        title: "命令",
+                        value: "\(plugins.commands.count) 个"
+                    )
+                }
+                NavigationLink {
+                    PluginLogsView()
+                        .environmentObject(plugins)
+                } label: {
+                    SettingsValueRow(
+                        symbol: "doc.text.magnifyingglass",
+                        color: .orange,
+                        title: "运行日志",
+                        value: "\(plugins.logs.count) 条"
+                    )
+                }
             }
 
             if !plugins.errors.isEmpty {
@@ -74,7 +50,7 @@ struct PluginsView: View {
                     ForEach(Array(plugins.errors.keys.sorted()), id: \.self) { key in
                         VStack(alignment: .leading, spacing: 4) {
                             Text(key)
-                                .font(.system(size: 13, weight: .semibold))
+                                .font(.system(size: 14, weight: .semibold))
                             Text(plugins.errors[key] ?? "")
                                 .font(.system(size: 12, design: .monospaced))
                                 .foregroundStyle(DSHTheme.danger)
@@ -82,63 +58,85 @@ struct PluginsView: View {
                     }
                 }
             }
+
+            Section {
+                NavigationLink {
+                    PluginDirectoryInfoView()
+                        .environmentObject(plugins)
+                } label: {
+                    SettingsRowLabel(symbol: "folder", color: .gray, title: "插件目录说明")
+                }
+            }
         }
+        .listStyle(.insetGrouped)
+        .navigationTitle("插件中心")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    plugins.refresh()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .accessibilityIdentifier("plugins.refresh")
+            }
+        }
+        .tint(DSHTheme.brand)
     }
 
     private func manifestRow(_ manifest: PluginManifest) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         Text(manifest.name)
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.system(size: 16))
                         if manifest.isBuiltIn {
                             Text("内置")
-                                .font(.system(size: 9, weight: .bold))
+                                .font(.system(size: 10, weight: .semibold))
                                 .foregroundStyle(DSHTheme.brand)
                                 .padding(.horizontal, 5)
-                                .padding(.vertical, 2)
+                                .padding(.vertical, 1)
                                 .background(DSHTheme.brandSoft)
                                 .clipShape(Capsule())
                         }
                     }
                     Text("v\(manifest.version) · \(manifest.author)")
-                        .font(.system(size: 11))
+                        .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                 }
-                Spacer()
+                Spacer(minLength: DSHTheme.Spacing.small)
                 Toggle("", isOn: Binding(
                     get: { manifest.isEnabled },
                     set: { plugins.setEnabled($0, for: manifest.id) }
                 ))
                 .labelsHidden()
-                .tint(DSHTheme.brand)
+                .accessibilityIdentifier("plugin.toggle.\(manifest.name)")
             }
 
             if !manifest.summary.isEmpty {
                 Text(manifest.summary)
-                    .font(.system(size: 12))
+                    .font(.system(size: 13))
                     .foregroundStyle(.secondary)
             }
 
             if !manifest.isBuiltIn {
-                Button(role: .destructive) {
+                Button("删除插件", role: .destructive) {
                     plugins.removeUserPlugin(id: manifest.id)
-                } label: {
-                    Text("删除插件")
-                        .font(.system(size: 12))
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(DSHTheme.danger)
+                .font(.system(size: 13))
             }
         }
         .padding(.vertical, 2)
-        .animation(DSHAnim.standard, value: manifest.isEnabled)
     }
+}
 
-    // MARK: - 命令
+// MARK: - 命令列表
 
-    private var commandList: some View {
+struct PluginCommandsView: View {
+    @EnvironmentObject private var plugins: PluginManager
+
+    var body: some View {
         List {
             Section {
                 ForEach(plugins.commands) { command in
@@ -148,9 +146,9 @@ struct PluginsView: View {
                             .foregroundStyle(DSHTheme.brand)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(command.summary.isEmpty ? "无说明" : command.summary)
-                                .font(.system(size: 13))
+                                .font(.system(size: 14))
                             Text(command.pluginID)
-                                .font(.system(size: 10))
+                                .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -159,30 +157,35 @@ struct PluginsView: View {
                     Text("当前没有可用命令")
                         .foregroundStyle(.secondary)
                 }
-            } header: {
-                Text("\(plugins.commands.count) 个命令")
             } footer: {
-                Text("在输入框输入 / 可呼出命令面板，命令返回值会回填到输入框或直接提示。")
+                Text("在输入框输入 / 可呼出命令面板（需在「主页功能」开启插件命令）。")
             }
         }
+        .listStyle(.insetGrouped)
+        .navigationTitle("命令")
+        .navigationBarTitleDisplayMode(.inline)
     }
+}
 
-    // MARK: - 日志
+// MARK: - 日志
 
-    private var logList: some View {
+struct PluginLogsView: View {
+    @EnvironmentObject private var plugins: PluginManager
+
+    var body: some View {
         List {
             Section {
                 ForEach(plugins.logs.reversed()) { entry in
                     HStack(alignment: .top, spacing: DSHTheme.Spacing.small) {
-                        Text(entry.level.uppercased())
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
-                            .foregroundStyle(color(for: entry.level))
-                            .frame(width: 44, alignment: .leading)
+                        Circle()
+                            .fill(color(for: entry.level))
+                            .frame(width: 7, height: 7)
+                            .padding(.top, 6)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(entry.message)
-                                .font(.system(size: 12, design: .monospaced))
+                                .font(.system(size: 13, design: .monospaced))
                             Text("\(entry.pluginID) · \(entry.timestamp.formatted(date: .omitted, time: .standard))")
-                                .font(.system(size: 10))
+                                .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
                         }
                     }
@@ -192,13 +195,15 @@ struct PluginsView: View {
                     Text("暂无日志")
                         .foregroundStyle(.secondary)
                 }
-            } header: {
-                HStack {
-                    Text("运行日志")
-                    Spacer()
-                    Button("清空") { plugins.clearLogs() }
-                        .font(.system(size: 12))
-                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("运行日志")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button("清空") { plugins.clearLogs() }
+                    .disabled(plugins.logs.isEmpty)
             }
         }
     }
