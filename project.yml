@@ -46,6 +46,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.dshdesktop.ios.unittests
         GENERATE_INFOPLIST_FILE: YES
+        # 应用产物名为 DSH.app（PRODUCT_NAME=DSH），需显式指定测试宿主
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/DSH.app/DSH"
+        BUNDLE_LOADER: "$(TEST_HOST)"
 
   DSHiOSUITests:
     type: bundle.ui-testing
