@@ -535,9 +535,9 @@ final class DSHiOSUITests: XCTestCase {
         XCTAssertTrue(scrollTo("ssh.command").waitForExistence(timeout: 5), "缺少命令控制台")
         capture("20-ssh-settings")
 
-        app.navigationBars.buttons.firstMatch.tap()
-
-        // 打开「智能体工具调用」后，主页顶栏会出现内置浏览器入口
+        // 返回设置主页（必须点 SSH 页自己的返回按钮，避免误点到根导航栏的「完成」把设置关掉）
+        app.navigationBars["SSH 云服务器"].buttons.firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5), "未返回设置页")
         toggleFeature("feature.agentTools", on: true)
         closeSettings()
 
