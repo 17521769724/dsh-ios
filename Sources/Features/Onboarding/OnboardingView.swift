@@ -97,6 +97,8 @@ struct OnboardingView: View {
                     .font(.system(size: 15, design: .monospaced))
                     .focused($focusedField, equals: .key)
                     .submitLabel(.go)
+                    // 固定高度：明文/密文切换时高度不变，占位符不会上下跳动
+                    .frame(height: 26)
                     // 占满剩余宽度：明文/密文切换时输入框宽度保持不变
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("onboarding.key")
@@ -108,12 +110,12 @@ struct OnboardingView: View {
                         Image(systemName: revealed ? "eye.slash" : "eye")
                             .font(.system(size: 14))
                             .foregroundStyle(.secondary)
-                            .frame(width: 24, height: 24)
+                            .frame(width: 26, height: 26)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     // 固定按钮尺寸，避免切换图标时挤压输入框
-                    .frame(width: 28, height: 28)
+                    .frame(width: 26, height: 26)
                     .accessibilityLabel(revealed ? "隐藏 Key" : "显示 Key")
                 }
             }
@@ -174,6 +176,8 @@ struct OnboardingView: View {
             content()
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+                // 固定内容行高：地址框与 Key 框（含明文按钮）高度一致
+                .frame(height: 26)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 11)
                 .background(DSHTheme.page)
@@ -218,8 +222,13 @@ struct OnboardingView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
-                .background(canSubmit ? AnyShapeStyle(DSHTheme.brandGradient) : AnyShapeStyle(Color.secondary.opacity(0.35)))
-                .foregroundStyle(.white)
+                // 不可用状态也要清晰可见：浅灰底 + 灰字，而不是白字贴在近白底上
+                .background(
+                    canSubmit
+                        ? AnyShapeStyle(DSHTheme.brandGradient)
+                        : AnyShapeStyle(Color(uiColor: .tertiarySystemFill))
+                )
+                .foregroundStyle(canSubmit ? Color.white : Color.secondary)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
             .buttonStyle(.plain)

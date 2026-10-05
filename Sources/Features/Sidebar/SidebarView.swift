@@ -12,6 +12,8 @@ struct SidebarView: View {
     var openPlugins: () -> Void
 
     @State private var query = ""
+    @State private var renameTarget: Conversation?
+    @State private var renameText = ""
 
     private var features: FeatureFlags { settingsStore.settings.features }
 
@@ -37,13 +39,35 @@ struct SidebarView: View {
             footer
         }
         .background(DSHTheme.page)
+        .alert("重命名对话", isPresented: renamePresented) {
+            TextField("对话名称", text: $renameText)
+            Button("保存") { commitRename() }
+            Button("取消", role: .cancel) { renameTarget = nil }
+        } message: {
+            Text("输入新的对话名称")
+        }
+    }
+
+    // MARK: - 重命名
+
+    private var renamePresented: Binding<Bool> {
+        Binding(
+            get: { renameTarget != nil },
+            set: { if !$0 { renameTarget = nil } }
+        )
+    }
+
+    private func commitRename() {
+        guard let target = renameTarget else { return }
+        engine.rename(target, to: renameText)
+        renameTarget = nil
     }
 
     // MARK: - 顶部
 
     private var header: some View {
         HStack(spacing: DSHTheme.Spacing.small) {
-            Text("DeepSeek")
+            Text("DeepSeek Harness")
                 .font(.system(size: 17, weight: .semibold))
             Spacer()
             Text("\(engine.conversationStore.conversations.count)")
@@ -208,14 +232,25 @@ struct SidebarView: View {
             }
             .padding(.horizontal, DSHTheme.Spacing.small)
             .padding(.vertical, 9)
-            .background(selected ? DSHTheme.grouped : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.chip, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("sidebar.row")
+        .background(selected ? DSHTheme.grouped : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.chip, style: .continuous))
+        // 长按呼出菜单时的高亮与预览都按圆角绘制，避免出现直角背景
+        .contentShape(
+            .contextMenuPreview,
+            RoundedRectangle(cornerRadius: DSHTheme.Radius.chip, style: .continuous)
+        )
         .animation(DSHAnim.standard, value: selected)
         .contextMenu {
+            Button {
+                renameText = conversation.title
+                renameTarget = conversation
+            } label: {
+                Label("重命名", systemImage: "pencil")
+            }
             Button {
                 withAnimation(DSHAnim.list) { engine.togglePin(conversation) }
             } label: {
@@ -246,13 +281,31 @@ struct SidebarView: View {
             if features.pluginCommands {
                 entryRow(icon: "puzzlepiece.extension", title: "插件中心", identifier: "sidebar.plugins", action: openPlugins)
             }
-            entryRow(icon: "gearshape", title: "设置", identifier: "sidebar.settings", action: openSettings)
+            entryRow(
+                icon: "gearshape",
+                title: "设置",
+                identifier: "sidebar.settings",
+                trailing: Self.appVersionText,
+                action: openSettings
+            )
         }
         .padding(.horizontal, DSHTheme.Spacing.small)
         .padding(.vertical, DSHTheme.Spacing.small)
     }
 
-    private func entryRow(icon: String, title: String, identifier: String, action: @escaping () -> Void) -> some View {
+    /// 侧栏展示的版本号，例如 V1.0.1
+    private static var appVersionText: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        return "V\(version)"
+    }
+
+    private func entryRow(
+        icon: String,
+        title: String,
+        identifier: String,
+        trailing: String? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             HStack(spacing: DSHTheme.Spacing.medium) {
                 Image(systemName: icon)
@@ -261,6 +314,11 @@ struct SidebarView: View {
                 Text(title)
                     .font(.system(size: 15))
                 Spacer()
+                if let trailing {
+                    Text(trailing)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.tertiary)
+                }
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.tertiary)

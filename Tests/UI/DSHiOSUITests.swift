@@ -2,7 +2,7 @@ import XCTest
 import UIKit
 
 /// 端到端 UI 测试：覆盖引导门禁与表单、主页极简、输入框高度与键盘、设置即时生效、
-/// 功能开关、模型列表、聊天渲染与抽屉、抽屉删除即时刷新、引导页验证失败回归。
+/// 功能开关、模型列表、聊天渲染与抽屉、抽屉删除/重命名、引导页与设置页的 Key 回归。
 final class DSHiOSUITests: XCTestCase {
 
     private var app: XCUIApplication!
@@ -480,6 +480,7 @@ final class DSHiOSUITests: XCTestCase {
             .matching(NSPredicate(format: "label == %@", "删除"))
             .firstMatch
         XCTAssertTrue(delete.waitForExistence(timeout: 5), "长按未出现删除菜单")
+        capture("15a-drawer-longpress")
         delete.tap()
 
         // 关键回归点：不关闭抽屉，列表就应该立即刷新为空态
@@ -518,5 +519,95 @@ final class DSHiOSUITests: XCTestCase {
         }
         XCTAssertTrue(submit.exists, "验证失败后「验证并进入」按钮消失了")
         capture("16-onboarding-validation-failed")
+    }
+
+    // MARK: - 输入区不被拉伸（真机问题回归）
+
+    func test15_开启模型与插件命令后输入框不铺满屏幕() {
+        openSettings()
+        toggleFeature("feature.modelPicker", on: true)
+        toggleFeature("feature.pluginCommands", on: true)
+        closeSettings()
+
+        let composer = element("composer.input")
+        XCTAssertTrue(composer.waitForExistence(timeout: 5), "开启开关后未出现输入框")
+        composer.tap()
+        Thread.sleep(forTimeInterval: 1.2)
+
+        // 真机反馈：开启这两个开关后点击输入框，整个输入卡片会顶满屏幕
+        XCTAssertLessThanOrEqual(
+            composer.frame.height,
+            60,
+            "输入框高度异常（\(composer.frame.height)），疑似被拉伸铺满屏幕"
+        )
+        capture("17-composer-not-fullscreen")
+
+        // 收起键盘，避免影响后续用例
+        app.staticTexts["有什么可以帮你的吗？"].tap()
+    }
+
+    // MARK: - 会话重命名
+
+    func test16_抽屉长按可重命名会话() {
+        element("topbar.newchat").tap()
+        element("topbar.sidebar").tap()
+
+        let row = app.buttons.matching(identifier: "sidebar.row").firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "抽屉里未出现会话行")
+        row.press(forDuration: 1.4)
+
+        let rename = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "重命名"))
+            .firstMatch
+        XCTAssertTrue(rename.waitForExistence(timeout: 5), "长按未出现重命名菜单")
+        rename.tap()
+
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), "未弹出重命名输入框")
+        let field = alert.textFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "重命名弹窗缺少输入框")
+        field.tap()
+        // 清空原有名称（多按几次删除键，空输入时无副作用）
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 20))
+        field.typeText("重命名测试")
+        alert.buttons["保存"].tap()
+
+        let renamed = app.buttons.matching(identifier: "sidebar.row")
+            .matching(NSPredicate(format: "label CONTAINS %@", "重命名测试"))
+            .firstMatch
+        XCTAssertTrue(renamed.waitForExistence(timeout: 5), "重命名后列表未立即刷新")
+        capture("18-renamed")
+    }
+
+    // MARK: - 清除 API Key（真机问题回归）
+
+    func test17_删除字符不跳页且清除按钮回到引导页() {
+        openSettings()
+        element("settings.apikey").tap()
+        XCTAssertTrue(app.navigationBars["API Key"].waitForExistence(timeout: 5), "API Key 页未打开")
+
+        let field = app.secureTextFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "缺少 API Key 输入框")
+        field.tap()
+        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 40))
+
+        // 关键回归点：把 Key 删空后仍停留在设置页，不应跳回引导页
+        XCTAssertTrue(app.navigationBars["API Key"].exists, "删除 Key 字符时不应跳转到引导页")
+        XCTAssertFalse(app.staticTexts["欢迎使用 DeepSeek"].exists, "删除 Key 字符时不应出现引导页")
+
+        // 重新填写后，用显式按钮清除 → 自动回到引导页
+        field.typeText("sk-uitest-clear")
+        let clear = element("settings.apikey.clear")
+        XCTAssertTrue(clear.waitForExistence(timeout: 5), "缺少清除 API Key 按钮")
+        clear.tap()
+        let confirm = app.buttons.matching(NSPredicate(format: "label == %@", "清除")).firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), "清除确认弹窗未出现")
+        confirm.tap()
+
+        XCTAssertTrue(
+            app.staticTexts["欢迎使用 DeepSeek"].waitForExistence(timeout: 8),
+            "清除 API Key 后未回到引导页"
+        )
+        capture("19-cleared-apikey-onboarding")
     }
 }

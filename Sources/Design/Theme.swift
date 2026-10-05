@@ -69,6 +69,33 @@ enum DSHAnim {
     static let drawer = Animation.spring(response: 0.34, dampingFraction: 0.92)
     /// 流式文本刷新
     static let stream = Animation.linear(duration: 0.1)
+    /// 深浅色切换
+    static let appearance = Animation.easeInOut(duration: 0.3)
+}
+
+/// 深浅色切换走窗口级交叉淡入淡出，避免整屏颜色生硬跳变。
+/// 同步设置 window 样式，保证快照里已经带上新配色，交叉淡化才可见。
+@MainActor
+func dshApplyAppearanceChange(
+    to preference: AppThemePreference,
+    duration: Double = 0.3,
+    _ changes: () -> Void
+) {
+    guard let window = UIApplication.shared.connectedScenes
+        .compactMap({ $0 as? UIWindowScene })
+        .flatMap({ $0.windows })
+        .first(where: { $0.isKeyWindow }) else {
+        changes()
+        return
+    }
+    UIView.transition(
+        with: window,
+        duration: duration,
+        options: [.transitionCrossDissolve, .allowUserInteraction]
+    ) {
+        window.overrideUserInterfaceStyle = preference.uiInterfaceStyle
+        changes()
+    }
 }
 
 extension View {
@@ -94,6 +121,15 @@ extension AppThemePreference {
     var colorScheme: ColorScheme? {
         switch self {
         case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
+
+    /// 供窗口级交叉淡入淡出使用
+    var uiInterfaceStyle: UIUserInterfaceStyle {
+        switch self {
+        case .system: return .unspecified
         case .light: return .light
         case .dark: return .dark
         }

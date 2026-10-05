@@ -40,6 +40,8 @@ struct ComposerBar: View {
         .padding(.top, DSHTheme.Spacing.small)
         .padding(.bottom, 6)
         .background(.bar)
+        // 输入区高度只跟随内容：避免（键盘弹出时）被拉伸到铺满整屏
+        .fixedSize(horizontal: false, vertical: true)
         .animation(DSHAnim.standard, value: matchedCommands.count)
         .animation(DSHAnim.standard, value: engine.isStreaming)
     }
@@ -116,7 +118,7 @@ struct ComposerBar: View {
         .accessibilityValue(settings.thinkingEnabled ? "已开启" : "已关闭")
     }
 
-    /// 模型选择：无底色、黑色文字（深色模式自动转为白色），高度与左侧胶囊一致
+    /// 模型选择：底色与「深度思考」关闭时一致，文字保持黑色（深色模式自动转白）
     private var modelChip: some View {
         Menu {
             ForEach(engine.availableModels) { model in
@@ -142,9 +144,11 @@ struct ComposerBar: View {
                     .opacity(0.55)
             }
             .foregroundStyle(Color(uiColor: .label))
-            .padding(.horizontal, 6)
+            .padding(.horizontal, 10)
             .frame(height: 28)
-            .contentShape(Rectangle())
+            .background(DSHTheme.chipFill)
+            .clipShape(Capsule())
+            .contentShape(Capsule())
         }
         .accessibilityIdentifier("composer.model")
         .accessibilityLabel("选择模型")
@@ -160,6 +164,8 @@ struct ComposerBar: View {
             .focused($focused)
             .submitLabel(.return)
             .padding(.vertical, 4)
+            // 上限与 lineLimit(1...5) 对应，避免被外层拉伸
+            .frame(maxHeight: 132, alignment: .top)
             .accessibilityIdentifier("composer.input")
     }
 

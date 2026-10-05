@@ -67,6 +67,14 @@ final class ConversationStore: ObservableObject {
         scheduleSave()
     }
 
+    /// 手动重命名会话（不再被首条消息自动生成的标题覆盖）
+    func rename(id: UUID, title: String) {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let index = conversations.firstIndex(where: { $0.id == id }) else { return }
+        conversations[index].title = trimmed
+        scheduleSave()
+    }
+
     func recordUsage(prompt: Int, completion: Int) {
         usage.totalPromptTokens += prompt
         usage.totalCompletionTokens += completion

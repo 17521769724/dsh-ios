@@ -10,6 +10,9 @@ final class SettingsStore: ObservableObject {
         didSet { Keychain.set(apiKey, for: Self.apiKeyAccount) }
     }
 
+    /// 请求退回首次配置页（设置页显式「清除 API Key」时置位，由 RootView 消费）
+    @Published var onboardingRequested = false
+
     private static let settingsKey = "dsh.settings.v1"
     private static let apiKeyAccount = "deepseek.api.key"
 

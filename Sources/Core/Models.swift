@@ -64,6 +64,9 @@ struct ChatMessage: Identifiable, Codable, Hashable {
 // MARK: - 会话
 
 struct Conversation: Identifiable, Codable, Hashable {
+    /// 默认标题：仍等于该值时允许按首条消息自动生成标题
+    static let defaultTitle = "新对话"
+
     var id: UUID
     var title: String
     var messages: [ChatMessage]
@@ -74,7 +77,7 @@ struct Conversation: Identifiable, Codable, Hashable {
 
     init(
         id: UUID = UUID(),
-        title: String = "新对话",
+        title: String = Conversation.defaultTitle,
         messages: [ChatMessage] = [],
         model: String,
         createdAt: Date = Date(),
@@ -90,8 +93,9 @@ struct Conversation: Identifiable, Codable, Hashable {
         self.isPinned = isPinned
     }
 
-    /// 根据首条用户消息推导标题
+    /// 根据首条用户消息推导标题；已被用户手动重命名的会话保持不变
     mutating func refreshTitleFromFirstUserMessage() {
+        guard title == Self.defaultTitle else { return }
         guard let first = messages.first(where: { $0.role == .user }) else { return }
         let trimmed = first.content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }

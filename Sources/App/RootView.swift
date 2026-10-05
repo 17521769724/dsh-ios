@@ -23,7 +23,9 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if settingsStore.isConfigured {
+            // 在设置里编辑 Key 时（可能被清空）不立刻跳回引导页，
+            // 只有显式「清除 API Key」或关闭全部浮层后才回到引导页。
+            if settingsStore.isConfigured || isAnyOverlayPresented {
                 mainInterface
             } else {
                 OnboardingView()
@@ -35,6 +37,17 @@ struct RootView: View {
             TapToDismissKeyboard()
                 .frame(width: 1, height: 1)
         }
+        .onChange(of: settingsStore.onboardingRequested) { requested in
+            guard requested else { return }
+            settingsStore.onboardingRequested = false
+            showPlugins = false
+            showSessionLog = false
+            showSettings = false
+        }
+    }
+
+    private var isAnyOverlayPresented: Bool {
+        showSettings || showPlugins || showSessionLog
     }
 
     // MARK: - 主界面
@@ -167,15 +180,19 @@ struct RootView: View {
     private func drawer(embedded: Bool) -> some View {
         SidebarView(
             close: { if !embedded { closeDrawer() } },
-            openSettings: {
-                if !embedded { closeDrawer() }
-                showSettings = true
-            },
-            openPlugins: {
-                if !embedded { closeDrawer() }
-                showPlugins = true
-            }
+            openSettings: { presentOverlay { showSettings = true } },
+            openPlugins: { presentOverlay { showPlugins = true } }
         )
+    }
+
+    /// 先让浮层（设置/插件）升起，再让抽屉在其遮挡下收起，
+    /// 避免「抽屉收起」与「浮层弹出」两个动画叠加时露出主页造成闪屏。
+    private func presentOverlay(_ present: () -> Void) {
+        present()
+        guard !isRegular else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            if drawerOpen { closeDrawer() }
+        }
     }
 
     // MARK: - Toast

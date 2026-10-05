@@ -152,6 +152,15 @@ final class ChatEngine: ObservableObject {
         }
     }
 
+    /// 侧栏长按菜单：重命名会话
+    func rename(_ conversation: Conversation, to title: String) {
+        conversationStore.rename(id: conversation.id, title: title)
+        if currentConversation?.id == conversation.id, let updated = conversationStore.conversation(id: conversation.id) {
+            currentConversation = updated
+        }
+        haptic(.light)
+    }
+
     // MARK: - 发送
 
     func send(_ rawText: String? = nil) {

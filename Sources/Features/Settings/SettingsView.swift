@@ -49,6 +49,7 @@ struct SettingsView: View {
                     value: settingsStore.isConfigured ? "已配置" : "未配置"
                 )
             }
+            .accessibilityIdentifier("settings.apikey")
 
             NavigationLink {
                 ServiceAddressSettingsView()
@@ -240,6 +241,7 @@ struct APIKeySettingsView: View {
     @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var engine: ChatEngine
     @State private var revealed = false
+    @State private var showClearConfirm = false
 
     var body: some View {
         List {
@@ -263,11 +265,11 @@ struct APIKeySettingsView: View {
                     } label: {
                         Image(systemName: revealed ? "eye.slash" : "eye")
                             .foregroundStyle(.secondary)
-                            .frame(width: 24, height: 24)
+                            .frame(width: 26, height: 26)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .frame(width: 28, height: 28)
+                    .frame(width: 26, height: 26)
                     .accessibilityLabel(revealed ? "隐藏 Key" : "显示 Key")
                 }
             } header: {
@@ -281,11 +283,31 @@ struct APIKeySettingsView: View {
                     Text("前往开放平台获取 Key")
                 }
             }
+
+            Section {
+                Button(role: .destructive) {
+                    showClearConfirm = true
+                } label: {
+                    Label("清除 API Key", systemImage: "trash")
+                }
+                .disabled(!settingsStore.isConfigured)
+                .accessibilityIdentifier("settings.apikey.clear")
+            } footer: {
+                Text("清除后会自动退回首次配置页面，重新填写 Key 才能进入主页。在输入框里直接删除字符只会删除 Key，不会跳转页面。")
+            }
         }
         .listStyle(.insetGrouped)
         .navigationTitle("API Key")
         .navigationBarTitleDisplayMode(.inline)
         .tint(DSHTheme.brand)
+        .confirmationDialog("确定清除 API Key？", isPresented: $showClearConfirm, titleVisibility: .visible) {
+            Button("清除", role: .destructive) {
+                settingsStore.apiKey = ""
+                // 由 RootView 关闭设置浮层并回到引导页
+                settingsStore.onboardingRequested = true
+            }
+            Button("取消", role: .cancel) {}
+        }
     }
 }
 
@@ -567,7 +589,8 @@ struct ThemeSettingsView: View {
             Section {
                 ForEach(AppThemePreference.allCases) { theme in
                     Button {
-                        withAnimation(DSHAnim.standard) {
+                        // 窗口级交叉淡入淡出，避免深浅色切换整屏生硬跳变
+                        dshApplyAppearanceChange(to: theme) {
                             settingsStore.settings.appTheme = theme
                         }
                     } label: {
