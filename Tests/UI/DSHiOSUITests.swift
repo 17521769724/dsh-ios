@@ -78,13 +78,15 @@ final class DSHiOSUITests: XCTestCase {
         XCTAssertTrue(element("composer.input").waitForExistence(timeout: 5))
     }
 
-    /// 设置页为懒加载列表，首屏之外的开关需先滚动到位
+    /// 设置页为懒加载列表，首屏之外的开关需先滚动到位；
+    /// 滚动带惯性，需等其停下再操作，否则点击会落到其他行
     @discardableResult
-    private func scrollTo(_ identifier: String, maxSwipes: Int = 8) -> XCUIElement {
+    private func scrollTo(_ identifier: String, maxSwipes: Int = 10) -> XCUIElement {
         var target = element(identifier)
         var swipes = 0
-        while !target.exists && swipes < maxSwipes {
+        while !(target.exists && target.isHittable) && swipes < maxSwipes {
             app.swipeUp()
+            Thread.sleep(forTimeInterval: 0.5)
             target = element(identifier)
             swipes += 1
         }
@@ -94,13 +96,17 @@ final class DSHiOSUITests: XCTestCase {
     private func toggleFeature(_ identifier: String, on: Bool) {
         let toggle = scrollTo(identifier)
         XCTAssertTrue(toggle.waitForExistence(timeout: 5), "未找到开关 \(identifier)")
-        var attempts = 0
-        while attempts < 4 {
-            let isOn = (toggle.value as? String) == "1"
-            if isOn == on { break }
+        let expected = on ? "1" : "0"
+        for _ in 0..<5 {
+            if (toggle.value as? String) == expected { return }
             toggle.tap()
-            attempts += 1
+            // 等待开关状态刷新，避免重复点击把开关又切回去
+            for _ in 0..<15 {
+                if (toggle.value as? String) == expected { return }
+                Thread.sleep(forTimeInterval: 0.1)
+            }
         }
+        XCTFail("开关 \(identifier) 未切换到\(on ? "开启" : "关闭")")
     }
 
     // MARK: - 引导门禁
