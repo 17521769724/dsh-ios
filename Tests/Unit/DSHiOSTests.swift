@@ -51,6 +51,17 @@ final class MarkdownParserTests: XCTestCase {
         XCTAssertTrue(MarkdownParser.parse("").isEmpty)
         XCTAssertTrue(MarkdownParser.parse("\n\n   \n").isEmpty)
     }
+
+    func testListMarkersAreNormalizedToBullets() {
+        let input = "- 第一条\n  - 缩进项\n* 星号项\n+ 加号项\n普通行\n1. 编号项"
+        let output = MarkdownParser.normalizeListMarkers(input)
+        XCTAssertTrue(output.contains("• 第一条"))
+        XCTAssertTrue(output.contains("  • 缩进项"), "应保留缩进")
+        XCTAssertTrue(output.contains("• 星号项"))
+        XCTAssertTrue(output.contains("• 加号项"))
+        XCTAssertTrue(output.contains("普通行"))
+        XCTAssertTrue(output.contains("1. 编号项"), "有序列不应被改写")
+    }
 }
 
 // MARK: - 会话模型

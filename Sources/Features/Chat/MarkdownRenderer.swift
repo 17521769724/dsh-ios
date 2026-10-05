@@ -13,6 +13,19 @@ struct MarkdownBlock: Identifiable {
 }
 
 enum MarkdownParser {
+
+    /// 把无序列表标记 `- ` / `* ` / `+ ` 归一化为圆点，贴近桌面端渲染效果
+    static func normalizeListMarkers(_ text: String) -> String {
+        text.components(separatedBy: "\n").map { line -> String in
+            let stripped = line.drop(while: { $0 == " " || $0 == "\t" })
+            let indent = String(line.prefix(line.count - stripped.count))
+            for marker in ["- ", "* ", "+ "] where stripped.hasPrefix(marker) {
+                return indent + "• " + stripped.dropFirst(marker.count)
+            }
+            return line
+        }.joined(separator: "\n")
+    }
+
     /// 将原始文本拆分为「普通文本块」与「代码块」，无需第三方依赖。
     /// id 由块序号生成，保证流式刷新期间视图标识稳定。
     static func parse(_ raw: String) -> [MarkdownBlock] {
@@ -128,8 +141,9 @@ struct MarkdownContentView: View {
             ForEach(MarkdownParser.parse(content)) { block in
                 switch block.kind {
                 case .text(let text):
+                    let normalized = MarkdownParser.normalizeListMarkers(text)
                     if let attributed = try? AttributedString(
-                        markdown: text,
+                        markdown: normalized,
                         options: AttributedString.MarkdownParsingOptions(
                             interpretedSyntax: .inlineOnlyPreservingWhitespace
                         )
@@ -140,7 +154,7 @@ struct MarkdownContentView: View {
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                     } else {
-                        Text(text)
+                        Text(normalized)
                             .font(.system(size: 16))
                             .foregroundStyle(textColor)
                             .textSelection(.enabled)
