@@ -18,6 +18,9 @@ struct DSHiOSApp: App {
         // -uitest-apikey 预置 Key 以便跳过引导页
         if arguments.contains("-uitest-reset") {
             conversations.deleteAll()
+            // Keychain 在模拟器上不会随 App 卸载而清空，需显式清掉 Key，
+            // 否则引导页门禁测试会因残留 Key 直接进入主页。
+            settings.apiKey = ""
         }
         if arguments.contains("-uitest-seed") {
             conversations.seedDemoConversation(model: settings.settings.defaultModel)

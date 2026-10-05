@@ -78,8 +78,21 @@ final class DSHiOSUITests: XCTestCase {
         XCTAssertTrue(element("composer.input").waitForExistence(timeout: 5))
     }
 
+    /// 设置页为懒加载列表，首屏之外的开关需先滚动到位
+    @discardableResult
+    private func scrollTo(_ identifier: String, maxSwipes: Int = 8) -> XCUIElement {
+        var target = element(identifier)
+        var swipes = 0
+        while !target.exists && swipes < maxSwipes {
+            app.swipeUp()
+            target = element(identifier)
+            swipes += 1
+        }
+        return target
+    }
+
     private func toggleFeature(_ identifier: String, on: Bool) {
-        let toggle = element(identifier)
+        let toggle = scrollTo(identifier)
         XCTAssertTrue(toggle.waitForExistence(timeout: 5), "未找到开关 \(identifier)")
         var attempts = 0
         while attempts < 4 {
