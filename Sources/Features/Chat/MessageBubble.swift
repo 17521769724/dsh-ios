@@ -87,7 +87,7 @@ struct MessageBubble: View {
                 withAnimation(DSHAnim.standard) { showReasoning.toggle() }
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "brain")
+                    Image(systemName: "brain.head.profile")
                         .font(.system(size: 12))
                     Text("已思考")
                         .font(.system(size: 13, weight: .medium))

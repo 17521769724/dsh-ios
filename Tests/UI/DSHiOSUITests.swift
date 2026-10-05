@@ -1,8 +1,8 @@
 import XCTest
 import UIKit
 
-/// 端到端 UI 测试：覆盖引导门禁、主页极简、输入框高度与键盘、设置即时生效、
-/// 功能开关、模型名称、聊天渲染与抽屉。
+/// 端到端 UI 测试：覆盖引导门禁与表单、主页极简、输入框高度与键盘、设置即时生效、
+/// 功能开关、模型列表、聊天渲染与抽屉。
 final class DSHiOSUITests: XCTestCase {
 
     private var app: XCUIApplication!
@@ -15,12 +15,13 @@ final class DSHiOSUITests: XCTestCase {
     // MARK: - 工具
 
     @discardableResult
-    private func launchApp(configured: Bool, seed: Bool) -> XCUIApplication {
+    private func launchApp(configured: Bool, seed: Bool, serverModels: Bool = false) -> XCUIApplication {
         if let existing = app, existing.state == .runningForeground { existing.terminate() }
         let instance = XCUIApplication()
         var arguments = ["-uitest-reset"]
         if configured { arguments.append("-uitest-apikey") }
         if seed { arguments.append("-uitest-seed") }
+        if serverModels { arguments.append("-uitest-server-models") }
         instance.launchArguments = arguments
         instance.launch()
         app = instance
@@ -131,37 +132,38 @@ final class DSHiOSUITests: XCTestCase {
         }
     }
 
-    /// 轨迹标签是否出现（同时兜底按可见文案判断，避免标识未暴露时误报）
-    private func trajectoryTabExists() -> Bool {
-        element("tab.trajectory").exists
-            || app.buttons["轨迹"].exists
-            || app.staticTexts["轨迹"].exists
-    }
-
-    private func waitForTrajectoryTab(timeout: TimeInterval = 8) -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if trajectoryTabExists() { return true }
-            Thread.sleep(forTimeInterval: 0.3)
-        }
-        return false
-    }
-
-    // MARK: - 引导门禁
+    // MARK: - 引导门禁与表单
 
     func test01_未配置Key时强制进入引导页() {
         launchApp(configured: false, seed: false)
 
         XCTAssertTrue(app.staticTexts["欢迎使用 DeepSeek"].waitForExistence(timeout: 10), "未进入引导页")
         XCTAssertFalse(element("composer.input").exists, "未配置 Key 时不应进入主页")
+
+        // API 地址在 Key 上方，且两者都是常显输入框（没有折起的「高级选项」）
+        let baseURL = app.textFields.matching(identifier: "onboarding.baseurl").firstMatch
+        XCTAssertTrue(baseURL.waitForExistence(timeout: 5), "缺少 API 地址输入框")
+        XCTAssertFalse(app.staticTexts["高级选项"].exists, "高级选项折叠应已移除")
         capture("01-onboarding")
 
+        let baseFrame = baseURL.frame
+        let keyField = app.secureTextFields.firstMatch
+        XCTAssertTrue(keyField.waitForExistence(timeout: 5), "缺少 API Key 输入框")
+        XCTAssertLessThan(baseFrame.minY, keyField.frame.minY, "API 地址应位于 API Key 上方")
+
         // 填写 Key 后进入主页
-        let field = app.textFields.matching(identifier: "onboarding.key").firstMatch
-        let target = field.exists ? field : app.secureTextFields.firstMatch
-        XCTAssertTrue(target.waitForExistence(timeout: 5), "未找到 Key 输入框")
-        target.tap()
-        target.typeText("sk-uitest-onboarding")
+        keyField.tap()
+        keyField.typeText("sk-uitest-onboarding")
+        XCTAssertTrue(app.keyboards.element.waitForExistence(timeout: 5), "键盘未弹出")
+
+        // 点击空白处收起键盘；点击输入框内部不应收起
+        app.staticTexts["欢迎使用 DeepSeek"].tap()
+        XCTAssertTrue(app.keyboards.element.waitForNonExistence(timeout: 3), "点击空白处后键盘未收起")
+
+        baseURL.tap()
+        XCTAssertTrue(app.keyboards.element.waitForExistence(timeout: 5), "键盘未再次弹出")
+        keyField.tap()
+        XCTAssertTrue(app.keyboards.element.exists, "点击输入框内部后键盘不应收起")
 
         app.buttons["跳过验证，直接保存"].tap()
 
@@ -179,10 +181,11 @@ final class DSHiOSUITests: XCTestCase {
         XCTAssertTrue(element("composer.thinking").exists, "默认应显示深度思考开关")
 
         // 高级入口默认关闭
-        XCTAssertFalse(element("tab.trajectory").exists, "轨迹标签默认不该出现")
         XCTAssertFalse(element("composer.model").exists, "模型选择默认不该出现")
         XCTAssertFalse(element("composer.plus").exists, "插件命令默认不该出现")
         XCTAssertFalse(element("topbar.sessionlog").exists, "会话日志入口默认不该出现")
+        // 对话/轨迹切换栏已整体移除
+        XCTAssertFalse(app.staticTexts["轨迹"].exists, "首页不应再出现轨迹切换")
         capture("03-home-minimal")
     }
 
@@ -213,10 +216,44 @@ final class DSHiOSUITests: XCTestCase {
             "输入框高度 \(height) 超过半屏（屏高 \(screenHeight)），仍存在撑满屏幕的问题"
         )
         XCTAssertLessThanOrEqual(height, 140, "输入框高度应被限制在 140pt 以内，实际 \(height)")
-
-        // 对话区域仍可见
-        XCTAssertTrue(app.staticTexts["有什么可以帮你的吗？"].exists, "输入框疑似遮挡了对话区域")
         capture("04-composer-multiline")
+
+        // 真机问题回归：通过「+ → 清空输入」清空后，输入区不能撑高
+        scrollToPluginMenu()
+        let clearItem = app.buttons["清空输入"]
+        XCTAssertTrue(clearItem.waitForExistence(timeout: 5), "缺少清空输入菜单项")
+        clearItem.tap()
+        Thread.sleep(forTimeInterval: 0.8)
+        XCTAssertLessThanOrEqual(
+            element("composer.input").frame.height,
+            60,
+            "清空输入后输入框被撑高到 \(element("composer.input").frame.height)"
+        )
+        XCTAssertTrue(app.staticTexts["有什么可以帮你的吗？"].exists, "清空后对话区域被遮挡")
+        capture("04b-composer-after-clear")
+
+        // 「+ → 插件命令」同样不能撑高输入区
+        element("composer.plus").tap()
+        let commandItem = app.buttons["插件命令"]
+        XCTAssertTrue(commandItem.waitForExistence(timeout: 5), "缺少插件命令菜单项")
+        commandItem.tap()
+        Thread.sleep(forTimeInterval: 0.8)
+        XCTAssertLessThanOrEqual(
+            element("composer.input").frame.height,
+            60,
+            "选择插件命令后输入框被撑高到 \(element("composer.input").frame.height)"
+        )
+        capture("04c-composer-after-command")
+    }
+
+    /// 先确保插件命令开关打开，再展开输入框左侧「+」菜单
+    private func scrollToPluginMenu() {
+        if !element("composer.plus").exists {
+            openSettings()
+            toggleFeature("feature.pluginCommands", on: true)
+            closeSettings()
+        }
+        element("composer.plus").tap()
     }
 
     // MARK: - 键盘收起（真机问题回归）
@@ -242,6 +279,12 @@ final class DSHiOSUITests: XCTestCase {
             app.keyboards.element.waitForNonExistence(timeout: 3),
             "点击空白处后键盘未收起"
         )
+
+        // 点击输入框内部不应收起键盘
+        composer.tap()
+        XCTAssertTrue(app.keyboards.element.waitForExistence(timeout: 5), "键盘未再次弹出")
+        composer.tap()
+        XCTAssertTrue(app.keyboards.element.exists, "点击输入框内部不应收起键盘")
     }
 
     // MARK: - 外观即时生效（真机问题回归）
@@ -250,8 +293,12 @@ final class DSHiOSUITests: XCTestCase {
         openSettings()
 
         let before = averageBrightness()
-        element("settings.theme").tap()
-        assertTrueNavigation("外观")
+        // 点击行中间留白区域，验证整行都可点（真机反馈过点了没反应）
+        let themeRow = element("settings.theme")
+        XCTAssertTrue(themeRow.waitForExistence(timeout: 5), "未找到外观入口")
+        themeRow.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.5)).tap()
+        XCTAssertTrue(app.navigationBars["外观"].waitForExistence(timeout: 5), "外观入口点击后未进入二级页")
+
         element("theme.dark").tap()
         Thread.sleep(forTimeInterval: 0.6)
         let afterDark = averageBrightness()
@@ -275,37 +322,36 @@ final class DSHiOSUITests: XCTestCase {
         closeSettings()
     }
 
-    private func assertTrueNavigation(_ title: String) {
-        XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 5), "未进入「\(title)」页面")
-    }
-
     // MARK: - 功能开关
 
-    func test06_功能开关可开启轨迹与模型选择() {
+    func test06_功能开关可开启模型选择与运行指标() {
         openSettings()
-        toggleFeature("feature.trajectoryTab", on: true)
         toggleFeature("feature.modelPicker", on: true)
         toggleFeature("feature.usageMetrics", on: true)
         capture("06-settings-features")
         closeSettings()
         capture("06-home-after-toggles")
 
-        XCTAssertTrue(waitForTrajectoryTab(), "开启后仍未出现轨迹标签")
         XCTAssertTrue(element("composer.model").waitForExistence(timeout: 5), "开启后仍未出现模型选择")
-        capture("06-features-on")
+        XCTAssertTrue(app.staticTexts["0 轮"].exists, "开启后仍未出现运行指标")
 
-        element("tab.trajectory").tap()
-        XCTAssertTrue(app.staticTexts["当前会话还没有轨迹记录"].waitForExistence(timeout: 5))
-        element("tab.chat").tap()
+        // 模型菜单只应包含模型本身，不应包含服务端拉取入口
+        element("composer.model").tap()
+        XCTAssertTrue(app.buttons["DeepSeek-V4.1-Flash"].waitForExistence(timeout: 5), "模型菜单未列出模型")
+        XCTAssertFalse(
+            app.buttons["从服务端获取模型列表"].exists,
+            "输入框的模型菜单不应包含服务端拉取入口"
+        )
+        capture("06-model-menu")
+        app.staticTexts["有什么可以帮你的吗？"].tap()
 
         // 关闭后应恢复简洁
         openSettings()
-        toggleFeature("feature.trajectoryTab", on: false)
         toggleFeature("feature.modelPicker", on: false)
         toggleFeature("feature.usageMetrics", on: false)
         closeSettings()
         Thread.sleep(forTimeInterval: 0.5)
-        XCTAssertFalse(trajectoryTabExists(), "关闭开关后轨迹标签仍然存在")
+        XCTAssertFalse(element("composer.model").exists, "关闭开关后模型选择仍然存在")
     }
 
     func test07_插件命令开关与抽屉入口() {
@@ -335,25 +381,61 @@ final class DSHiOSUITests: XCTestCase {
         element("sidebar.settings").tap()
     }
 
-    // MARK: - 模型名称（真机问题回归）
+    // MARK: - 模型列表（真机问题回归）
 
-    func test08_模型名称与官方一致() {
+    func test08_模型列表只保留在售模型() {
         openSettings()
         element("settings.model").tap()
-        assertTrueNavigation("模型")
+        XCTAssertTrue(app.navigationBars["模型"].waitForExistence(timeout: 5), "模型页未打开")
 
         XCTAssertTrue(app.staticTexts["DeepSeek-V4.1-Flash"].waitForExistence(timeout: 5), "缺少 V4.1-Flash")
         XCTAssertTrue(app.staticTexts["deepseek-flash"].exists, "缺少模型 ID")
         XCTAssertTrue(app.staticTexts["DeepSeek-V4-Pro"].exists, "缺少 V4-Pro")
+        XCTAssertFalse(app.staticTexts["deepseek-chat（已弃用）"].exists, "不应再列已下线模型")
+        XCTAssertFalse(app.staticTexts["deepseek-reasoner（已弃用）"].exists, "不应再列已下线模型")
         capture("09-models")
 
         app.navigationBars.buttons.firstMatch.tap()
         closeSettings()
     }
 
+    /// 服务端返回模型列表后，设置页上方的列表应立即反映服务端结果
+    func test09_服务端模型列表刷新后立即生效() {
+        launchApp(configured: true, seed: false, serverModels: true)
+        openSettings()
+        element("settings.model").tap()
+        XCTAssertTrue(app.navigationBars["模型"].waitForExistence(timeout: 5), "模型页未打开")
+
+        XCTAssertTrue(
+            app.staticTexts["deepseek-vl-experimental"].waitForExistence(timeout: 5),
+            "服务端返回的模型未出现在上方列表，说明拉取后没有立即刷新"
+        )
+        capture("13-models-from-server")
+
+        app.navigationBars.buttons.firstMatch.tap()
+        closeSettings()
+    }
+
+    // MARK: - 连接测试（行内）
+
+    func test10_连接测试在行内完成() {
+        openSettings()
+        let row = element("settings.connection")
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "缺少连接测试行")
+        XCTAssertTrue(app.staticTexts["点击测试"].exists, "连接测试行应提示可点击")
+        row.tap()
+
+        // 无网络环境下会给出失败文案，但结果必须出现在行内而不是二级页面
+        let result = element("settings.connection.result")
+        XCTAssertTrue(result.waitForExistence(timeout: 25), "连接测试结果未出现在行内")
+        XCTAssertFalse(app.navigationBars["连接测试"].exists, "连接测试不应进入二级页面")
+        capture("14-connection-inline")
+        closeSettings()
+    }
+
     // MARK: - 聊天渲染
 
-    func test09_聊天渲染与思考折叠() {
+    func test11_聊天渲染与思考折叠() {
         launchApp(configured: true, seed: true)
 
         let userText = app.staticTexts["用 Swift 写一个防抖函数，并解释它的用途。"]
@@ -376,7 +458,7 @@ final class DSHiOSUITests: XCTestCase {
 
     // MARK: - 抽屉
 
-    func test10_抽屉新建对话() {
+    func test12_抽屉新建对话() {
         element("topbar.sidebar").tap()
         let newConversation = element("sidebar.new")
         XCTAssertTrue(newConversation.waitForExistence(timeout: 5), "抽屉未打开")

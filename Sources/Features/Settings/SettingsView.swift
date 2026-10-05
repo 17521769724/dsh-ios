@@ -73,11 +73,7 @@ struct SettingsView: View {
             }
             .accessibilityIdentifier("settings.model")
 
-            NavigationLink {
-                ConnectionTestView()
-            } label: {
-                SettingsRowLabel(symbol: "bolt.horizontal.circle.fill", color: .green, title: "连接测试")
-            }
+            ConnectionTestRow()
         } header: {
             Text("模型服务")
         } footer: {
@@ -94,14 +90,14 @@ struct SettingsView: View {
             }
 
             Toggle(isOn: $settingsStore.settings.thinkingEnabled) {
-                SettingsRowLabel(symbol: "brain.fill", color: .pink, title: "深度思考")
+                SettingsRowLabel(symbol: "brain.head.profile", color: .pink, title: "深度思考")
             }
 
             NavigationLink {
                 ThinkingEffortSettingsView()
             } label: {
                 SettingsValueRow(
-                    symbol: "dial.high.fill",
+                    symbol: "speedometer",
                     color: .orange,
                     title: "思考强度",
                     value: settings.reasoningEffort.displayName
@@ -112,7 +108,7 @@ struct SettingsView: View {
                 TemperatureSettingsView()
             } label: {
                 SettingsValueRow(
-                    symbol: "thermometer.medium",
+                    symbol: "thermometer",
                     color: .red,
                     title: "温度",
                     value: String(format: "%.2f", settings.temperature)
@@ -159,7 +155,7 @@ struct SettingsView: View {
     private var homeFeaturesSection: some View {
         Section {
             Toggle(isOn: $settingsStore.settings.features.deepThinkingToggle) {
-                SettingsRowLabel(symbol: "brain", color: .pink, title: "主页显示深度思考开关")
+                SettingsRowLabel(symbol: "brain.head.profile", color: .pink, title: "主页显示深度思考开关")
             }
             .accessibilityIdentifier("feature.deepThinkingToggle")
             Toggle(isOn: $settingsStore.settings.features.examplePrompts) {
@@ -174,10 +170,6 @@ struct SettingsView: View {
                 SettingsRowLabel(symbol: "chart.bar.fill", color: .orange, title: "显示运行指标")
             }
             .accessibilityIdentifier("feature.usageMetrics")
-            Toggle(isOn: $settingsStore.settings.features.trajectoryTab) {
-                SettingsRowLabel(symbol: "point.topleft.down.curvedto.point.bottomright.up", color: .teal, title: "对话 / 轨迹 切换")
-            }
-            .accessibilityIdentifier("feature.trajectoryTab")
             Toggle(isOn: $settingsStore.settings.features.sessionLog) {
                 SettingsRowLabel(symbol: "list.bullet.rectangle", color: .blue, title: "会话日志入口")
             }
@@ -344,6 +336,7 @@ struct ModelSettingsView: View {
                                     .foregroundStyle(DSHTheme.brand)
                             }
                         }
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
@@ -362,14 +355,18 @@ struct ModelSettingsView: View {
                     engine.refreshModels()
                 } label: {
                     HStack {
-                        Text("从服务端获取模型列表")
+                        Label("从服务端获取模型列表", systemImage: "arrow.triangle.2.circlepath")
                         Spacer()
                         if engine.isRefreshingModels {
                             ProgressView().controlSize(.small)
                         }
                     }
+                    .contentShape(Rectangle())
                 }
                 .disabled(engine.isRefreshingModels)
+                .accessibilityIdentifier("settings.models.refresh")
+            } footer: {
+                Text("拉取成功后，上方列表与输入框的模型选择会立即更新为服务端返回的模型。")
             }
         }
         .listStyle(.insetGrouped)
@@ -379,9 +376,9 @@ struct ModelSettingsView: View {
     }
 }
 
-// MARK: - 连接测试
+// MARK: - 连接测试（行内直接测试，不进入二级页面）
 
-struct ConnectionTestView: View {
+struct ConnectionTestRow: View {
     @EnvironmentObject private var settingsStore: SettingsStore
 
     @State private var testing = false
@@ -389,30 +386,43 @@ struct ConnectionTestView: View {
     @State private var succeeded = false
 
     var body: some View {
-        List {
-            Section {
-                Button {
-                    run()
-                } label: {
-                    HStack {
-                        Text("开始测试")
-                        Spacer()
-                        if testing { ProgressView().controlSize(.small) }
-                    }
-                }
-                .disabled(testing || !settingsStore.isConfigured)
-            } footer: {
-                if let result {
-                    Text(result).foregroundStyle(succeeded ? DSHTheme.success : DSHTheme.danger)
-                } else {
-                    Text("向服务端请求模型列表，用于验证 Key 与地址是否可用。")
-                }
+        Button {
+            run()
+        } label: {
+            HStack(spacing: DSHTheme.Spacing.medium) {
+                SettingsIcon(symbol: "bolt.horizontal.circle.fill", color: .green)
+                Text("连接测试")
+                Spacer(minLength: DSHTheme.Spacing.small)
+                trailing
             }
+            .contentShape(Rectangle())
         }
-        .listStyle(.insetGrouped)
-        .navigationTitle("连接测试")
-        .navigationBarTitleDisplayMode(.inline)
-        .tint(DSHTheme.brand)
+        .buttonStyle(.plain)
+        .disabled(testing || !settingsStore.isConfigured)
+        .accessibilityIdentifier("settings.connection")
+    }
+
+    @ViewBuilder
+    private var trailing: some View {
+        if testing {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("测试中")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+            }
+        } else if let result {
+            Text(result)
+                .font(.system(size: 13))
+                .foregroundStyle(succeeded ? DSHTheme.success : DSHTheme.danger)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .accessibilityIdentifier("settings.connection.result")
+        } else {
+            Text(settingsStore.isConfigured ? "点击测试" : "未配置 Key")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+        }
     }
 
     private func run() {
@@ -422,16 +432,28 @@ struct ConnectionTestView: View {
         let settings = settingsStore.settings
         let key = settingsStore.apiKey
         Task { @MainActor in
+            defer { testing = false }
             do {
                 let ids = try await client.fetchModelIDs(settings: settings, apiKey: key)
                 succeeded = true
-                result = "连接成功，共 \(ids.count) 个模型"
+                result = "连接正常 · \(ids.count) 个模型"
             } catch {
                 succeeded = false
-                result = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                // 行内只显示简短结果，完整信息在无障碍标签中
+                let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                result = Self.short(message)
             }
-            testing = false
         }
+    }
+
+    /// 缩短错误文案，例如「API Key 无效或已失效（401）」→「Key 无效 · 401」
+    private static func short(_ message: String) -> String {
+        if let range = message.range(of: "（") {
+            let head = String(message[..<range.lowerBound])
+            let tail = message[range.upperBound...].replacingOccurrences(of: "）", with: "")
+            return "\(head) · \(tail)"
+        }
+        return message.count > 12 ? String(message.prefix(12)) + "…" : message
     }
 }
 
@@ -496,7 +518,7 @@ struct TemperatureSettingsView: View {
                         .tint(DSHTheme.brand)
                 }
             } footer: {
-                Text("值越低回答越稳定，越高越有创造性。日常建议 0.6 ~ 1.0。")
+                Text("值越低回答越稳定，越高越有创造性。日常建议 0.6 ~ 1.0。\n与「深度思考」不冲突：两者是不同参数，但官方 API 在深度思考开启时会忽略 temperature，此时该值不生效。")
             }
         }
         .listStyle(.insetGrouped)
@@ -613,7 +635,6 @@ struct DataSettingsView: View {
 // MARK: - 关于
 
 struct AboutSettingsView: View {
-    @EnvironmentObject private var plugins: PluginManager
 
     var body: some View {
         List {
@@ -623,12 +644,6 @@ struct AboutSettingsView: View {
                 LabeledContent("插件运行时", value: "JavaScriptCore")
             }
             Section {
-                NavigationLink {
-                    PluginDirectoryInfoView()
-                        .environmentObject(plugins)
-                } label: {
-                    Text("插件目录说明")
-                }
                 Link(destination: URL(string: "https://api-docs.deepseek.com")!) {
                     Text("DeepSeek API 文档")
                 }

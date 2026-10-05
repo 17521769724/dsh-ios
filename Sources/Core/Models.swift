@@ -104,26 +104,22 @@ struct Conversation: Identifiable, Codable, Hashable {
 
 /// 模型描述。名称与 ID 均以官方 API 文档为准（2026-09 更新）：
 /// `deepseek-flash` = DeepSeek-V4.1-Flash，`deepseek-v4-pro` = DeepSeek-V4-Pro。
-/// `deepseek-chat` / `deepseek-reasoner` 已于 2026/07/24 弃用，仅作兼容保留。
+/// 历史模型（deepseek-chat / deepseek-reasoner）已下线，不再出现在可选列表中。
 struct DSHModel: Identifiable, Codable, Hashable {
     var id: String
     var name: String
     var supportsThinking: Bool
-    var isDeprecated: Bool
 
-    init(id: String, name: String, supportsThinking: Bool = true, isDeprecated: Bool = false) {
+    init(id: String, name: String, supportsThinking: Bool = true) {
         self.id = id
         self.name = name
         self.supportsThinking = supportsThinking
-        self.isDeprecated = isDeprecated
     }
 
     /// 内置兜底列表；实际使用时可用「获取模型列表」从服务端拉取真实 ID
     static let catalog: [DSHModel] = [
         DSHModel(id: "deepseek-flash", name: "DeepSeek-V4.1-Flash"),
-        DSHModel(id: "deepseek-v4-pro", name: "DeepSeek-V4-Pro"),
-        DSHModel(id: "deepseek-chat", name: "deepseek-chat（已弃用）", supportsThinking: false, isDeprecated: true),
-        DSHModel(id: "deepseek-reasoner", name: "deepseek-reasoner（已弃用）", isDeprecated: true)
+        DSHModel(id: "deepseek-v4-pro", name: "DeepSeek-V4-Pro")
     ]
 
     static let defaultModelID = "deepseek-flash"
@@ -133,7 +129,12 @@ struct DSHModel: Identifiable, Codable, Hashable {
         catalog.first(where: { $0.id == id }) ?? DSHModel(id: id, name: id, supportsThinking: true)
     }
 
-    static var current: [DSHModel] { catalog.filter { !$0.isDeprecated } }
+    /// 服务端返回的 ID 列表 → 去重排序后的模型列表（拉取后用于刷新设置与输入框中的选择列表）
+    static func list(from ids: [String]) -> [DSHModel] {
+        let unique = Array(Set(ids.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }))
+            .filter { !$0.isEmpty }
+        return unique.sorted().map { describe(id: $0) }
+    }
 }
 
 // MARK: - 思考强度
@@ -165,8 +166,6 @@ enum ReasoningEffort: String, Codable, CaseIterable, Identifiable {
 // MARK: - 功能开关（主页保持简洁，高级能力按需开启）
 
 struct FeatureFlags: Codable, Equatable {
-    /// 对话页顶部的「轨迹」标签
-    var trajectoryTab: Bool = false
     /// 顶栏的「会话日志」入口
     var sessionLog: Bool = false
     /// 输入框的插件命令面板（输入 / 呼出）
@@ -186,7 +185,6 @@ struct FeatureFlags: Codable, Equatable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let fallback = FeatureFlags()
-        self.trajectoryTab = try container.decodeIfPresent(Bool.self, forKey: .trajectoryTab) ?? fallback.trajectoryTab
         self.sessionLog = try container.decodeIfPresent(Bool.self, forKey: .sessionLog) ?? fallback.sessionLog
         self.pluginCommands = try container.decodeIfPresent(Bool.self, forKey: .pluginCommands) ?? fallback.pluginCommands
         self.modelPicker = try container.decodeIfPresent(Bool.self, forKey: .modelPicker) ?? fallback.modelPicker
@@ -196,7 +194,6 @@ struct FeatureFlags: Codable, Equatable {
     }
 
     init(
-        trajectoryTab: Bool,
         sessionLog: Bool,
         pluginCommands: Bool,
         modelPicker: Bool,
@@ -204,7 +201,6 @@ struct FeatureFlags: Codable, Equatable {
         deepThinkingToggle: Bool,
         examplePrompts: Bool
     ) {
-        self.trajectoryTab = trajectoryTab
         self.sessionLog = sessionLog
         self.pluginCommands = pluginCommands
         self.modelPicker = modelPicker
@@ -214,7 +210,6 @@ struct FeatureFlags: Codable, Equatable {
     }
 
     static let allOn = FeatureFlags(
-        trajectoryTab: true,
         sessionLog: true,
         pluginCommands: true,
         modelPicker: true,

@@ -1,8 +1,8 @@
 import SwiftUI
 import UIKit
 
-/// 底部输入区，对齐 DeepSeek iOS 客户端：
-/// 圆角容器内上方是「深度思考 / 模型」胶囊，下方是输入框与圆形发送键。
+/// 底部输入区：
+/// 「深度思考 / 模型」等快捷胶囊独立成行，输入框自身是独立卡片，两者不再嵌套在同一卡片内。
 struct ComposerBar: View {
     @EnvironmentObject private var engine: ChatEngine
     @EnvironmentObject private var settingsStore: SettingsStore
@@ -24,13 +24,17 @@ struct ComposerBar: View {
     }
 
     var body: some View {
-        VStack(spacing: DSHTheme.Spacing.small) {
+        VStack(alignment: .leading, spacing: DSHTheme.Spacing.small) {
             if !matchedCommands.isEmpty && focused {
                 commandPanel
                     .transition(.opacity)
             }
 
-            inputContainer
+            if showsQuickChips {
+                quickChips
+            }
+
+            inputCard
 
             if features.usageMetrics {
                 metricsLine
@@ -44,40 +48,40 @@ struct ComposerBar: View {
         .animation(DSHAnim.standard, value: engine.isStreaming)
     }
 
-    // MARK: - 输入容器
+    // MARK: - 输入卡片（独立于上方胶囊）
 
-    private var inputContainer: some View {
-        VStack(alignment: .leading, spacing: DSHTheme.Spacing.small) {
-            if showsTopChips {
-                topChips
+    private var inputCard: some View {
+        HStack(alignment: .bottom, spacing: DSHTheme.Spacing.small) {
+            if features.pluginCommands {
+                plusButton
             }
 
-            HStack(alignment: .bottom, spacing: DSHTheme.Spacing.small) {
-                if features.pluginCommands {
-                    plusButton
-                }
+            inputField
 
-                inputField
-
-                sendButton
-            }
+            sendButton
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 9)
-        .background(DSHTheme.inputBackground)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(DSHTheme.composerCard)
         .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.composer, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: DSHTheme.Radius.composer, style: .continuous)
-                .stroke(focused ? DSHTheme.brand.opacity(0.6) : Color.clear, lineWidth: 1)
+                .stroke(
+                    focused ? DSHTheme.brand.opacity(0.55) : DSHTheme.separator.opacity(0.45),
+                    lineWidth: focused ? 1.2 : 0.8
+                )
         )
+        .shadow(color: .black.opacity(0.05), radius: 8, y: 2)
         .animation(DSHAnim.standard, value: focused)
     }
 
-    private var showsTopChips: Bool {
+    // MARK: - 快捷胶囊（独立成行，不放进输入卡片）
+
+    private var showsQuickChips: Bool {
         features.deepThinkingToggle || features.modelPicker
     }
 
-    private var topChips: some View {
+    private var quickChips: some View {
         HStack(spacing: DSHTheme.Spacing.small) {
             if features.deepThinkingToggle {
                 thinkingChip
@@ -87,34 +91,43 @@ struct ComposerBar: View {
             }
             Spacer(minLength: 0)
         }
+        .padding(.leading, 4)
     }
 
-    /// 「深度思考」开关：对应官方 API 的 thinking 参数
+    /// 「深度思考」开关：开/关使用同一图标，仅背景色变化
     private var thinkingChip: some View {
         Button {
             engine.toggleDeepThinking()
         } label: {
             HStack(spacing: 5) {
-                Image(systemName: settings.thinkingEnabled ? "brain.fill" : "brain")
+                Image(systemName: "brain.head.profile")
                     .font(.system(size: 11, weight: .semibold))
                 Text("深度思考")
                     .font(.system(size: 12, weight: .medium))
             }
-            .foregroundStyle(settings.thinkingEnabled ? DSHTheme.brand : Color.secondary)
+            .foregroundStyle(.primary)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(settings.thinkingEnabled ? DSHTheme.brandSoft : Color(uiColor: .tertiarySystemFill))
+            .background(settings.thinkingEnabled ? DSHTheme.brandSoft : DSHTheme.chipFill)
             .clipShape(Capsule())
+            .overlay(
+                Capsule().stroke(
+                    settings.thinkingEnabled ? DSHTheme.brand.opacity(0.35) : Color.clear,
+                    lineWidth: 1
+                )
+            )
         }
         .buttonStyle(.plain)
+        .animation(DSHAnim.standard, value: settings.thinkingEnabled)
         .accessibilityIdentifier("composer.thinking")
         .accessibilityLabel("深度思考")
         .accessibilityValue(settings.thinkingEnabled ? "已开启" : "已关闭")
     }
 
+    /// 模型选择：只列出可选模型，服务端拉取入口只在设置页提供
     private var modelChip: some View {
         Menu {
-            ForEach(engine.availableModels.filter { !$0.isDeprecated }) { model in
+            ForEach(engine.availableModels) { model in
                 Button {
                     engine.selectModel(model.id)
                 } label: {
@@ -125,14 +138,10 @@ struct ComposerBar: View {
                     }
                 }
             }
-            Divider()
-            Button {
-                engine.refreshModels()
-            } label: {
-                Label("从服务端获取模型列表", systemImage: "arrow.triangle.2.circlepath")
-            }
         } label: {
             HStack(spacing: 4) {
+                Image(systemName: "cpu")
+                    .font(.system(size: 10, weight: .semibold))
                 Text(engine.activeModelName)
                     .font(.system(size: 12, weight: .medium))
                     .lineLimit(1)
@@ -142,7 +151,7 @@ struct ComposerBar: View {
             .foregroundStyle(.secondary)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(Color(uiColor: .tertiarySystemFill))
+            .background(DSHTheme.chipFill)
             .clipShape(Capsule())
         }
         .accessibilityIdentifier("composer.model")
@@ -150,46 +159,49 @@ struct ComposerBar: View {
     }
 
     /// 输入框：空态保持单行高度，随内容增长，最多 5 行后内部滚动。
-    /// 不额外套 frame(maxHeight:)，否则纵向 TextField 会按上限高度占位、撑高输入区。
     /// 键盘回车键换行（与官方客户端一致），发送由右侧按钮触发。
     private var inputField: some View {
-        TextField("给 DeepSeek 发送消息", text: $engine.draft, axis: .vertical)
+        TextField("给智能体发送消息", text: $engine.draft, axis: .vertical)
             .textFieldStyle(.plain)
             .font(.system(size: 16))
             .lineLimit(1...5)
             .focused($focused)
             .submitLabel(.return)
             .padding(.vertical, 6)
-            .padding(.leading, 4)
             .accessibilityIdentifier("composer.input")
     }
 
     private var plusButton: some View {
         Menu {
             Button {
-                withAnimation(DSHAnim.standard) {
-                    engine.draft = engine.draft.isEmpty ? "/" : "/" + engine.draft
-                }
-                focused = true
+                engine.draft = "/" + engine.draft
+                focusInputSoon()
             } label: {
                 Label("插件命令", systemImage: "command")
             }
-            Button {
-                engine.draft = ""
-                focused = true
-            } label: {
-                Label("清空输入", systemImage: "eraser")
+            if !engine.draft.isEmpty {
+                Button {
+                    // 只清空内容，不在这里改动焦点，避免输入卡片高度被异常撑开
+                    engine.draft = ""
+                } label: {
+                    Label("清空输入", systemImage: "eraser")
+                }
             }
         } label: {
             Image(systemName: "plus")
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(.secondary)
-                .frame(width: 28, height: 28)
+                .frame(width: 26, height: 26)
                 .contentShape(Rectangle())
         }
         .disabled(engine.isStreaming)
         .accessibilityIdentifier("composer.plus")
         .accessibilityLabel("更多")
+    }
+
+    /// 菜单收起后再聚焦，避免菜单退场动画期间输入框布局错乱
+    private func focusInputSoon() {
+        DispatchQueue.main.async { focused = true }
     }
 
     @ViewBuilder
@@ -217,8 +229,13 @@ struct ComposerBar: View {
                     .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(canSend ? .white : Color.secondary)
                     .frame(width: 30, height: 30)
-                    .background(canSend ? DSHTheme.brand : Color(uiColor: .tertiarySystemFill))
-                    .clipShape(Circle())
+                    .background {
+                        Circle().fill(
+                            canSend
+                                ? AnyShapeStyle(DSHTheme.brandGradient)
+                                : AnyShapeStyle(Color(uiColor: .tertiarySystemFill))
+                        )
+                    }
             }
             .buttonStyle(.plain)
             .disabled(!canSend)
@@ -312,6 +329,6 @@ struct ComposerBar: View {
             engine.showToast("/\(command.name) → \(output)")
             engine.draft = ""
         }
-        focused = true
+        focusInputSoon()
     }
 }

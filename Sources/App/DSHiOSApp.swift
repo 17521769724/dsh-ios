@@ -29,14 +29,24 @@ struct DSHiOSApp: App {
             settings.apiKey = "sk-uitest-placeholder"
         }
 
-        _settingsStore = StateObject(wrappedValue: settings)
-        _conversationStore = StateObject(wrappedValue: conversations)
-        _pluginManager = StateObject(wrappedValue: pluginManager)
-        _engine = StateObject(wrappedValue: ChatEngine(
+        let engine = ChatEngine(
             settingsStore: settings,
             conversationStore: conversations,
             pluginManager: pluginManager
-        ))
+        )
+        // -uitest-server-models 模拟「已从服务端拉取模型列表」，用于验证列表刷新链路
+        if arguments.contains("-uitest-server-models") {
+            engine.availableModels = DSHModel.list(from: [
+                "deepseek-flash",
+                "deepseek-v4-pro",
+                "deepseek-vl-experimental"
+            ])
+        }
+
+        _settingsStore = StateObject(wrappedValue: settings)
+        _conversationStore = StateObject(wrappedValue: conversations)
+        _pluginManager = StateObject(wrappedValue: pluginManager)
+        _engine = StateObject(wrappedValue: engine)
     }
 
     var body: some Scene {

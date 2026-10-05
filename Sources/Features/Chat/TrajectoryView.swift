@@ -67,7 +67,7 @@ struct TrajectoryView: View {
         Group {
             if events.isEmpty {
                 VStack(spacing: DSHTheme.Spacing.small) {
-                    Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
+                    Image(systemName: "clock.arrow.circlepath")
                         .font(.system(size: 24))
                         .foregroundStyle(.tertiary)
                     Text("当前会话还没有轨迹记录")

@@ -76,11 +76,12 @@ final class ChatEngine: ObservableObject {
                     modelsError = "服务端未返回任何模型"
                     return
                 }
-                availableModels = ids.sorted().map { DSHModel.describe(id: $0) }
-                if !ids.contains(settingsStore.settings.defaultModel) {
-                    settingsStore.settings.defaultModel = ids[0]
+                // 拉取成功后，设置页与输入框上方的模型列表会立即刷新为服务端结果
+                availableModels = DSHModel.list(from: ids)
+                if !availableModels.contains(where: { $0.id == settingsStore.settings.defaultModel }) {
+                    settingsStore.settings.defaultModel = availableModels[0].id
                 }
-                showToast("已获取 \(ids.count) 个模型")
+                showToast("已获取 \(availableModels.count) 个模型")
             } catch {
                 modelsError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }
@@ -404,6 +405,8 @@ final class ChatEngine: ObservableObject {
 
     private func presentError(_ message: String) {
         lastError = message
+        // 与触感反馈开关保持一致：关闭后不产生任何振动
+        guard settingsStore.settings.hapticsEnabled else { return }
         UINotificationFeedbackGenerator().notificationOccurred(.error)
     }
 

@@ -4,37 +4,12 @@ import UIKit
 /// 对话主界面：极简主页，高级能力通过设置开关按需出现。
 struct ChatView: View {
     @EnvironmentObject private var engine: ChatEngine
-    @EnvironmentObject private var settingsStore: SettingsStore
-    @EnvironmentObject private var plugins: PluginManager
 
     @FocusState private var inputFocused: Bool
-    @State private var tab: ContentTab = .chat
-
-    enum ContentTab: String, CaseIterable, Identifiable {
-        case chat = "对话"
-        case trajectory = "轨迹"
-        var id: String { rawValue }
-    }
-
-    private var features: FeatureFlags { settingsStore.settings.features }
 
     var body: some View {
-        Group {
-            if features.trajectoryTab {
-                VStack(spacing: 0) {
-                    tabBar
-                    Divider().opacity(0.5)
-                    if tab == .chat {
-                        conversation
-                    } else {
-                        TrajectoryView()
-                    }
-                }
-            } else {
-                conversation
-            }
-        }
-        .background(DSHTheme.page)
+        conversation
+            .background(DSHTheme.page)
     }
 
     // MARK: - 对话区
@@ -111,35 +86,6 @@ struct ChatView: View {
         guard message.role == .assistant else { return false }
         let messages = engine.currentConversation?.messages ?? []
         return messages.last(where: { $0.role == .assistant })?.id == message.id
-    }
-
-    // MARK: - 对话 / 轨迹 切换（可选）
-
-    private var tabBar: some View {
-        HStack(spacing: DSHTheme.Spacing.section) {
-            ForEach(ContentTab.allCases) { item in
-                Button {
-                    withAnimation(DSHAnim.standard) { tab = item }
-                } label: {
-                    VStack(spacing: 6) {
-                        Text(item.rawValue)
-                            .font(.system(size: 15, weight: tab == item ? .semibold : .regular))
-                            .foregroundStyle(tab == item ? Color.primary : Color.secondary)
-                        Rectangle()
-                            .fill(tab == item ? DSHTheme.brand : Color.clear)
-                            .frame(height: 2)
-                            .clipShape(Capsule())
-                    }
-                    .fixedSize()
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier(item == .chat ? "tab.chat" : "tab.trajectory")
-            }
-            Spacer()
-        }
-        .padding(.horizontal, DSHTheme.Spacing.large)
-        .padding(.top, 8)
-        .animation(DSHAnim.standard, value: tab)
     }
 }
 

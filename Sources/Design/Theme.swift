@@ -5,11 +5,17 @@ import UIKit
 /// 避免多种色相互相干扰，整体接近系统「设置」与原生 App 的观感。
 enum DSHTheme {
 
-    // MARK: - 品牌色（DeepSeek #4D6BFE）
+    // MARK: - 品牌色（在 DeepSeek #4D6BFE 基础上微调，偏靛蓝更通透）
 
-    static let brand = Color(red: 0.302, green: 0.420, blue: 0.996)
-    static let brandDeep = Color(red: 0.212, green: 0.310, blue: 0.847)
-    static let brandSoft = Color(red: 0.302, green: 0.420, blue: 0.996).opacity(0.12)
+    static let brand = Color(red: 0.345, green: 0.400, blue: 0.980)
+    static let brandDeep = Color(red: 0.455, green: 0.310, blue: 0.945)
+    static let brandSoft = Color(red: 0.345, green: 0.400, blue: 0.980).opacity(0.14)
+    /// 品牌渐变：用于图标、发送键等强调元素
+    static let brandGradient = LinearGradient(
+        colors: [brand, brandDeep],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+    )
 
     // MARK: - 语义色（全部走系统语义色，自动适配深浅色）
 
@@ -20,7 +26,10 @@ enum DSHTheme {
     static let userText = Color(uiColor: .label)
     /// 助手消息不使用气泡，直接铺在页面背景上
     static let assistantText = Color(uiColor: .label)
-    static let inputBackground = Color(uiColor: .secondarySystemBackground)
+    /// 输入卡片底色（独立卡片，配合细描边与极轻投影）
+    static let composerCard = Color(uiColor: .secondarySystemBackground)
+    /// 未激活胶囊底色
+    static let chipFill = Color(uiColor: .tertiarySystemFill)
     static let reasoningBackground = Color(uiColor: .secondarySystemBackground)
     static let separator = Color(uiColor: .separator)
 

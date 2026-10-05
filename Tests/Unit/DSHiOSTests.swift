@@ -113,18 +113,27 @@ final class ConversationModelTests: XCTestCase {
         XCTAssertEqual(DSHModel.describe(id: "deepseek-flash").name, "DeepSeek-V4.1-Flash")
         XCTAssertEqual(DSHModel.describe(id: "deepseek-v4-pro").name, "DeepSeek-V4-Pro")
 
-        // 已弃用的旧模型名不应出现在当前可选列表中
-        let currentIDs = DSHModel.current.map(\.id)
-        XCTAssertTrue(currentIDs.contains("deepseek-flash"))
-        XCTAssertTrue(currentIDs.contains("deepseek-v4-pro"))
-        XCTAssertFalse(currentIDs.contains("deepseek-chat"))
-        XCTAssertFalse(currentIDs.contains("deepseek-reasoner"))
+        // 已下线的旧模型名不应出现在可选列表中
+        let catalogIDs = DSHModel.catalog.map(\.id)
+        XCTAssertTrue(catalogIDs.contains("deepseek-flash"))
+        XCTAssertTrue(catalogIDs.contains("deepseek-v4-pro"))
+        XCTAssertFalse(catalogIDs.contains("deepseek-chat"))
+        XCTAssertFalse(catalogIDs.contains("deepseek-reasoner"))
 
         // 未知模型按原 ID 展示，不臆造名称
         XCTAssertEqual(DSHModel.describe(id: "my-custom-model").name, "my-custom-model")
 
         // 支持思考模式的模型
         XCTAssertTrue(DSHModel.describe(id: "deepseek-flash").supportsThinking)
+    }
+
+    /// 服务端返回的模型列表应去重排序，并让已知模型带上中文名称
+    func testServerModelListMapping() {
+        let models = DSHModel.list(from: ["deepseek-v4-pro", " deepseek-flash ", "deepseek-flash", "", "my-model"])
+        XCTAssertEqual(models.map(\.id), ["deepseek-flash", "deepseek-v4-pro", "my-model"])
+        XCTAssertEqual(models[0].name, "DeepSeek-V4.1-Flash")
+        XCTAssertEqual(models[1].name, "DeepSeek-V4-Pro")
+        XCTAssertEqual(models[2].name, "my-model")
     }
 
     func testThemeDisplayNames() {
@@ -147,7 +156,6 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertTrue(settings.thinkingEnabled)
         XCTAssertEqual(settings.reasoningEffort, .high)
         // 主页默认保持简洁：高级入口默认关闭
-        XCTAssertFalse(settings.features.trajectoryTab)
         XCTAssertFalse(settings.features.sessionLog)
         XCTAssertFalse(settings.features.pluginCommands)
         XCTAssertFalse(settings.features.modelPicker)
@@ -183,7 +191,7 @@ final class SettingsStoreTests: XCTestCase {
         // 新增字段回落到默认值
         XCTAssertTrue(decoded.thinkingEnabled)
         XCTAssertEqual(decoded.reasoningEffort, .high)
-        XCTAssertFalse(decoded.features.trajectoryTab)
+        XCTAssertFalse(decoded.features.modelPicker)
     }
 
     func testIsConfiguredReflectsAPIKey() {

@@ -27,6 +27,8 @@ struct SettingsRowLabel: View {
             SettingsIcon(symbol: symbol, color: color)
             Text(title)
         }
+        // 整行都可点：避免点到留白区域时无响应
+        .contentShape(Rectangle())
     }
 }
 
@@ -47,5 +49,7 @@ struct SettingsValueRow: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
+        // 整行都可点：避免点到留白区域时无响应
+        .contentShape(Rectangle())
     }
 }
