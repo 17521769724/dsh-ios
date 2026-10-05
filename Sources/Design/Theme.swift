@@ -79,7 +79,7 @@ enum DSHAnim {
 func dshApplyAppearanceChange(
     to preference: AppThemePreference,
     duration: Double = 0.3,
-    _ changes: () -> Void
+    _ changes: @escaping () -> Void
 ) {
     guard let window = UIApplication.shared.connectedScenes
         .compactMap({ $0 as? UIWindowScene })
