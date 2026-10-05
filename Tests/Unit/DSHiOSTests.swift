@@ -482,6 +482,7 @@ final class NetworkingTests: XCTestCase {
             switch event {
             case .content(let delta): content += delta
             case .reasoning(let delta): reasoning += delta
+            case .toolCalls: break
             case .finished(let value): if let value { usage = value }
             }
         }
@@ -551,7 +552,12 @@ final class NetworkingTests: XCTestCase {
     // MARK: 思考模式参数
 
     /// 只关心发出去的请求体，因此用最小 SSE 响应收尾
-    private func runStream(model: String, settings: AppSettings) async {
+    private func runStream(
+        model: String,
+        settings: AppSettings,
+        tools: [APITool] = [],
+        messages: [APIMessage] = [APIMessage(role: "user", content: "hi")]
+    ) async {
         MockURLProtocol.handler = { request in
             MockURLProtocol.lastRequestBody = MockURLProtocol.body(of: request)
             let response = HTTPURLResponse(
@@ -564,8 +570,9 @@ final class NetworkingTests: XCTestCase {
         }
         let client = DeepSeekClient(timeout: 10, configuration: MockURLProtocol.configuration)
         let stream = client.streamChat(
-            messages: [APIMessage(role: "user", content: "hi")],
+            messages: messages,
             model: model,
+            tools: tools,
             settings: settings,
             apiKey: "sk-test"
         )
@@ -609,6 +616,74 @@ final class NetworkingTests: XCTestCase {
 
         let body = try XCTUnwrap(MockURLProtocol.decodedLastRequestBody())
         XCTAssertNil(body["thinking"])
+    }
+
+    // MARK: 工具调用参数
+
+    /// 开启工具后请求体应携带 tools；未开启时不应出现该字段
+    func testToolDefinitionsAreSentOnlyWhenProvided() async throws {
+        await runStream(
+            model: "deepseek-flash",
+            settings: .default,
+            tools: AgentToolCatalog.tools(sshConfigured: true)
+        )
+
+        let body = try XCTUnwrap(MockURLProtocol.decodedLastRequestBody())
+        let tools = try XCTUnwrap(body["tools"] as? [[String: Any]])
+        XCTAssertEqual(tools.count, 3, "SSH 已配置时应下发 ssh_exec 与两个浏览器工具")
+        let names = tools.compactMap { ($0["function"] as? [String: Any])?["name"] as? String }
+        XCTAssertEqual(names, ["ssh_exec", "browser_open", "browser_read"])
+        XCTAssertEqual(tools.first?["type"] as? String, "function")
+        let parameters = (tools.first?["function"] as? [String: Any])?["parameters"] as? [String: Any]
+        XCTAssertEqual(parameters?["type"] as? String, "object")
+        XCTAssertNotNil(parameters?["properties"])
+
+        await runStream(model: "deepseek-flash", settings: .default)
+        let plainBody = try XCTUnwrap(MockURLProtocol.decodedLastRequestBody())
+        XCTAssertNil(plainBody["tools"], "未开启工具时不应下发 tools")
+    }
+
+    /// SSH 未配置时不下发 ssh_exec，避免模型调用必然失败的工具
+    func testSSHToolIsOmittedWhenNotConfigured() async throws {
+        await runStream(
+            model: "deepseek-flash",
+            settings: .default,
+            tools: AgentToolCatalog.tools(sshConfigured: false)
+        )
+
+        let body = try XCTUnwrap(MockURLProtocol.decodedLastRequestBody())
+        let tools = try XCTUnwrap(body["tools"] as? [[String: Any]])
+        let names = tools.compactMap { ($0["function"] as? [String: Any])?["name"] as? String }
+        XCTAssertEqual(names, ["browser_open", "browser_read"])
+    }
+
+    /// 工具调用消息按 OpenAI 兼容格式编码（assistant.tool_calls / tool.tool_call_id）
+    func testToolMessagesAreEncodedForAPI() async throws {
+        await runStream(
+            model: "deepseek-flash",
+            settings: .default,
+            messages: [
+                APIMessage(role: "user", content: "看看服务器磁盘"),
+                APIMessage(role: "assistant", content: "", toolCalls: [
+                    ToolCall(id: "call_1", name: "ssh_exec", arguments: #"{"command":"df -h"}"#)
+                ]),
+                APIMessage(role: "tool", content: "/dev/vda1  40G  12G  28G  30% /", toolCallID: "call_1")
+            ]
+        )
+
+        let body = try XCTUnwrap(MockURLProtocol.decodedLastRequestBody())
+        let messages = try XCTUnwrap(body["messages"] as? [[String: Any]])
+        XCTAssertEqual(messages.count, 3)
+
+        let calls = try XCTUnwrap(messages[1]["tool_calls"] as? [[String: Any]])
+        XCTAssertEqual(calls.first?["id"] as? String, "call_1")
+        XCTAssertEqual(calls.first?["type"] as? String, "function")
+        let function = calls.first?["function"] as? [String: Any]
+        XCTAssertEqual(function?["name"] as? String, "ssh_exec")
+        XCTAssertEqual(function?["arguments"] as? String, #"{"command":"df -h"}"#)
+
+        XCTAssertEqual(messages[2]["role"] as? String, "tool")
+        XCTAssertEqual(messages[2]["tool_call_id"] as? String, "call_1")
     }
 }
 

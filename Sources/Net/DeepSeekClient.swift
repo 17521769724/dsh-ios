@@ -6,9 +6,9 @@ struct APIMessage: Codable, Hashable {
     let role: String
     let content: String
     /// 助手消息发起的工具调用（角色为 assistant 时使用）
-    var toolCalls: [ToolCall]?
+    var toolCalls: [ToolCall]? = nil
     /// 工具结果消息对应的调用 id（角色为 tool 时使用）
-    var toolCallID: String?
+    var toolCallID: String? = nil
 }
 
 /// 提供给模型的可调用工具定义（OpenAI 兼容）
