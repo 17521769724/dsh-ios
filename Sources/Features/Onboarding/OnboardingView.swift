@@ -34,13 +34,12 @@ struct OnboardingView: View {
         }
         // 上下滑动页面即可收起键盘
         .scrollDismissesKeyboard(.immediately)
-        // 点击空白处收起键盘；键盘内部的输入框不在此范围内，点击不会误收起
-        .background(
-            DSHTheme.page
-                .ignoresSafeArea()
-                .contentShape(Rectangle())
-                .onTapGesture { focusedField = nil }
-        )
+        // 点击空白处收起键盘（点输入框内部不收起，由手势过滤器保证）
+        .background(alignment: .topLeading) {
+            TapToDismissKeyboard()
+                .frame(width: 1, height: 1)
+        }
+        .background(DSHTheme.page.ignoresSafeArea())
         .onAppear {
             baseURLInput = settingsStore.settings.baseURL
             keyInput = settingsStore.apiKey
