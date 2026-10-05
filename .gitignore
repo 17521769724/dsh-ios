@@ -1,0 +1,19 @@
+# macOS
+.DS_Store
+
+# Xcode
+build/
+DerivedData/
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+*.xcuserstate
+
+# 产物
+*.ipa
+*.dSYM.zip
+Payload/
+
+# 依赖
+Pods/
+.swiftpm/

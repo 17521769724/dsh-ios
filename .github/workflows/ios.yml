@@ -1,0 +1,77 @@
+name: Build iOS IPA
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build unsigned IPA
+    runs-on: macos-14
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Toolchain info
+        run: |
+          xcodebuild -version
+          xcodegen --version
+          sw_vers
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build for device (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project DSHiOS.xcodeproj \
+            -scheme DSHiOS \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package IPA
+        run: |
+          set -euo pipefail
+          APP_PATH="$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name '*.app' | head -n 1)"
+          echo "App bundle: $APP_PATH"
+          rm -rf Payload
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          zip -qry DSH-iOS-unsigned.ipa Payload
+          ls -lh DSH-iOS-unsigned.ipa
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' Payload/*.app/Info.plist || true
+          /usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' Payload/*.app/Info.plist || true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DSH-iOS-ipa
+          path: DSH-iOS-unsigned.ipa
+          if-no-files-found: error
+
+      - name: Publish release asset
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="build-${GITHUB_RUN_NUMBER}"
+          gh release create "$TAG" DSH-iOS-unsigned.ipa \
+            --title "DSH iOS unsigned build ${GITHUB_RUN_NUMBER}" \
+            --notes "Automatic unsigned IPA build. Commit: ${GITHUB_SHA}" \
+            || gh release upload "$TAG" DSH-iOS-unsigned.ipa --clobber

@@ -1,0 +1,19 @@
+# 第三方声明
+
+本项目的界面设计、交互手势与动画曲线参考了以下开源项目，在此致谢。
+
+## anywhere-labs/dsh-desktop
+
+- 仓库：https://github.com/anywhere-labs/dsh-desktop
+- 许可：MIT
+- 参考范围：聊天界面布局（助手消息无气泡排版、Think 折叠行、底部输入舱、运行指标行）、
+  对话/轨迹双标签、侧边栏结构与「新会话」入口、品牌配色与视觉规范。
+- 说明：本项目为独立的 Swift/SwiftUI 重写实现，不包含其 Electron/TypeScript 源码。
+
+## deepseek-ai/deepseek-harness
+
+- 仓库：https://github.com/deepseek-ai/deepseek-harness
+- 许可：见上游仓库
+- 参考范围：产品定位与「万物皆插件」的架构理念、插件清单与命令的交互形态。
+
+本项目与 DeepSeek 官方及上述项目维护方均无隶属、授权或背书关系。
