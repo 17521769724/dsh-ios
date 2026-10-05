@@ -30,6 +30,11 @@ struct RootView: View {
             }
         }
         .dshAppearance(settings.appTheme)
+        // 全局：点击空白区域收起键盘（点击输入框内部不收起）
+        .background(alignment: .topLeading) {
+            TapToDismissKeyboard()
+                .frame(width: 1, height: 1)
+        }
     }
 
     // MARK: - 主界面
