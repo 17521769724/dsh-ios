@@ -14,6 +14,7 @@ settings:
     IPHONEOS_DEPLOYMENT_TARGET: "16.2"
     ENABLE_USER_SCRIPT_SANDBOXING: NO
     SWIFT_STRICT_CONCURRENCY: minimal
+    PRODUCT_MODULE_NAME: DSHiOS
 
 targets:
   DSHiOS:
@@ -31,20 +32,49 @@ targets:
         INFOPLIST_FILE: Resources/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         TARGETED_DEVICE_FAMILY: "1,2"
-        CODE_SIGNING_ALLOWED: NO
-        CODE_SIGNING_REQUIRED: NO
-        CODE_SIGN_IDENTITY: ""
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-        DEVELOPMENT_ASSET_PATHS: ""
+
+  DSHiOSTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests/Unit
+    dependencies:
+      - target: DSHiOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.dshdesktop.ios.unittests
+        GENERATE_INFOPLIST_FILE: YES
+
+  DSHiOSUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Tests/UI
+    dependencies:
+      - target: DSHiOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.dshdesktop.ios.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: DSHiOS
 
 schemes:
   DSHiOS:
     build:
       targets:
         DSHiOS: all
+        DSHiOSTests: [test]
+        DSHiOSUITests: [test]
     run:
       config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: false
+      targets:
+        - DSHiOSTests
+        - DSHiOSUITests
     profile:
       config: Release
     analyze:

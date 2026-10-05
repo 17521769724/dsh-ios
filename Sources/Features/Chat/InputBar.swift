@@ -47,6 +47,7 @@ struct InputBar: View {
                 .lineLimit(1...6)
                 .focused($focused)
                 .padding(.vertical, 8)
+                .accessibilityIdentifier("composer.input")
                 .onSubmit {
                     if !engine.isStreaming { engine.send() }
                 }
@@ -96,6 +97,7 @@ struct InputBar: View {
         }
         .disabled(engine.isStreaming)
         .accessibilityLabel("更多操作")
+        .accessibilityIdentifier("composer.plus")
     }
 
     private var modelMenu: some View {
@@ -126,6 +128,7 @@ struct InputBar: View {
             .clipShape(Capsule())
         }
         .accessibilityLabel("选择模型")
+        .accessibilityIdentifier("composer.model")
     }
 
     private var modelChip: some View {
@@ -157,6 +160,7 @@ struct InputBar: View {
             .buttonStyle(.plain)
             .transition(.scale.combined(with: .opacity))
             .accessibilityLabel("停止生成")
+            .accessibilityIdentifier("composer.stop")
         } else {
             Button {
                 engine.send()
@@ -174,6 +178,7 @@ struct InputBar: View {
             .animation(DSHAnim.emphasis, value: canSend)
             .transition(.scale.combined(with: .opacity))
             .accessibilityLabel("发送")
+            .accessibilityIdentifier("composer.send")
         }
     }
 
@@ -254,6 +259,7 @@ struct InputBar: View {
                         .dshCard(background: DSHTheme.inputBackground)
                     }
                     .buttonStyle(PressableCardStyle())
+                    .accessibilityIdentifier("plugin.command.\(command.name)")
                 }
             }
             .padding(.vertical, 2)

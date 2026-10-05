@@ -84,3 +84,89 @@ jobs:
             --title "DSH iOS unsigned build ${GITHUB_RUN_NUMBER}" \
             --notes "Automatic unsigned IPA build. Commit: ${GITHUB_SHA}" \
             || gh release upload "$TAG" DSH-iOS-unsigned.ipa --clobber
+
+  test:
+    name: Functional tests (simulator)
+    runs-on: macos-15
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select newest Xcode
+        run: |
+          set -euo pipefail
+          NEWEST="$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -n 1 || true)"
+          if [ -n "$NEWEST" ]; then sudo xcode-select -s "$NEWEST"; fi
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Pick simulator (iOS >= 16.2)
+        id: sim
+        run: |
+          set -euo pipefail
+          UDID="$(xcrun simctl list devices available -j | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+best = None
+for runtime, devices in data['devices'].items():
+    if 'iOS' not in runtime: continue
+    version = runtime.split('iOS-')[-1].replace('-', '.')
+    try:
+        parts = tuple(int(p) for p in version.split('.')[:2])
+    except ValueError:
+        continue
+    if parts < (16, 2): continue
+    for device in devices:
+        if device.get('isAvailable') and 'iPhone' in device['name']:
+            if best is None or parts > best[0]:
+                best = (parts, device['udid'], device['name'], version)
+if best is None:
+    sys.exit('no suitable simulator found')
+print(best[1])
+print(f\"selected: {best[2]} iOS {best[3]} ({best[1]})\", file=sys.stderr)
+")"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          echo "Simulator UDID: $UDID"
+
+      - name: Run unit and UI tests
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project DSHiOS.xcodeproj \
+            -scheme DSHiOS \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath sim-build \
+            -resultBundlePath TestResults.xcresult
+
+      - name: Collect screenshots
+        if: always()
+        run: |
+          set -euo pipefail
+          UDID="${{ steps.sim.outputs.udid }}"
+          mkdir -p screenshots
+          find "$HOME/Library/Developer/CoreSimulator/Devices/$UDID/data/Containers/Data/Application" \
+            -name "*.png" -path "*Documents*" -exec cp {} screenshots/ \; 2>/dev/null || true
+          ls -la screenshots || true
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simulator-screenshots
+          path: screenshots/
+          if-no-files-found: warn
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults.xcresult
+          if-no-files-found: warn

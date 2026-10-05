@@ -50,6 +50,7 @@ struct ChatView: View {
                     .fixedSize()
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier(item == .chat ? "tab.chat" : "tab.trajectory")
             }
             Spacer()
             if tab == .chat, let count = engine.currentConversation?.messages.count, count > 0 {

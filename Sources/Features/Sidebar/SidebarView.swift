@@ -112,6 +112,7 @@ struct SidebarView: View {
         .buttonStyle(PressableCardStyle())
         .padding(.horizontal, DSHTheme.Spacing.medium)
         .padding(.bottom, DSHTheme.Spacing.medium)
+        .accessibilityIdentifier("sidebar.new")
     }
 
     private var searchField: some View {
@@ -279,7 +280,8 @@ struct SidebarView: View {
     }
 
     private func entryRow(icon: String, title: String, badge: String?, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
+        let identifier = title == "设置" ? "sidebar.settings" : "sidebar.plugins"
+        return Button(action: action) {
             HStack(spacing: DSHTheme.Spacing.small) {
                 Image(systemName: icon)
                     .font(.system(size: 13))
@@ -303,6 +305,7 @@ struct SidebarView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier)
     }
 
     private func statChip(icon: String, value: String, label: String) -> some View {

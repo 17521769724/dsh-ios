@@ -13,6 +13,11 @@ struct DSHiOSApp: App {
         let conversations = ConversationStore()
         let pluginManager = PluginManager()
 
+        // UI 测试用：-uitest-reset 启动参数清空历史，保证用例从干净状态开始
+        if ProcessInfo.processInfo.arguments.contains("-uitest-reset") {
+            conversations.deleteAll()
+        }
+
         _settingsStore = StateObject(wrappedValue: settings)
         _conversationStore = StateObject(wrappedValue: conversations)
         _pluginManager = StateObject(wrappedValue: pluginManager)

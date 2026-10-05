@@ -180,6 +180,7 @@ struct TopBar: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("打开会话列表")
+                .accessibilityIdentifier("topbar.sidebar")
             }
 
             Text(engine.currentConversation?.title ?? "DSH iOS")
@@ -206,6 +207,7 @@ struct TopBar: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("查看会话日志")
+            .accessibilityIdentifier("topbar.sessionlog")
 
             Menu {
                 Button {
@@ -237,6 +239,7 @@ struct TopBar: View {
                     .frame(width: 28, height: 28)
             }
             .accessibilityLabel("更多操作")
+            .accessibilityIdentifier("topbar.more")
         }
         .padding(.horizontal, DSHTheme.Spacing.large)
         .padding(.vertical, 8)
