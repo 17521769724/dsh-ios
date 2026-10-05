@@ -78,16 +78,22 @@ final class DSHiOSUITests: XCTestCase {
         XCTAssertTrue(element("composer.input").waitForExistence(timeout: 5))
     }
 
+    /// 优先匹配开关元素（SwiftUI Toggle 在无障碍树中是 switch），否则退回通用查询
+    private func uiElement(_ identifier: String) -> XCUIElement {
+        let toggle = app.switches.matching(identifier: identifier).firstMatch
+        return toggle.exists ? toggle : element(identifier)
+    }
+
     /// 设置页为懒加载列表，首屏之外的开关需先滚动到位；
     /// 滚动带惯性，需等其停下再操作，否则点击会落到其他行
     @discardableResult
     private func scrollTo(_ identifier: String, maxSwipes: Int = 10) -> XCUIElement {
-        var target = element(identifier)
+        var target = uiElement(identifier)
         var swipes = 0
         while !(target.exists && target.isHittable) && swipes < maxSwipes {
             app.swipeUp()
             Thread.sleep(forTimeInterval: 0.5)
-            target = element(identifier)
+            target = uiElement(identifier)
             swipes += 1
         }
         return target
@@ -99,7 +105,8 @@ final class DSHiOSUITests: XCTestCase {
         let expected = on ? "1" : "0"
         for _ in 0..<5 {
             if (toggle.value as? String) == expected { return }
-            toggle.tap()
+            // 开关位于行尾：与系统设置一致，点击行标签不会切换，需点右侧开关本体
+            toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: 0.5)).tap()
             // 等待开关状态刷新，避免重复点击把开关又切回去
             for _ in 0..<15 {
                 if (toggle.value as? String) == expected { return }
