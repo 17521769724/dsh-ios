@@ -51,7 +51,19 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            build
+            build 2>&1 | tee build.log
+
+      - name: Verify iOS 16.2 API availability
+        run: |
+          set -euo pipefail
+          echo "--- 检查是否存在高于 iOS 16.2 的 API 调用 ---"
+          if grep -E "only available in iOS (1[7-9]|[2-9][0-9])(\.[0-9]+)?" build.log; then
+            echo "::error::发现仅在高版本 iOS 可用的 API，无法在 iOS 16.2 上运行"
+            exit 1
+          fi
+          echo "未发现高于 16.2 的 API 调用"
+          echo "--- 部署目标确认 ---"
+          /usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' build/Build/Products/Release-iphoneos/*.app/Info.plist
 
       - name: Package IPA
         run: |
@@ -107,33 +119,18 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate
 
-      - name: Pick simulator (iOS >= 16.2)
+      - name: Pick iPhone simulator
         id: sim
         run: |
           set -euo pipefail
-          UDID="$(xcrun simctl list devices available -j | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-best = None
-for runtime, devices in data['devices'].items():
-    if 'iOS' not in runtime: continue
-    version = runtime.split('iOS-')[-1].replace('-', '.')
-    try:
-        parts = tuple(int(p) for p in version.split('.')[:2])
-    except ValueError:
-        continue
-    if parts < (16, 2): continue
-    for device in devices:
-        if device.get('isAvailable') and 'iPhone' in device['name']:
-            if best is None or parts > best[0]:
-                best = (parts, device['udid'], device['name'], version)
-if best is None:
-    sys.exit('no suitable simulator found')
-print(best[1])
-print(f\"selected: {best[2]} iOS {best[3]} ({best[1]})\", file=sys.stderr)
-")"
+          xcrun simctl list devices available | head -n 40
+          UDID="$(xcrun simctl list devices available | grep -E '^[[:space:]]+iPhone' | head -n 1 | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')"
+          if [ -z "$UDID" ]; then
+            echo "::error::没有可用的 iPhone 模拟器"
+            exit 1
+          fi
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
-          echo "Simulator UDID: $UDID"
+          echo "selected simulator: $UDID"
 
       - name: Run unit and UI tests
         run: |
