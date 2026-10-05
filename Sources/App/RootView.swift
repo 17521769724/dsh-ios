@@ -65,7 +65,7 @@ struct RootView: View {
                 navigationLayer
 
                 if drawerOpen {
-                    Color.black.opacity(0.28 * scrimProgress)
+                    Color.black.opacity(0.3 * scrimProgress)
                         .ignoresSafeArea()
                         .onTapGesture { closeDrawer() }
                         .transition(.opacity)
@@ -74,6 +74,7 @@ struct RootView: View {
                 drawer(embedded: false)
                     .frame(width: drawerWidth)
                     .background(DSHTheme.page.ignoresSafeArea())
+                    .shadow(color: .black.opacity(drawerOpen ? 0.16 : 0), radius: 20, x: 8, y: 0)
                     .offset(x: drawerOffset)
                     .gesture(dragToClose)
             }
@@ -143,7 +144,8 @@ struct RootView: View {
                                 openDrawer()
                             } label: {
                                 Image(systemName: "line.3.horizontal")
-                                    .font(.system(size: 16, weight: .medium))
+                                    .font(.system(size: 17, weight: .medium))
+                                    .foregroundStyle(DSHTheme.assistantText)
                             }
                             .accessibilityIdentifier("topbar.sidebar")
                             .accessibilityLabel("会话列表")
@@ -156,7 +158,8 @@ struct RootView: View {
                                 engine.openBrowser(URL(string: "https://www.deepseek.com")!)
                             } label: {
                                 Image(systemName: "safari")
-                                    .font(.system(size: 16))
+                                    .font(.system(size: 17))
+                                    .foregroundStyle(DSHTheme.assistantText)
                             }
                             .accessibilityIdentifier("topbar.browser")
                             .accessibilityLabel("内置浏览器")
@@ -167,7 +170,8 @@ struct RootView: View {
                                 showSessionLog = true
                             } label: {
                                 Image(systemName: "list.bullet.rectangle")
-                                    .font(.system(size: 15))
+                                    .font(.system(size: 16))
+                                    .foregroundStyle(DSHTheme.assistantText)
                             }
                             .accessibilityIdentifier("topbar.sessionlog")
                             .accessibilityLabel("会话日志")
@@ -177,7 +181,8 @@ struct RootView: View {
                             engine.newConversation()
                         } label: {
                             Image(systemName: "square.and.pencil")
-                                .font(.system(size: 16))
+                                .font(.system(size: 17))
+                                .foregroundStyle(DSHTheme.assistantText)
                         }
                         .accessibilityIdentifier("topbar.newchat")
                         .accessibilityLabel("新对话")
@@ -220,11 +225,11 @@ struct RootView: View {
             VStack {
                 Spacer()
                 Text(toast)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(DSHTheme.page)
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 9)
-                    .background(Color.black.opacity(0.8))
+                    .padding(.vertical, 10)
+                    .background(DSHTheme.assistantText.opacity(0.88))
                     .clipShape(Capsule())
                     .padding(.bottom, 120)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))

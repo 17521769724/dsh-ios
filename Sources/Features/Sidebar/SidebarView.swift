@@ -1,7 +1,8 @@
 import SwiftUI
 import UIKit
 
-/// 会话抽屉：新对话入口 + 按时间分组的会话列表 + 设置入口。
+/// 会话抽屉，对齐 iOS DeepSeek 官方客户端：
+/// 顶部标识 + 新对话入口 + 搜索 + 按时间分组的会话列表，底部为插件与设置入口。
 struct SidebarView: View {
     @EnvironmentObject private var engine: ChatEngine
     @EnvironmentObject private var settingsStore: SettingsStore
@@ -35,7 +36,6 @@ struct SidebarView: View {
             newConversationButton
             searchField
             list
-            Divider()
             footer
         }
         .background(DSHTheme.page)
@@ -67,12 +67,14 @@ struct SidebarView: View {
 
     private var header: some View {
         HStack(spacing: DSHTheme.Spacing.small) {
+            DSHWhaleMark(size: 22)
             Text("DeepSeek Harness")
                 .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(DSHTheme.assistantText)
             Spacer()
             Text("\(engine.conversationStore.conversations.count)")
                 .font(.system(size: 12))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(DSHTheme.tertiaryText)
         }
         .padding(.horizontal, DSHTheme.Spacing.large)
         .padding(.top, DSHTheme.Spacing.large)
@@ -85,19 +87,20 @@ struct SidebarView: View {
             close()
         } label: {
             HStack(spacing: DSHTheme.Spacing.small) {
-                Image(systemName: "plus")
-                    .font(.system(size: 14, weight: .semibold))
+                Image(systemName: "square.and.pencil")
+                    .font(.system(size: 15, weight: .medium))
                 Text("新对话")
                     .font(.system(size: 15, weight: .medium))
                 Spacer()
             }
-            .foregroundStyle(DSHTheme.brand)
-            .padding(.horizontal, DSHTheme.Spacing.medium)
-            .padding(.vertical, 11)
-            .background(DSHTheme.brandSoft)
+            .foregroundStyle(DSHTheme.assistantText)
+            .padding(.horizontal, 14)
+            .frame(height: 44)
+            .background(DSHTheme.chipFill)
             .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.chip, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.chip, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(DSHPressStyle(scale: 0.98))
         .accessibilityIdentifier("sidebar.new")
         .padding(.horizontal, DSHTheme.Spacing.medium)
         .padding(.bottom, DSHTheme.Spacing.small)
@@ -107,9 +110,10 @@ struct SidebarView: View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 13))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(DSHTheme.tertiaryText)
             TextField("搜索", text: $query)
                 .font(.system(size: 15))
+                .foregroundStyle(DSHTheme.assistantText)
                 .textFieldStyle(.plain)
                 .accessibilityIdentifier("sidebar.search")
             if !query.isEmpty {
@@ -118,14 +122,14 @@ struct SidebarView: View {
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 13))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(DSHTheme.tertiaryText)
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(DSHTheme.grouped)
+        .padding(.horizontal, 12)
+        .frame(height: 38)
+        .background(DSHTheme.chipFill)
         .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.chip, style: .continuous))
         .padding(.horizontal, DSHTheme.Spacing.medium)
         .padding(.bottom, DSHTheme.Spacing.small)
@@ -135,7 +139,7 @@ struct SidebarView: View {
 
     private var list: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 1) {
+            LazyVStack(alignment: .leading, spacing: 2) {
                 if !pinned.isEmpty {
                     sectionLabel("置顶")
                     ForEach(pinned) { row($0) }
@@ -147,20 +151,21 @@ struct SidebarView: View {
                     }
                 }
                 if filtered.isEmpty {
-                    VStack(spacing: 6) {
+                    VStack(spacing: 8) {
                         Image(systemName: "bubble.left.and.bubble.right")
-                            .font(.system(size: 22))
-                            .foregroundStyle(.tertiary)
+                            .font(.system(size: 24))
+                            .foregroundStyle(DSHTheme.tertiaryText)
                         Text(query.isEmpty ? "还没有对话" : "没有匹配的对话")
                             .font(.system(size: 14))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(DSHTheme.secondaryText)
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 40)
+                    .padding(.vertical, 44)
                 }
             }
             .padding(.horizontal, DSHTheme.Spacing.small)
             .padding(.bottom, DSHTheme.Spacing.small)
+            .animation(DSHAnim.list, value: filtered.count)
         }
     }
 
@@ -201,10 +206,10 @@ struct SidebarView: View {
     private func sectionLabel(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(DSHTheme.tertiaryText)
             .padding(.horizontal, DSHTheme.Spacing.small)
             .padding(.top, DSHTheme.Spacing.medium)
-            .padding(.bottom, 3)
+            .padding(.bottom, 2)
     }
 
     private func row(_ conversation: Conversation) -> some View {
@@ -216,7 +221,7 @@ struct SidebarView: View {
             HStack(spacing: DSHTheme.Spacing.small) {
                 Text(conversation.title)
                     .font(.system(size: 15, weight: selected ? .semibold : .regular))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(DSHTheme.assistantText)
                     .lineLimit(1)
 
                 Spacer(minLength: 4)
@@ -228,20 +233,20 @@ struct SidebarView: View {
                 }
                 Text(relativeTime(conversation.updatedAt))
                     .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(DSHTheme.tertiaryText)
             }
-            .padding(.horizontal, DSHTheme.Spacing.small)
-            .padding(.vertical, 9)
+            .padding(.horizontal, 12)
+            .frame(height: 44)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(DSHPressStyle(scale: 0.99))
         .accessibilityIdentifier("sidebar.row")
-        .background(selected ? DSHTheme.grouped : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.chip, style: .continuous))
-        // 长按呼出菜单时的高亮与预览都按圆角绘制，避免出现直角背景
+        .background(selected ? DSHTheme.chipFill : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous))
+        // 长按呼出菜单时的高亮与预览也按圆角绘制，避免出现直角背景
         .contentShape(
             .contextMenuPreview,
-            RoundedRectangle(cornerRadius: DSHTheme.Radius.chip, style: .continuous)
+            RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous)
         )
         .animation(DSHAnim.standard, value: selected)
         .contextMenu {
@@ -278,6 +283,11 @@ struct SidebarView: View {
 
     private var footer: some View {
         VStack(spacing: 0) {
+            Rectangle()
+                .fill(DSHTheme.separator.opacity(0.7))
+                .frame(height: 0.5)
+                .padding(.bottom, DSHTheme.Spacing.small)
+
             if features.pluginCommands {
                 entryRow(icon: "puzzlepiece.extension", title: "插件中心", identifier: "sidebar.plugins", action: openPlugins)
             }
@@ -290,7 +300,7 @@ struct SidebarView: View {
             )
         }
         .padding(.horizontal, DSHTheme.Spacing.small)
-        .padding(.vertical, DSHTheme.Spacing.small)
+        .padding(.bottom, DSHTheme.Spacing.small)
     }
 
     /// 侧栏展示的版本号，例如 V1.0.1
@@ -309,26 +319,27 @@ struct SidebarView: View {
         Button(action: action) {
             HStack(spacing: DSHTheme.Spacing.medium) {
                 Image(systemName: icon)
-                    .font(.system(size: 15))
-                    .frame(width: 20)
+                    .font(.system(size: 16))
+                    .foregroundStyle(DSHTheme.assistantText)
+                    .frame(width: 22)
                 Text(title)
                     .font(.system(size: 15))
+                    .foregroundStyle(DSHTheme.assistantText)
                 Spacer()
                 if let trailing {
                     Text(trailing)
                         .font(.system(size: 13))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(DSHTheme.tertiaryText)
                 }
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(DSHTheme.tertiaryText)
             }
-            .foregroundStyle(.primary)
-            .padding(.horizontal, DSHTheme.Spacing.small)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 10)
+            .frame(height: 46)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(DSHPressStyle(scale: 0.99))
         .accessibilityIdentifier(identifier)
     }
 }

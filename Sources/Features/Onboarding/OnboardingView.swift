@@ -50,20 +50,16 @@ struct OnboardingView: View {
 
     private var header: some View {
         VStack(spacing: DSHTheme.Spacing.medium) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 32, weight: .medium))
-                .foregroundStyle(.white)
-                .frame(width: 76, height: 76)
-                .background(DSHTheme.brandGradient)
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                .shadow(color: DSHTheme.brand.opacity(0.28), radius: 14, y: 6)
+            DSHWhaleMark(size: 72)
+                .shadow(color: DSHTheme.brand.opacity(0.18), radius: 12, y: 5)
 
             VStack(spacing: 6) {
                 Text("欢迎使用 DeepSeek")
                     .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(DSHTheme.assistantText)
                 Text("先填写 API Key，即可开始对话")
                     .font(.system(size: 15))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DSHTheme.secondaryText)
                     .multilineTextAlignment(.center)
             }
         }
@@ -225,13 +221,13 @@ struct OnboardingView: View {
                 // 不可用状态也要清晰可见：浅灰底 + 灰字，而不是白字贴在近白底上
                 .background(
                     canSubmit
-                        ? AnyShapeStyle(DSHTheme.brandGradient)
-                        : AnyShapeStyle(Color(uiColor: .tertiarySystemFill))
+                        ? AnyShapeStyle(DSHTheme.brand)
+                        : AnyShapeStyle(DSHTheme.chipFill)
                 )
-                .foregroundStyle(canSubmit ? Color.white : Color.secondary)
+                .foregroundStyle(canSubmit ? Color.white : DSHTheme.secondaryText)
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(DSHPressStyle(scale: 0.98))
             .disabled(!canSubmit)
             .accessibilityIdentifier("onboarding.submit")
 

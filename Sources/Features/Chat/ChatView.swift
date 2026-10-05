@@ -1,7 +1,8 @@
 import SwiftUI
 import UIKit
 
-/// 对话主界面：极简主页，高级能力通过设置开关按需出现。
+/// 对话主界面，对齐 iOS DeepSeek 官方客户端：
+/// 空会话时展示鲸鱼标识 + 问候语 + 示例卡片；有消息时整宽消息流。
 struct ChatView: View {
     @EnvironmentObject private var engine: ChatEngine
 
@@ -39,6 +40,7 @@ struct ChatView: View {
                             onRate: { engine.rate(message, value: $0) }
                         )
                         .id(message.id)
+                        .modifier(AppearFade())
                     }
 
                     if isConversationEmpty {
@@ -46,6 +48,7 @@ struct ChatView: View {
                             inputFocused = false
                             engine.send(prompt)
                         })
+                        .transition(.opacity)
                     }
 
                     Color.clear
@@ -54,6 +57,7 @@ struct ChatView: View {
                 }
                 .padding(.top, DSHTheme.Spacing.medium)
                 .padding(.bottom, DSHTheme.Spacing.small)
+                .animation(DSHAnim.list, value: engine.currentConversation?.messages.count ?? 0)
             }
             .scrollDismissesKeyboard(.immediately)
             .background(DSHTheme.page)
@@ -82,6 +86,20 @@ struct ChatView: View {
     }
 }
 
+/// 消息出现动效：轻微上移 + 淡入，与官方一致（只在首次出现时播放）。
+private struct AppearFade: ViewModifier {
+    @State private var appeared = false
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(appeared ? 1 : 0)
+            .offset(y: appeared ? 0 : 6)
+            .onAppear {
+                withAnimation(DSHAnim.list) { appeared = true }
+            }
+    }
+}
+
 // MARK: - 空会话
 
 struct EmptyChatView: View {
@@ -100,63 +118,51 @@ struct EmptyChatView: View {
 
     var body: some View {
         VStack(spacing: DSHTheme.Spacing.section) {
-            VStack(spacing: DSHTheme.Spacing.small) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundStyle(.white)
-                    .frame(width: 54, height: 54)
-                    .background(
-                        LinearGradient(
-                            colors: [DSHTheme.brand, DSHTheme.brandDeep],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 15, style: .continuous))
+            VStack(spacing: DSHTheme.Spacing.medium) {
+                DSHWhaleMark(size: 56)
                 Text("有什么可以帮你的吗？")
                     .font(.system(size: 20, weight: .semibold))
-                    .padding(.top, 6)
+                    .foregroundStyle(DSHTheme.assistantText)
             }
 
             if features.examplePrompts {
-                VStack(spacing: 0) {
+                LazyVGrid(
+                    columns: [
+                        GridItem(.flexible(), spacing: DSHTheme.Spacing.medium),
+                        GridItem(.flexible(), spacing: DSHTheme.Spacing.medium)
+                    ],
+                    spacing: DSHTheme.Spacing.medium
+                ) {
                     ForEach(Array(suggestions.enumerated()), id: \.offset) { index, item in
                         Button {
                             onPick(item.1)
                         } label: {
-                            HStack(spacing: DSHTheme.Spacing.medium) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(item.0)
-                                        .font(.system(size: 15, weight: .medium))
-                                        .foregroundStyle(.primary)
-                                    Text(item.1)
-                                        .font(.system(size: 13))
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-                                }
-                                Spacer(minLength: 0)
-                                Image(systemName: "arrow.up.right")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(.tertiary)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(item.0)
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundStyle(DSHTheme.assistantText)
+                                Text(item.1)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(DSHTheme.tertiaryText)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.leading)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
-                            .padding(.horizontal, DSHTheme.Spacing.large)
-                            .padding(.vertical, 13)
-                            .contentShape(Rectangle())
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                            .background(DSHTheme.grouped)
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(DSHPressStyle(scale: 0.97))
                         .accessibilityIdentifier("empty.suggestion.\(index)")
-
-                        if index < suggestions.count - 1 {
-                            Divider().padding(.leading, DSHTheme.Spacing.large)
-                        }
                     }
                 }
-                .background(DSHTheme.grouped)
-                .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.card, style: .continuous))
             }
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, DSHTheme.Spacing.large)
-        .padding(.top, 40)
+        .padding(.top, 32)
     }
 }

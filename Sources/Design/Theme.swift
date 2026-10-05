@@ -1,37 +1,41 @@
 import SwiftUI
 import UIKit
 
-/// 视觉规范：以 iOS 系统语义色为主，DeepSeek 品牌蓝作为唯一强调色，
-/// 避免多种色相互相干扰，整体接近系统「设置」与原生 App 的观感。
+/// 视觉规范：对齐 iOS DeepSeek 官方客户端。
+///
+/// 颜色全部按浅/深两套取值，切换外观时由窗口级交叉淡入淡出接管；
+/// 品牌蓝取官方主色 #4D6BFE，灰阶使用中性偏冷的浅灰，避免出现偏黄的系统灰。
 enum DSHTheme {
 
-    // MARK: - 品牌色（在 DeepSeek #4D6BFE 基础上微调，偏靛蓝更通透）
+    // MARK: - 品牌色
 
-    static let brand = Color(red: 0.345, green: 0.400, blue: 0.980)
-    static let brandDeep = Color(red: 0.455, green: 0.310, blue: 0.945)
-    static let brandSoft = Color(red: 0.345, green: 0.400, blue: 0.980).opacity(0.14)
-    /// 品牌渐变：用于图标、发送键等强调元素
-    static let brandGradient = LinearGradient(
-        colors: [brand, brandDeep],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-    )
+    /// 官方主色 #4D6BFE
+    static let brand = Color(uiColor: UIColor(dshRGB: 0x4D6BFE))
+    /// 品牌浅底：选中态胶囊、工具调用卡片
+    static let brandSoft = Color(uiColor: UIColor(dshRGB: 0x4D6BFE)).opacity(0.12)
 
-    // MARK: - 语义色（全部走系统语义色，自动适配深浅色）
+    // MARK: - 语义色（浅色 / 深色两套）
 
-    static let page = Color(uiColor: .systemBackground)
-    static let grouped = Color(uiColor: .secondarySystemBackground)
-    /// 用户气泡：系统灰，右侧对齐
-    static let userBubble = Color(uiColor: .tertiarySystemFill)
-    static let userText = Color(uiColor: .label)
-    /// 助手消息不使用气泡，直接铺在页面背景上
-    static let assistantText = Color(uiColor: .label)
-    /// 输入卡片底色（独立卡片，配合细描边与极轻投影）
-    static let composerCard = Color(uiColor: .secondarySystemBackground)
+    static let page = dynamic(light: 0xFFFFFF, dark: 0x1A1A1A)
+    static let grouped = dynamic(light: 0xF5F6F8, dark: 0x26272B)
+    /// 用户气泡：官方为中性浅灰
+    static let userBubble = dynamic(light: 0xEFF1F5, dark: 0x2C2D32)
+    static let userText = dynamic(light: 0x1A1A1A, dark: 0xEDEDED)
+    /// 助手消息直接铺在页面背景上，无气泡
+    static let assistantText = dynamic(light: 0x1A1A1A, dark: 0xEDEDED)
+    /// 输入卡片底色
+    static let composerCard = dynamic(light: 0xF5F6F8, dark: 0x26272B)
     /// 未激活胶囊底色
-    static let chipFill = Color(uiColor: .tertiarySystemFill)
-    static let reasoningBackground = Color(uiColor: .secondarySystemBackground)
-    static let separator = Color(uiColor: .separator)
+    static let chipFill = dynamic(light: 0xF2F3F5, dark: 0x2C2D32)
+    static let reasoningBackground = dynamic(light: 0xF5F6F8, dark: 0x26272B)
+    static let separator = dynamic(light: 0xE9EAEE, dark: 0x303136)
+
+    static let secondaryText = dynamic(light: 0x8A8F99, dark: 0x9B9EA5)
+    static let tertiaryText = dynamic(light: 0xB4B8C0, dark: 0x6E7076)
+
+    /// 发送键空闲态：灰底 + 灰箭头（与官方一致）
+    static let sendIdle = dynamic(light: 0xE6E8EC, dark: 0x32333A)
+    static let sendIdleIcon = dynamic(light: 0xB9BDC5, dark: 0x6E7076)
 
     static let danger = Color(uiColor: .systemRed)
     static let warning = Color(uiColor: .systemOrange)
@@ -40,11 +44,13 @@ enum DSHTheme {
     // MARK: - 尺寸
 
     enum Radius {
-        /// 输入框胶囊
-        static let composer: CGFloat = 22
+        /// 输入卡片
+        static let composer: CGFloat = 24
         static let bubble: CGFloat = 18
-        static let card: CGFloat = 12
-        static let chip: CGFloat = 8
+        static let card: CGFloat = 14
+        static let chip: CGFloat = 10
+        /// 侧栏会话行
+        static let row: CGFloat = 12
     }
 
     enum Spacing {
@@ -57,20 +63,60 @@ enum DSHTheme {
 
     /// 消息区域左右边距
     static let messageHorizontalPadding: CGFloat = 16
+
+    // MARK: - 构造
+
+    private static func dynamic(light: UInt32, dark: UInt32) -> Color {
+        Color(uiColor: UIColor { trait in
+            trait.userInterfaceStyle == .dark ? UIColor(dshRGB: dark) : UIColor(dshRGB: light)
+        })
+    }
 }
 
-/// 交互动效：统一使用系统常用曲线，克制、不抢注意力。
+/// 交互动效：统一使用官方客户端的「轻弹簧 + 短淡入」，克制、不抢注意力。
 enum DSHAnim {
-    /// 常规状态切换
-    static let standard = Animation.easeInOut(duration: 0.22)
+    /// 常规状态切换（胶囊选中、描边、图标切换）
+    static let standard = Animation.easeInOut(duration: 0.24)
     /// 列表插入与删除
-    static let list = Animation.easeInOut(duration: 0.26)
-    /// 抽屉与浮层
-    static let drawer = Animation.spring(response: 0.34, dampingFraction: 0.92)
+    static let list = Animation.spring(response: 0.36, dampingFraction: 0.9)
+    /// 抽屉与遮罩
+    static let drawer = Animation.spring(response: 0.34, dampingFraction: 0.9)
     /// 流式文本刷新
-    static let stream = Animation.linear(duration: 0.1)
+    static let stream = Animation.linear(duration: 0.08)
     /// 深浅色切换
     static let appearance = Animation.easeInOut(duration: 0.3)
+    /// 按钮按压回弹
+    static let press = Animation.spring(response: 0.26, dampingFraction: 0.72)
+    /// 键盘 / 输入区高度变化
+    static let composer = Animation.spring(response: 0.32, dampingFraction: 0.9)
+}
+
+/// 按压反馈：缩放 + 轻微变淡，用于发送键、胶囊与列表行。
+struct DSHPressStyle: ButtonStyle {
+    var scale: CGFloat = 0.92
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? scale : 1)
+            .opacity(configuration.isPressed ? 0.88 : 1)
+            .animation(DSHAnim.press, value: configuration.isPressed)
+    }
+}
+
+/// DeepSeek 鲸鱼标识：模板着色，随主题与强调色变化。
+struct DSHWhaleMark: View {
+    var size: CGFloat
+    var color: Color = DSHTheme.brand
+
+    var body: some View {
+        Image("DeepSeekWhale")
+            .renderingMode(.template)
+            .resizable()
+            .scaledToFit()
+            .foregroundStyle(color)
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
+    }
 }
 
 /// 深浅色切换走窗口级交叉淡入淡出，避免整屏颜色生硬跳变。
@@ -99,14 +145,14 @@ func dshApplyAppearanceChange(
 }
 
 extension View {
-    /// 卡片风格：系统分组背景 + 细描边
+    /// 卡片风格：分组底色 + 细描边
     func dshCard(background: Color = DSHTheme.grouped) -> some View {
         self
             .background(background)
             .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.card, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: DSHTheme.Radius.card, style: .continuous)
-                    .stroke(DSHTheme.separator.opacity(0.5), lineWidth: 0.5)
+                    .stroke(DSHTheme.separator.opacity(0.6), lineWidth: 0.5)
             )
     }
 
@@ -133,5 +179,17 @@ extension AppThemePreference {
         case .light: return .light
         case .dark: return .dark
         }
+    }
+}
+
+extension UIColor {
+    /// 0xRRGGBB 形式的品牌色构造
+    convenience init(dshRGB value: UInt32) {
+        self.init(
+            red: CGFloat((value >> 16) & 0xFF) / 255,
+            green: CGFloat((value >> 8) & 0xFF) / 255,
+            blue: CGFloat(value & 0xFF) / 255,
+            alpha: 1
+        )
     }
 }

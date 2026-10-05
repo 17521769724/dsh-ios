@@ -1,8 +1,8 @@
 import SwiftUI
 import UIKit
 
-/// 消息视图，对齐 DeepSeek iOS 客户端：
-/// 用户消息为右侧灰色气泡，助手消息无气泡、整宽排版，附折叠「思考」与操作行。
+/// 消息视图，对齐 iOS DeepSeek 官方客户端：
+/// 用户消息为右侧灰色气泡；助手消息无气泡整宽排版，思考区为可折叠灰卡，底部一行操作图标。
 struct MessageBubble: View {
     let message: ChatMessage
     let isLastAssistant: Bool
@@ -34,10 +34,11 @@ struct MessageBubble: View {
 
     private var userRow: some View {
         HStack {
-            Spacer(minLength: 56)
+            Spacer(minLength: 48)
             Text(message.content)
                 .font(.system(size: 16))
                 .foregroundStyle(DSHTheme.userText)
+                .lineSpacing(2)
                 .textSelection(.enabled)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
@@ -55,9 +56,9 @@ struct MessageBubble: View {
     // MARK: - 助手消息
 
     private var assistantRow: some View {
-        VStack(alignment: .leading, spacing: DSHTheme.Spacing.small) {
+        VStack(alignment: .leading, spacing: DSHTheme.Spacing.medium) {
             if let reasoning = message.reasoning, !reasoning.isEmpty {
-                reasoningRow(reasoning)
+                reasoningCard(reasoning)
             }
 
             if message.content.isEmpty && message.isStreaming {
@@ -91,27 +92,29 @@ struct MessageBubble: View {
 
     /// 助手消息里的工具调用记录
     private func toolCallList(_ calls: [ToolCall]) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             ForEach(calls) { call in
-                HStack(spacing: 5) {
+                HStack(spacing: 6) {
                     Image(systemName: Self.toolIcon(for: call.name))
                         .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(DSHTheme.brand)
                     Text(call.name)
                         .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(DSHTheme.assistantText)
                     Text(call.argumentPreview)
                         .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DSHTheme.secondaryText)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer(minLength: 0)
                 }
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(DSHTheme.brandSoft)
-        .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.chip, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.card, style: .continuous))
         .accessibilityIdentifier("message.toolCall")
     }
 
@@ -125,7 +128,7 @@ struct MessageBubble: View {
                     .font(.system(size: 12, weight: .medium))
                 Text(message.isStreaming ? "执行中…" : "已完成")
                     .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DSHTheme.tertiaryText)
                 Spacer(minLength: 0)
                 if !message.isStreaming && !message.content.isEmpty {
                     Button {
@@ -141,26 +144,27 @@ struct MessageBubble: View {
                     .accessibilityLabel(showToolOutput ? "收起输出" : "展开输出")
                 }
             }
-            .foregroundStyle(.secondary)
+            .foregroundStyle(DSHTheme.secondaryText)
 
             if message.isStreaming {
                 Text("正在执行…")
                     .font(.system(size: 12))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(DSHTheme.tertiaryText)
             } else if showToolOutput {
                 Text(message.content)
                     .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(DSHTheme.assistantText)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(DSHTheme.Spacing.small)
-                    .background(DSHTheme.reasoningBackground)
+                    .background(DSHTheme.page)
                     .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.chip, style: .continuous))
                     .transition(.opacity)
             } else {
                 Text(preview(message.content))
                     .font(.system(size: 12))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(DSHTheme.tertiaryText)
                     .lineLimit(1)
             }
         }
@@ -170,7 +174,7 @@ struct MessageBubble: View {
         .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.card, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: DSHTheme.Radius.card, style: .continuous)
-                .stroke(DSHTheme.separator.opacity(0.4), lineWidth: 0.6)
+                .stroke(DSHTheme.separator.opacity(0.6), lineWidth: 0.5)
         )
         .accessibilityIdentifier("message.toolResult")
     }
@@ -184,29 +188,32 @@ struct MessageBubble: View {
         }
     }
 
-    /// 折叠的「思考」行
-    private func reasoningRow(_ text: String) -> some View {
-        VStack(alignment: .leading, spacing: DSHTheme.Spacing.small) {
+    // MARK: - 思考区（官方：灰卡 + 可折叠）
+
+    private func reasoningCard(_ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
             Button {
-                withAnimation(DSHAnim.standard) { showReasoning.toggle() }
+                withAnimation(DSHAnim.list) { showReasoning.toggle() }
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "brain.head.profile")
-                        .font(.system(size: 12))
-                    Text("已思考")
+                        .font(.system(size: 12, weight: .medium))
+                    Text(showReasoning ? "已深度思考" : "深度思考")
                         .font(.system(size: 13, weight: .medium))
                     if !showReasoning {
                         Text(preview(text))
                             .font(.system(size: 13))
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(DSHTheme.tertiaryText)
                             .lineLimit(1)
                     }
                     Spacer(minLength: 0)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 10, weight: .semibold))
-                        .rotationEffect(.degrees(showReasoning ? 180 : 0))
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .rotationEffect(.degrees(showReasoning ? 90 : 0))
                 }
-                .foregroundStyle(.secondary)
+                .foregroundStyle(DSHTheme.secondaryText)
+                .padding(.horizontal, 12)
+                .frame(height: 38)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -215,16 +222,22 @@ struct MessageBubble: View {
             if showReasoning {
                 Text(text)
                     .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DSHTheme.secondaryText)
+                    .lineSpacing(3)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(DSHTheme.Spacing.medium)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(DSHTheme.reasoningBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.chip, style: .continuous))
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
                     .transition(.opacity)
             }
         }
+        .background(DSHTheme.reasoningBackground)
+        .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.card, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: DSHTheme.Radius.card, style: .continuous)
+                .stroke(DSHTheme.separator.opacity(0.6), lineWidth: 0.5)
+        )
     }
 
     private func preview(_ text: String) -> String {
@@ -232,8 +245,10 @@ struct MessageBubble: View {
         return flat.count > 40 ? String(flat.prefix(40)) + "…" : flat
     }
 
+    // MARK: - 操作行
+
     private var actionRow: some View {
-        HStack(spacing: 20) {
+        HStack(spacing: 18) {
             actionButton(icon: "doc.on.doc", active: false, label: "复制", action: onCopy)
             actionButton(icon: "hand.thumbsup", active: message.rating == 1, label: "有帮助") { onRate(1) }
             actionButton(icon: "hand.thumbsdown", active: message.rating == -1, label: "没帮助") { onRate(-1) }
@@ -242,7 +257,6 @@ struct MessageBubble: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.top, 2)
     }
 
     private func actionButton(
@@ -253,12 +267,12 @@ struct MessageBubble: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: active ? icon + ".fill" : icon)
-                .font(.system(size: 14))
-                .foregroundStyle(active ? DSHTheme.brand : Color.secondary)
-                .frame(width: 24, height: 24)
+                .font(.system(size: 15, weight: .regular))
+                .foregroundStyle(active ? DSHTheme.brand : DSHTheme.tertiaryText)
+                .frame(width: 26, height: 26)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(DSHPressStyle(scale: 0.86))
         .accessibilityLabel(label)
     }
 
@@ -280,16 +294,18 @@ struct MessageBubble: View {
 
 // MARK: - 生成中
 
+/// 官方首页三个点依次呼吸的等待指示
 struct TypingIndicator: View {
     @State private var animating = false
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 5) {
             ForEach(0..<3, id: \.self) { index in
                 Circle()
-                    .fill(Color.secondary.opacity(0.5))
+                    .fill(DSHTheme.tertiaryText)
                     .frame(width: 6, height: 6)
-                    .opacity(animating ? 1 : 0.35)
+                    .opacity(animating ? 1 : 0.3)
+                    .scaleEffect(animating ? 1 : 0.8)
                     .animation(
                         Animation.easeInOut(duration: 0.5)
                             .repeatForever(autoreverses: true)
@@ -310,7 +326,7 @@ struct StreamingCursor: View {
     var body: some View {
         RoundedRectangle(cornerRadius: 1)
             .fill(DSHTheme.brand)
-            .frame(width: 2, height: 15)
+            .frame(width: 2, height: 16)
             .opacity(dim ? 0.25 : 1)
             .animation(Animation.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: dim)
             .onAppear { dim = true }
