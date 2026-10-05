@@ -11,6 +11,7 @@ final class ChatEngine: ObservableObject {
     let settingsStore: SettingsStore
     let conversationStore: ConversationStore
     let pluginManager: PluginManager
+    let sshStore: SSHStore
 
     // MARK: - 界面状态
 
@@ -27,6 +28,8 @@ final class ChatEngine: ObservableObject {
     @Published var availableModels: [DSHModel] = DSHModel.catalog
     @Published var isRefreshingModels: Bool = false
     @Published var modelsError: String?
+    /// 请求弹出内置浏览器（由 RootView 消费）
+    @Published var browserRequest: BrowserRequest?
 
     private var streamTask: Task<Void, Never>?
     private var client: DeepSeekClient
@@ -35,11 +38,13 @@ final class ChatEngine: ObservableObject {
     init(
         settingsStore: SettingsStore,
         conversationStore: ConversationStore,
-        pluginManager: PluginManager
+        pluginManager: PluginManager,
+        sshStore: SSHStore
     ) {
         self.settingsStore = settingsStore
         self.conversationStore = conversationStore
         self.pluginManager = pluginManager
+        self.sshStore = sshStore
         self.client = DeepSeekClient(timeout: settingsStore.settings.requestTimeout)
 
         if let latest = conversationStore.sortedConversations.first {
@@ -234,6 +239,11 @@ final class ChatEngine: ObservableObject {
         conversationStore.upsert(conversation)
     }
 
+    /// 打开内置浏览器（手动入口）
+    func openBrowser(_ url: URL) {
+        browserRequest = BrowserRequest(url: url)
+    }
+
     /// 点赞 / 点踩
     func rate(_ message: ChatMessage, value: Int) {
         mutateMessage(id: message.id) { target in
@@ -260,57 +270,183 @@ final class ChatEngine: ObservableObject {
     // MARK: - 流式实现
 
     private func startStreaming(conversationID: UUID, assistantID: UUID, outgoing: String) {
-        let apiMessages = buildAPIMessages(conversationID: conversationID, latestUserText: outgoing)
         let model = activeModelID
         let settings = settingsStore.settings
         let apiKey = settingsStore.apiKey
+        // 工具调用（Agent）：开启后模型可自主执行 SSH / 浏览器工具，最多连续 6 轮
+        let tools = activeTools()
+        let maxRounds = tools.isEmpty ? 1 : 6
 
         client = DeepSeekClient(timeout: settings.requestTimeout)
         isStreaming = true
 
         streamTask = Task { @MainActor [weak self] in
             guard let self else { return }
+            var currentAssistantID = assistantID
+            var usage: TokenUsage?
             do {
-                if settings.streamEnabled {
-                    let stream = self.client.streamChat(
-                        messages: apiMessages,
-                        model: model,
-                        settings: settings,
-                        apiKey: apiKey
-                    )
-                    var usage: TokenUsage?
-                    for try await event in stream {
-                        if Task.isCancelled { break }
-                        switch event {
-                        case .content(let delta):
-                            self.appendContent(delta, assistantID: assistantID)
-                        case .reasoning(let delta):
-                            self.appendReasoning(delta, assistantID: assistantID)
-                        case .finished(let tokenUsage):
-                            if let tokenUsage { usage = tokenUsage }
+                for _ in 0..<maxRounds {
+                    if Task.isCancelled { break }
+                    let messages = self.buildAPIMessages(conversationID: conversationID, latestUserText: outgoing)
+                    var pendingToolCalls: [ToolCall] = []
+
+                    if settings.streamEnabled || !tools.isEmpty {
+                        let stream = self.client.streamChat(
+                            messages: messages,
+                            model: model,
+                            tools: tools,
+                            settings: settings,
+                            apiKey: apiKey
+                        )
+                        for try await event in stream {
+                            if Task.isCancelled { break }
+                            switch event {
+                            case .content(let delta):
+                                self.appendContent(delta, assistantID: currentAssistantID)
+                            case .reasoning(let delta):
+                                self.appendReasoning(delta, assistantID: currentAssistantID)
+                            case .toolCalls(let calls):
+                                pendingToolCalls = calls
+                            case .finished(let tokenUsage):
+                                if let tokenUsage { usage = tokenUsage }
+                            }
                         }
+                    } else {
+                        let result = try await self.client.complete(
+                            messages: messages,
+                            model: model,
+                            settings: settings,
+                            apiKey: apiKey
+                        )
+                        self.appendContent(result.text, assistantID: currentAssistantID)
+                        if let reasoning = result.reasoning, !reasoning.isEmpty {
+                            self.appendReasoning(reasoning, assistantID: currentAssistantID)
+                        }
+                        if let tokenUsage = result.usage { usage = tokenUsage }
                     }
-                    self.finish(assistantID: assistantID, conversationID: conversationID, usage: usage)
-                } else {
-                    let result = try await self.client.complete(
-                        messages: apiMessages,
-                        model: model,
-                        settings: settings,
-                        apiKey: apiKey
-                    )
-                    self.appendContent(result.text, assistantID: assistantID)
-                    if let reasoning = result.reasoning, !reasoning.isEmpty {
-                        self.appendReasoning(reasoning, assistantID: assistantID)
+
+                    if Task.isCancelled { break }
+                    guard !pendingToolCalls.isEmpty else { break }
+
+                    // 记录本轮工具调用，并逐个在本地执行后写回结果
+                    self.attachToolCalls(pendingToolCalls, assistantID: currentAssistantID)
+                    for call in pendingToolCalls {
+                        if Task.isCancelled { break }
+                        self.ensureToolMessagePlaceholder(call: call, model: model)
+                        let output = await self.run(toolCall: call)
+                        self.completeToolMessage(output, call: call)
                     }
-                    self.finish(assistantID: assistantID, conversationID: conversationID, usage: result.usage)
+
+                    if Task.isCancelled { break }
+                    // 下一轮：新建助手占位消息，带上工具结果继续请求
+                    currentAssistantID = self.beginAssistantMessage(model: model)
                 }
+
+                self.finish(assistantID: currentAssistantID, conversationID: conversationID, usage: usage)
             } catch {
                 if Task.isCancelled {
-                    self.finish(assistantID: assistantID, conversationID: conversationID, usage: nil)
+                    self.finish(assistantID: currentAssistantID, conversationID: conversationID, usage: nil)
                 } else {
-                    self.fail(assistantID: assistantID, conversationID: conversationID, error: error)
+                    self.fail(assistantID: currentAssistantID, conversationID: conversationID, error: error)
                 }
             }
+        }
+    }
+
+    // MARK: - 工具调用（Agent）
+
+    /// 当前开启的工具集合：需要在设置里打开「智能体工具调用」，且 SSH 已配置才包含 ssh_exec
+    private func activeTools() -> [APITool] {
+        guard settingsStore.settings.features.agentTools else { return [] }
+        return AgentToolCatalog.tools(sshConfigured: sshStore.isConfigured)
+    }
+
+    private func attachToolCalls(_ calls: [ToolCall], assistantID: UUID) {
+        mutateMessage(id: assistantID) { message in
+            message.toolCalls = calls
+            message.isStreaming = false
+        }
+        if let conversation = currentConversation {
+            conversationStore.upsert(conversation)
+        }
+    }
+
+    /// 先插入一条「执行中」的工具结果消息，便于界面上即时反馈
+    private func ensureToolMessagePlaceholder(call: ToolCall, model: String) {
+        guard var conversation = currentConversation else { return }
+        guard !conversation.messages.contains(where: { $0.toolCallID == call.id }) else { return }
+        var message = ChatMessage(role: .tool, content: "", isStreaming: true)
+        message.toolCallID = call.id
+        message.toolName = call.name
+        message.model = model
+        conversation.messages.append(message)
+        conversation.updatedAt = Date()
+        currentConversation = conversation
+    }
+
+    private func completeToolMessage(_ output: String, call: ToolCall) {
+        guard var conversation = currentConversation else { return }
+        guard let index = conversation.messages.lastIndex(where: { $0.toolCallID == call.id }) else { return }
+        conversation.messages[index].content = output
+        conversation.messages[index].isStreaming = false
+        conversation.updatedAt = Date()
+        currentConversation = conversation
+        conversationStore.upsert(conversation)
+    }
+
+    /// 新增助手占位消息（工具结果之后继续对话）
+    @discardableResult
+    private func beginAssistantMessage(model: String) -> UUID {
+        var message = ChatMessage(role: .assistant, content: "", isStreaming: true)
+        message.model = model
+        if var conversation = currentConversation {
+            conversation.messages.append(message)
+            conversation.updatedAt = Date()
+            currentConversation = conversation
+            conversationStore.upsert(conversation)
+        }
+        return message.id
+    }
+
+    /// 本地执行一次工具调用，返回给模型的文本结果
+    @MainActor
+    private func run(toolCall call: ToolCall) async -> String {
+        switch call.name {
+        case AgentToolCatalog.sshExecName:
+            guard let command = ToolArguments.string("command", in: call.arguments) else {
+                return "工具参数错误：缺少 command"
+            }
+            do {
+                return try await SSHService.execute(
+                    command: command,
+                    configuration: sshStore.configuration,
+                    password: sshStore.password
+                )
+            } catch {
+                return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+
+        case AgentToolCatalog.browserOpenName:
+            guard let raw = ToolArguments.string("url", in: call.arguments),
+                  let url = WebAddress.normalize(raw) else {
+                return "工具参数错误：缺少合法的 url"
+            }
+            browserRequest = BrowserRequest(url: url)
+            return "已在内置浏览器中打开：\(url.absoluteString)"
+
+        case AgentToolCatalog.browserReadName:
+            guard let raw = ToolArguments.string("url", in: call.arguments),
+                  let url = WebAddress.normalize(raw) else {
+                return "工具参数错误：缺少合法的 url"
+            }
+            do {
+                return try await WebPageReader.shared.read(url: url)
+            } catch {
+                return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+
+        default:
+            return "未知工具：\(call.name)"
         }
     }
 
@@ -325,9 +461,23 @@ final class ChatEngine: ObservableObject {
         for message in conversation.messages where message.id != lastStreamingAssistantID(in: conversation) {
             switch message.role {
             case .user, .assistant:
+                let toolCalls = message.toolCalls ?? []
+                guard !message.content.isEmpty || !toolCalls.isEmpty else { continue }
+                result.append(APIMessage(
+                    role: message.role.rawValue,
+                    content: message.content,
+                    toolCalls: toolCalls.isEmpty ? nil : toolCalls,
+                    toolCallID: nil
+                ))
+            case .tool:
                 guard !message.content.isEmpty else { continue }
-                result.append(APIMessage(role: message.role.rawValue, content: message.content))
-            case .system, .tool:
+                result.append(APIMessage(
+                    role: "tool",
+                    content: message.content,
+                    toolCalls: nil,
+                    toolCallID: message.toolCallID
+                ))
+            case .system:
                 continue
             }
         }

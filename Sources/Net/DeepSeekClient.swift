@@ -5,6 +5,39 @@ import Foundation
 struct APIMessage: Codable, Hashable {
     let role: String
     let content: String
+    /// 助手消息发起的工具调用（角色为 assistant 时使用）
+    var toolCalls: [ToolCall]?
+    /// 工具结果消息对应的调用 id（角色为 tool 时使用）
+    var toolCallID: String?
+}
+
+/// 提供给模型的可调用工具定义（OpenAI 兼容）
+struct APITool: Hashable {
+    let name: String
+    let description: String
+    /// JSON Schema 形式的参数描述
+    let parameters: [String: Any]
+
+    static func == (lhs: APITool, rhs: APITool) -> Bool {
+        lhs.name == rhs.name && lhs.description == rhs.description
+            && NSDictionary(dictionary: lhs.parameters).isEqual(to: rhs.parameters)
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(name)
+        hasher.combine(description)
+    }
+
+    var jsonObject: [String: Any] {
+        [
+            "type": "function",
+            "function": [
+                "name": name,
+                "description": description,
+                "parameters": parameters
+            ]
+        ]
+    }
 }
 
 struct TokenUsage: Codable, Hashable {
@@ -20,6 +53,7 @@ struct TokenUsage: Codable, Hashable {
 enum StreamEvent: Hashable {
     case content(String)
     case reasoning(String)
+    case toolCalls([ToolCall])
     case finished(TokenUsage?)
 }
 
@@ -94,15 +128,24 @@ struct DeepSeekClient {
         return request
     }
 
-    private func payload(messages: [APIMessage], model: String, stream: Bool, settings: AppSettings) -> [String: Any] {
+    private func payload(
+        messages: [APIMessage],
+        model: String,
+        stream: Bool,
+        settings: AppSettings,
+        tools: [APITool] = []
+    ) -> [String: Any] {
         var body: [String: Any] = [
             "model": model,
-            "messages": messages.map { ["role": $0.role, "content": $0.content] },
+            "messages": messages.map { Self.jsonObject(for: $0) },
             "stream": stream,
             "temperature": settings.temperature
         ]
         if stream {
             body["stream_options"] = ["include_usage": true]
+        }
+        if !tools.isEmpty {
+            body["tools"] = tools.map(\.jsonObject)
         }
         // 思考模式为 DeepSeek 专有参数，仅在 DeepSeek 系模型上发送，
         // 避免自定义 OpenAI 兼容中转服务因未知字段报错。
@@ -111,6 +154,24 @@ struct DeepSeekClient {
             body["reasoning_effort"] = settings.reasoningEffort.rawValue
         }
         return body
+    }
+
+    /// APIMessage → OpenAI 兼容的 JSON 对象（含 tool_calls / tool_call_id）
+    private static func jsonObject(for message: APIMessage) -> [String: Any] {
+        var object: [String: Any] = ["role": message.role, "content": message.content]
+        if let calls = message.toolCalls, !calls.isEmpty {
+            object["tool_calls"] = calls.map { call in
+                [
+                    "id": call.id,
+                    "type": "function",
+                    "function": ["name": call.name, "arguments": call.arguments]
+                ]
+            }
+        }
+        if let id = message.toolCallID {
+            object["tool_call_id"] = id
+        }
+        return object
     }
 
     private func errorFor(status: Int, body: String) -> DSHError {
@@ -126,6 +187,7 @@ struct DeepSeekClient {
     func streamChat(
         messages: [APIMessage],
         model: String,
+        tools: [APITool] = [],
         settings: AppSettings,
         apiKey: String
     ) -> AsyncThrowingStream<StreamEvent, Error> {
@@ -135,7 +197,7 @@ struct DeepSeekClient {
                     let request = try makeRequest(
                         path: "/chat/completions",
                         apiKey: apiKey,
-                        body: payload(messages: messages, model: model, stream: true, settings: settings),
+                        body: payload(messages: messages, model: model, stream: true, settings: settings, tools: tools),
                         base: settings.baseURL
                     )
 
@@ -152,27 +214,28 @@ struct DeepSeekClient {
                         throw errorFor(status: http.statusCode, body: collected)
                     }
 
+                    var parser = ChatStreamParser()
                     for try await rawLine in bytes.lines {
                         try Task.checkCancellation()
-                        guard rawLine.hasPrefix("data:") else { continue }
-                        let json = rawLine.dropFirst(5).trimmingCharacters(in: .whitespaces)
-                        if json.isEmpty { continue }
-                        if json == "[DONE]" {
-                            continuation.yield(.finished(nil))
-                            break
+                        for result in parser.consume(line: rawLine) {
+                            switch result {
+                            case .content(let text):
+                                continuation.yield(.content(text))
+                            case .reasoning(let text):
+                                continuation.yield(.reasoning(text))
+                            case .toolCalls(let calls):
+                                continuation.yield(.toolCalls(calls))
+                            case .usage(let usage):
+                                continuation.yield(.finished(usage))
+                            case .done:
+                                continuation.yield(.finished(nil))
+                            }
                         }
-                        guard let data = json.data(using: .utf8),
-                              let chunk = try? JSONDecoder().decode(StreamChunk.self, from: data) else {
-                            continue
-                        }
-                        if let reasoning = chunk.choices.first?.delta?.reasoningContent, !reasoning.isEmpty {
-                            continuation.yield(.reasoning(reasoning))
-                        }
-                        if let content = chunk.choices.first?.delta?.content, !content.isEmpty {
-                            continuation.yield(.content(content))
-                        }
-                        if let usage = chunk.usage {
-                            continuation.yield(.finished(usage))
+                    }
+                    // 连接可能在未收到 [DONE] 时结束，补齐剩余工具调用
+                    for result in parser.finish() {
+                        if case .toolCalls(let calls) = result {
+                            continuation.yield(.toolCalls(calls))
                         }
                     }
                     continuation.finish()
@@ -236,22 +299,6 @@ struct DeepSeekClient {
     }
 
     // MARK: 解码结构
-
-    private struct StreamChunk: Decodable {
-        struct Choice: Decodable {
-            struct Delta: Decodable {
-                let content: String?
-                let reasoningContent: String?
-                enum CodingKeys: String, CodingKey {
-                    case content
-                    case reasoningContent = "reasoning_content"
-                }
-            }
-            let delta: Delta?
-        }
-        let choices: [Choice]
-        let usage: TokenUsage?
-    }
 
     private struct CompletionResponse: Decodable {
         struct Choice: Decodable {

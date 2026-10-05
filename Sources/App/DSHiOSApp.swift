@@ -6,12 +6,14 @@ struct DSHiOSApp: App {
     @StateObject private var settingsStore: SettingsStore
     @StateObject private var conversationStore: ConversationStore
     @StateObject private var pluginManager: PluginManager
+    @StateObject private var sshStore: SSHStore
     @StateObject private var engine: ChatEngine
 
     init() {
         let settings = SettingsStore()
         let conversations = ConversationStore()
         let pluginManager = PluginManager()
+        let sshStore = SSHStore()
         let arguments = ProcessInfo.processInfo.arguments
 
         // UI 测试用：-uitest-reset 清空历史，-uitest-seed 注入演示会话，
@@ -32,7 +34,8 @@ struct DSHiOSApp: App {
         let engine = ChatEngine(
             settingsStore: settings,
             conversationStore: conversations,
-            pluginManager: pluginManager
+            pluginManager: pluginManager,
+            sshStore: sshStore
         )
         // -uitest-server-models 模拟「已从服务端拉取模型列表」，用于验证列表刷新链路
         if arguments.contains("-uitest-server-models") {
@@ -46,6 +49,7 @@ struct DSHiOSApp: App {
         _settingsStore = StateObject(wrappedValue: settings)
         _conversationStore = StateObject(wrappedValue: conversations)
         _pluginManager = StateObject(wrappedValue: pluginManager)
+        _sshStore = StateObject(wrappedValue: sshStore)
         _engine = StateObject(wrappedValue: engine)
     }
 
@@ -56,6 +60,7 @@ struct DSHiOSApp: App {
                 .environmentObject(settingsStore)
                 .environmentObject(conversationStore)
                 .environmentObject(pluginManager)
+                .environmentObject(sshStore)
                 .tint(DSHTheme.brand)
         }
     }

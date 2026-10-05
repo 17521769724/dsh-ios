@@ -85,7 +85,13 @@ struct RootView: View {
             SettingsView()
                 .environmentObject(engine)
                 .environmentObject(engine.settingsStore)
+                .environmentObject(engine.sshStore)
                 .environmentObject(plugins)
+        }
+        // 内置浏览器：模型工具调用或手动入口触发
+        .sheet(item: $engine.browserRequest) { request in
+            BrowserView(initialURL: request.url)
+                .dshAppearance(settings.appTheme)
         }
         .sheet(isPresented: $showPlugins) {
             NavigationStack {
@@ -145,6 +151,17 @@ struct RootView: View {
                     }
 
                     ToolbarItemGroup(placement: .navigationBarTrailing) {
+                        if features.agentTools {
+                            Button {
+                                engine.openBrowser(URL(string: "https://www.deepseek.com")!)
+                            } label: {
+                                Image(systemName: "safari")
+                                    .font(.system(size: 16))
+                            }
+                            .accessibilityIdentifier("topbar.browser")
+                            .accessibilityLabel("内置浏览器")
+                        }
+
                         if features.sessionLog {
                             Button {
                                 showSessionLog = true

@@ -18,6 +18,26 @@ enum MessageRole: String, Codable, Hashable {
     }
 }
 
+// MARK: - 工具调用
+
+/// 模型请求的一次工具调用（OpenAI 兼容的 function calling）
+struct ToolCall: Codable, Hashable, Identifiable {
+    var id: String
+    var name: String
+    /// 模型给出的 JSON 参数原文，例如 {"command":"ls -la"}
+    var arguments: String
+
+    /// 供 UI 展示的简短参数摘要
+    var argumentPreview: String {
+        guard let data = arguments.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let value = object.values.first as? String else {
+            return arguments
+        }
+        return value
+    }
+}
+
 // MARK: - 消息
 
 struct ChatMessage: Identifiable, Codable, Hashable {
@@ -33,6 +53,11 @@ struct ChatMessage: Identifiable, Codable, Hashable {
     var completionTokens: Int?
     /// 用户对回复的反馈：1 赞，-1 踩，nil 未评价
     var rating: Int?
+    /// 助手消息发起的工具调用
+    var toolCalls: [ToolCall]?
+    /// 工具结果消息对应的调用 id 与工具名
+    var toolCallID: String?
+    var toolName: String?
 
     init(
         id: UUID = UUID(),
@@ -45,7 +70,10 @@ struct ChatMessage: Identifiable, Codable, Hashable {
         model: String? = nil,
         promptTokens: Int? = nil,
         completionTokens: Int? = nil,
-        rating: Int? = nil
+        rating: Int? = nil,
+        toolCalls: [ToolCall]? = nil,
+        toolCallID: String? = nil,
+        toolName: String? = nil
     ) {
         self.id = id
         self.role = role
@@ -58,6 +86,9 @@ struct ChatMessage: Identifiable, Codable, Hashable {
         self.promptTokens = promptTokens
         self.completionTokens = completionTokens
         self.rating = rating
+        self.toolCalls = toolCalls
+        self.toolCallID = toolCallID
+        self.toolName = toolName
     }
 }
 
@@ -182,6 +213,8 @@ struct FeatureFlags: Codable, Equatable {
     var deepThinkingToggle: Bool = true
     /// 空会话示例提示
     var examplePrompts: Bool = true
+    /// 工具调用（智能体可自主执行 SSH / 内置浏览器）
+    var agentTools: Bool = false
 
     init() {}
 
@@ -195,6 +228,7 @@ struct FeatureFlags: Codable, Equatable {
         self.usageMetrics = try container.decodeIfPresent(Bool.self, forKey: .usageMetrics) ?? fallback.usageMetrics
         self.deepThinkingToggle = try container.decodeIfPresent(Bool.self, forKey: .deepThinkingToggle) ?? fallback.deepThinkingToggle
         self.examplePrompts = try container.decodeIfPresent(Bool.self, forKey: .examplePrompts) ?? fallback.examplePrompts
+        self.agentTools = try container.decodeIfPresent(Bool.self, forKey: .agentTools) ?? fallback.agentTools
     }
 
     init(
@@ -203,7 +237,8 @@ struct FeatureFlags: Codable, Equatable {
         modelPicker: Bool,
         usageMetrics: Bool,
         deepThinkingToggle: Bool,
-        examplePrompts: Bool
+        examplePrompts: Bool,
+        agentTools: Bool = false
     ) {
         self.sessionLog = sessionLog
         self.pluginCommands = pluginCommands
@@ -211,6 +246,7 @@ struct FeatureFlags: Codable, Equatable {
         self.usageMetrics = usageMetrics
         self.deepThinkingToggle = deepThinkingToggle
         self.examplePrompts = examplePrompts
+        self.agentTools = agentTools
     }
 
     static let allOn = FeatureFlags(
@@ -219,7 +255,8 @@ struct FeatureFlags: Codable, Equatable {
         modelPicker: true,
         usageMetrics: true,
         deepThinkingToggle: true,
-        examplePrompts: true
+        examplePrompts: true,
+        agentTools: true
     )
 }
 

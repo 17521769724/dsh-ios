@@ -521,6 +521,45 @@ final class DSHiOSUITests: XCTestCase {
         capture("16-onboarding-validation-failed")
     }
 
+    // MARK: - 智能体工具（SSH / 内置浏览器）
+
+    func test20_SSH设置页与内置浏览器入口() {
+        openSettings()
+
+        let sshRow = scrollTo("settings.ssh")
+        XCTAssertTrue(sshRow.waitForExistence(timeout: 5), "缺少 SSH 云服务器入口")
+        sshRow.tap()
+        XCTAssertTrue(app.navigationBars["SSH 云服务器"].waitForExistence(timeout: 5), "SSH 设置页未打开")
+        XCTAssertTrue(element("ssh.host").exists, "缺少主机输入框")
+        XCTAssertTrue(element("ssh.agentTools").exists, "缺少智能体工具开关")
+        XCTAssertTrue(scrollTo("ssh.command").waitForExistence(timeout: 5), "缺少命令控制台")
+        capture("20-ssh-settings")
+
+        app.navigationBars.buttons.firstMatch.tap()
+
+        // 打开「智能体工具调用」后，主页顶栏会出现内置浏览器入口
+        toggleFeature("feature.agentTools", on: true)
+        closeSettings()
+
+        let browserButton = element("topbar.browser")
+        XCTAssertTrue(browserButton.waitForExistence(timeout: 5), "开启工具后缺少内置浏览器入口")
+        browserButton.tap()
+
+        XCTAssertTrue(
+            element("browser.address").waitForExistence(timeout: 10),
+            "内置浏览器未弹出"
+        )
+        capture("21-browser")
+        element("browser.done").tap()
+
+        XCTAssertTrue(element("composer.input").waitForExistence(timeout: 5), "关闭浏览器后未回到主页")
+
+        // 恢复默认，避免影响其它用例
+        openSettings()
+        toggleFeature("feature.agentTools", on: false)
+        closeSettings()
+    }
+
     // MARK: - 输入区不被拉伸（真机问题回归）
 
     func test15_开启模型与插件命令后输入框不铺满屏幕() {

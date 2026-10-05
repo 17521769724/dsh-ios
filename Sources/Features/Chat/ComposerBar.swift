@@ -177,6 +177,11 @@ struct ComposerBar: View {
             } label: {
                 Label("插件命令", systemImage: "command")
             }
+            Button {
+                engine.openBrowser(defaultURL)
+            } label: {
+                Label("内置浏览器", systemImage: "safari")
+            }
             if !engine.draft.isEmpty {
                 Button {
                     // 只清空内容，不在这里改动焦点，避免输入卡片高度被异常撑开
@@ -201,6 +206,11 @@ struct ComposerBar: View {
     /// 菜单收起后再聚焦，避免菜单退场动画期间输入框布局错乱
     private func focusInputSoon() {
         DispatchQueue.main.async { focused = true }
+    }
+
+    /// 手动打开内置浏览器时的默认首页
+    private var defaultURL: URL {
+        URL(string: "https://www.deepseek.com")!
     }
 
     @ViewBuilder

@@ -667,3 +667,68 @@ final class MockURLProtocol: URLProtocol {
 
     override func stopLoading() {}
 }
+
+// MARK: - 流式工具调用解析（Agent）
+
+final class ChatStreamParserTests: XCTestCase {
+
+    func testContentAndReasoningAreEmitted() {
+        var parser = ChatStreamParser()
+        let line = #"data: {"choices":[{"delta":{"reasoning_content":"想一想","content":"你好"},"finish_reason":null}]}"#
+        XCTAssertEqual(parser.consume(line: line), [.reasoning("想一想"), .content("你好")])
+    }
+
+    func testToolCallFragmentsAreMerged() {
+        var parser = ChatStreamParser()
+        // 第一片：id + 函数名 + 部分参数
+        _ = parser.consume(
+            line: #"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"ssh_exec","arguments":"{\"comm"}}]},"finish_reason":null}]}"#
+        )
+        // 第二片：参数续传
+        _ = parser.consume(
+            line: #"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"and\":\"ls -la\"}"}}]},"finish_reason":null}]}"#
+        )
+        // 结束片
+        let results = parser.consume(line: #"data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}"#)
+        guard case .toolCalls(let calls)? = results.first else {
+            return XCTFail("应产出工具调用")
+        }
+        XCTAssertEqual(calls.count, 1)
+        XCTAssertEqual(calls[0].id, "call_1")
+        XCTAssertEqual(calls[0].name, "ssh_exec")
+        XCTAssertEqual(calls[0].arguments, #"{"command":"ls -la"}"#)
+        XCTAssertEqual(calls[0].argumentPreview, "ls -la")
+    }
+
+    func testMultipleToolCallsKeepOrder() {
+        var parser = ChatStreamParser()
+        _ = parser.consume(
+            line: #"data: {"choices":[{"delta":{"tool_calls":[{"index":1,"id":"b","function":{"name":"browser_read","arguments":"{\"url\":\"https://b\"}"}}]},"finish_reason":null}]}"#
+        )
+        _ = parser.consume(
+            line: #"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"a","function":{"name":"browser_open","arguments":"{\"url\":\"https://a\"}"}}]},"finish_reason":null}]}"#
+        )
+        let results = parser.consume(line: "data: [DONE]")
+        guard case .toolCalls(let calls)? = results.first else {
+            return XCTFail("应产出工具调用")
+        }
+        XCTAssertEqual(calls.map(\.id), ["a", "b"], "工具调用应按 index 顺序输出")
+        XCTAssertEqual(results.last, .done)
+        XCTAssertTrue(parser.finish().isEmpty, "不应重复产出工具调用")
+    }
+
+    func testUsageAndIgnoredLines() {
+        var parser = ChatStreamParser()
+        XCTAssertTrue(parser.consume(line: "").isEmpty)
+        XCTAssertTrue(parser.consume(line: "event: ping").isEmpty)
+        XCTAssertTrue(parser.consume(line: "data: not-json").isEmpty)
+        let results = parser.consume(line: #"data: {"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":4}}"#)
+        XCTAssertEqual(results, [.usage(TokenUsage(promptTokens: 3, completionTokens: 4))])
+    }
+
+    func testToolArgumentsParsing() {
+        XCTAssertEqual(ToolArguments.string("command", in: #"{"command":" ls -la "}"#), "ls -la")
+        XCTAssertNil(ToolArguments.string("command", in: #"{"url":"https://a"}"#))
+        XCTAssertNil(ToolArguments.string("command", in: "not-json"))
+    }
+}

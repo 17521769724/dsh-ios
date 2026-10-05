@@ -6,6 +6,7 @@ struct SettingsView: View {
     @EnvironmentObject private var engine: ChatEngine
     @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var plugins: PluginManager
+    @EnvironmentObject private var sshStore: SSHStore
     @Environment(\.dismiss) private var dismiss
 
     private var settings: AppSettings { settingsStore.settings }
@@ -17,6 +18,7 @@ struct SettingsView: View {
                 conversationSection
                 appearanceSection
                 homeFeaturesSection
+                toolsSection
                 pluginsSection
                 dataSection
                 aboutSection
@@ -79,6 +81,28 @@ struct SettingsView: View {
             Text("模型服务")
         } footer: {
             Text("API Key 保存在本机钥匙串。API 地址兼容任意 OpenAI 格式接口。")
+        }
+    }
+
+    // MARK: - 工具（智能体）
+
+    private var toolsSection: some View {
+        Section {
+            NavigationLink {
+                SSHSettingsView()
+            } label: {
+                SettingsValueRow(
+                    symbol: "terminal.fill",
+                    color: .black,
+                    title: "SSH 云服务器",
+                    value: sshStore.isConfigured ? sshStore.displayTarget : "未配置"
+                )
+            }
+            .accessibilityIdentifier("settings.ssh")
+        } header: {
+            Text("智能体工具")
+        } footer: {
+            Text("配置后，模型可在对话中调用 ssh_exec 执行服务器命令，并可打开或读取网页（需开启「智能体工具调用」）。")
         }
     }
 
@@ -179,6 +203,10 @@ struct SettingsView: View {
                 SettingsRowLabel(symbol: "command", color: .purple, title: "插件命令与入口")
             }
             .accessibilityIdentifier("feature.pluginCommands")
+            Toggle(isOn: $settingsStore.settings.features.agentTools) {
+                SettingsRowLabel(symbol: "wand.and.stars", color: .indigo, title: "智能体工具调用（SSH / 浏览器）")
+            }
+            .accessibilityIdentifier("feature.agentTools")
         } header: {
             Text("主页功能")
         } footer: {

@@ -13,12 +13,15 @@ struct MessageBubble: View {
     var onRate: (Int) -> Void
 
     @State private var showReasoning = false
+    @State private var showToolOutput = false
 
     private var isUser: Bool { message.role == .user }
 
     var body: some View {
         Group {
-            if isUser {
+            if message.role == .tool {
+                toolRow
+            } else if isUser {
                 userRow
             } else {
                 assistantRow
@@ -73,11 +76,112 @@ struct MessageBubble: View {
                 errorView(error)
             }
 
+            if let calls = message.toolCalls, !calls.isEmpty {
+                toolCallList(calls)
+            }
+
             if !message.isStreaming && !message.content.isEmpty {
                 actionRow
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - 工具调用（Agent）
+
+    /// 助手消息里的工具调用记录
+    private func toolCallList(_ calls: [ToolCall]) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(calls) { call in
+                HStack(spacing: 5) {
+                    Image(systemName: Self.toolIcon(for: call.name))
+                        .font(.system(size: 11, weight: .semibold))
+                    Text(call.name)
+                        .font(.system(size: 12, weight: .medium))
+                    Text(call.argumentPreview)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 0)
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DSHTheme.brandSoft)
+        .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.chip, style: .continuous))
+        .accessibilityIdentifier("message.toolCall")
+    }
+
+    /// 工具执行结果消息
+    private var toolRow: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: Self.toolIcon(for: message.toolName))
+                    .font(.system(size: 12))
+                Text(message.toolName ?? "工具")
+                    .font(.system(size: 12, weight: .medium))
+                Text(message.isStreaming ? "执行中…" : "已完成")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                if !message.isStreaming && !message.content.isEmpty {
+                    Button {
+                        withAnimation(DSHAnim.standard) { showToolOutput.toggle() }
+                    } label: {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 10, weight: .semibold))
+                            .rotationEffect(.degrees(showToolOutput ? 180 : 0))
+                            .frame(width: 22, height: 22)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(showToolOutput ? "收起输出" : "展开输出")
+                }
+            }
+            .foregroundStyle(.secondary)
+
+            if message.isStreaming {
+                Text("正在执行…")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
+            } else if showToolOutput {
+                Text(message.content)
+                    .font(.system(size: 12, design: .monospaced))
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(DSHTheme.Spacing.small)
+                    .background(DSHTheme.reasoningBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.chip, style: .continuous))
+                    .transition(.opacity)
+            } else {
+                Text(preview(message.content))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(DSHTheme.Spacing.medium)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(DSHTheme.grouped)
+        .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.card, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: DSHTheme.Radius.card, style: .continuous)
+                .stroke(DSHTheme.separator.opacity(0.4), lineWidth: 0.6)
+        )
+        .accessibilityIdentifier("message.toolResult")
+    }
+
+    private static func toolIcon(for name: String?) -> String {
+        switch name {
+        case AgentToolCatalog.sshExecName: return "terminal"
+        case AgentToolCatalog.browserOpenName: return "safari"
+        case AgentToolCatalog.browserReadName: return "doc.text.magnifyingglass"
+        default: return "wrench.and.screwdriver"
+        }
     }
 
     /// 折叠的「思考」行
