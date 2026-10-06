@@ -28,7 +28,9 @@ struct ComposerBar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DSHTheme.Spacing.small) {
-            if !matchedCommands.isEmpty && focused {
+            // 输入以「/」开头时就展示命令面板（不再要求已聚焦），
+            // 这样从「+ → 插件命令」插入斜杠后一定看得到命令列表。
+            if !matchedCommands.isEmpty {
                 commandPanel
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
@@ -59,10 +61,15 @@ struct ComposerBar: View {
         .padding(.horizontal, 14)
         .padding(.top, 12)
         .padding(.bottom, 10)
+        .frame(height: cardHeight, alignment: .top)
         .background(DSHTheme.composerCard)
         .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.composer, style: .continuous))
-        // 卡片高度只由内容决定，绝不被外层拉伸
-        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// 卡片总高完全由内容决定（输入行 + 间距 + 操作行 + 内边距），
+    /// 不参与外层空间分配，聚焦/收起键盘时高度都不会变。
+    private var cardHeight: CGFloat {
+        measuredInputHeight + 8 + 32 + 12 + 10
     }
 
     /// 卡片底部一行：左侧快捷胶囊，右侧「+」与发送键
@@ -198,7 +205,10 @@ struct ComposerBar: View {
     private var plusButton: some View {
         Menu {
             Button {
-                engine.draft = "/" + engine.draft
+                // 插入「/」后命令面板会立即出现（面板不再依赖聚焦状态）
+                if !engine.draft.hasPrefix("/") {
+                    engine.draft = "/" + engine.draft
+                }
                 focusInputSoon()
             } label: {
                 Label("插件命令", systemImage: "command")
@@ -229,9 +239,9 @@ struct ComposerBar: View {
         .accessibilityLabel("更多")
     }
 
-    /// 菜单收起后再聚焦，避免菜单退场动画期间输入框布局错乱
+    /// 菜单收起后再聚焦，避免菜单退场动画期间聚焦失败导致命令面板不出现
     private func focusInputSoon() {
-        DispatchQueue.main.async { focused = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { focused = true }
     }
 
     /// 手动打开内置浏览器时的默认首页

@@ -97,12 +97,12 @@ struct SidebarView: View {
             .foregroundStyle(DSHTheme.assistantText)
             .padding(.horizontal, 14)
             .frame(height: 44)
-            // 与新对话、选中行、搜索框统一使用同一底色，保持主题一致
-            .background(DSHTheme.grouped)
+            // 与对话页输入卡片同色，扁平底色、无阴影
+            .background(DSHTheme.composerCard)
             .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous))
             .contentShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous))
         }
-        .buttonStyle(DSHPressStyle(scale: 0.98))
+        .buttonStyle(.plain)
         .accessibilityIdentifier("sidebar.new")
         .padding(.horizontal, DSHTheme.Spacing.medium)
         .padding(.bottom, DSHTheme.Spacing.tight)
@@ -131,8 +131,8 @@ struct SidebarView: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 38)
-        // 与「新对话」「选中会话行」统一底色，避免各控件灰阶不一致
-        .background(DSHTheme.grouped)
+        // 与对话页输入卡片同色，扁平底色、无阴影
+        .background(DSHTheme.composerCard)
         .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous))
         .padding(.horizontal, DSHTheme.Spacing.medium)
         .padding(.bottom, DSHTheme.Spacing.small)
@@ -227,7 +227,7 @@ struct SidebarView: View {
             HStack(spacing: DSHTheme.Spacing.small) {
                 Text(conversation.title)
                     .font(.system(size: 15, weight: selected ? .semibold : .regular))
-                    .foregroundStyle(DSHTheme.assistantText)
+                    .foregroundStyle(selected ? DSHTheme.brand : DSHTheme.assistantText)
                     .lineLimit(1)
 
                 Spacer(minLength: 4)
@@ -243,19 +243,19 @@ struct SidebarView: View {
             }
             .padding(.horizontal, 12)
             .frame(height: 44)
-            .contentShape(Rectangle())
+            // 底色画在行内部：长按预览时不会变成透明，选中行用主题色区分
+            .background(selected ? DSHTheme.brandSoft : DSHTheme.composerCard)
+            .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous))
         }
-        .buttonStyle(DSHPressStyle(scale: 0.99))
+        .buttonStyle(.plain)
         .accessibilityIdentifier("sidebar.row")
-        // 选中行与搜索框、新对话使用统一的主题底色
-        .background(selected ? DSHTheme.grouped : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous))
+        .animation(DSHAnim.standard, value: selected)
         // 长按呼出菜单时的高亮与预览也按圆角绘制，避免出现直角背景
         .contentShape(
             .contextMenuPreview,
             RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous)
         )
-        .animation(DSHAnim.standard, value: selected)
         .contextMenu {
             Button {
                 renameText = conversation.title
@@ -346,7 +346,7 @@ struct SidebarView: View {
             .frame(height: 46)
             .contentShape(Rectangle())
         }
-        .buttonStyle(DSHPressStyle(scale: 0.99))
+        .buttonStyle(.plain)
         .accessibilityIdentifier(identifier)
     }
 }

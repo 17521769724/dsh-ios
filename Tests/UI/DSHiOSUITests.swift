@@ -100,6 +100,23 @@ final class DSHiOSUITests: XCTestCase {
         return target
     }
 
+    /// 打开导航栏右上角的合并功能菜单（新对话 / 置顶 / 删除 / 会话日志 / 内置浏览器）
+    private func openTopMenu() {
+        let trigger = element("topbar.menu")
+        XCTAssertTrue(trigger.waitForExistence(timeout: 5), "缺少右上角功能菜单入口")
+        trigger.tap()
+    }
+
+    /// 点击菜单项：优先按无障碍标识匹配，取不到时退回按钮文字
+    private func tapMenuItem(_ identifier: String, label: String) {
+        let byIdentifier = element(identifier)
+        let target = byIdentifier.waitForExistence(timeout: 5)
+            ? byIdentifier
+            : app.buttons[label].firstMatch
+        XCTAssertTrue(target.exists, "菜单项「\(label)」未出现")
+        target.tap()
+    }
+
     private func toggleFeature(_ identifier: String, on: Bool) {
         let toggle = scrollTo(identifier)
         XCTAssertTrue(toggle.waitForExistence(timeout: 5), "未找到开关 \(identifier)")
@@ -176,14 +193,19 @@ final class DSHiOSUITests: XCTestCase {
     func test02_主页默认只保留核心元素() {
         XCTAssertTrue(element("composer.input").waitForExistence(timeout: 10))
         XCTAssertTrue(element("topbar.sidebar").exists, "缺少会话列表入口")
-        XCTAssertTrue(element("topbar.newchat").exists, "缺少新对话入口")
+        XCTAssertTrue(element("topbar.menu").exists, "缺少右上角功能菜单入口")
         XCTAssertTrue(app.staticTexts["有什么可以帮你的吗？"].exists, "缺少空态标题")
         XCTAssertTrue(element("composer.thinking").exists, "默认应显示深度思考开关")
 
         // 高级入口默认关闭
         XCTAssertFalse(element("composer.model").exists, "模型选择默认不该出现")
         XCTAssertFalse(element("composer.plus").exists, "插件命令默认不该出现")
-        XCTAssertFalse(element("topbar.sessionlog").exists, "会话日志入口默认不该出现")
+        // 会话日志与内置浏览器合并进右上角菜单，关闭开关时不应出现在菜单里
+        openTopMenu()
+        XCTAssertFalse(element("menu.sessionLog").exists, "会话日志默认不该出现在菜单中")
+        XCTAssertFalse(element("menu.browser").exists, "内置浏览器默认不该出现在菜单中")
+        XCTAssertTrue(element("menu.newChat").exists, "菜单应始终包含新对话")
+        app.staticTexts["有什么可以帮你的吗？"].tap()
         // 对话/轨迹切换栏已整体移除
         XCTAssertFalse(app.staticTexts["轨迹"].exists, "首页不应再出现轨迹切换")
         capture("03-home-minimal")
@@ -469,7 +491,8 @@ final class DSHiOSUITests: XCTestCase {
 
     func test13_抽屉长按删除会话后列表立即刷新() {
         // 新建一个会话，让抽屉里有一条记录
-        element("topbar.newchat").tap()
+        openTopMenu()
+        tapMenuItem("menu.newChat", label: "新对话")
         element("topbar.sidebar").tap()
 
         let row = app.buttons.matching(identifier: "sidebar.row").firstMatch
@@ -541,9 +564,9 @@ final class DSHiOSUITests: XCTestCase {
         toggleFeature("feature.agentTools", on: true)
         closeSettings()
 
-        let browserButton = element("topbar.browser")
-        XCTAssertTrue(browserButton.waitForExistence(timeout: 5), "开启工具后缺少内置浏览器入口")
-        browserButton.tap()
+        // 开关打开后，菜单里应出现「内置浏览器」入口
+        openTopMenu()
+        tapMenuItem("menu.browser", label: "内置浏览器")
 
         XCTAssertTrue(
             element("browser.address").waitForExistence(timeout: 10),
@@ -588,7 +611,8 @@ final class DSHiOSUITests: XCTestCase {
     // MARK: - 会话重命名
 
     func test16_抽屉长按可重命名会话() {
-        element("topbar.newchat").tap()
+        openTopMenu()
+        tapMenuItem("menu.newChat", label: "新对话")
         element("topbar.sidebar").tap()
 
         let row = app.buttons.matching(identifier: "sidebar.row").firstMatch

@@ -11,6 +11,8 @@ struct RootView: View {
 
     @State private var drawerOpen = false
     @State private var dragOffset: CGFloat = 0
+    /// 本次拖拽是否为横向（只有横向拖拽才驱动抽屉，避免与列表纵向滚动抢手势产生抖动）
+    @State private var isHorizontalDrag = false
     @State private var showSettings = false
     @State private var showPlugins = false
     @State private var showSessionLog = false
@@ -74,7 +76,6 @@ struct RootView: View {
                 drawer(embedded: false)
                     .frame(width: drawerWidth)
                     .background(DSHTheme.page.ignoresSafeArea())
-                    .shadow(color: .black.opacity(drawerOpen ? 0.16 : 0), radius: 20, x: 8, y: 0)
                     .offset(x: drawerOffset)
                     .gesture(dragToClose)
             }
@@ -152,40 +153,60 @@ struct RootView: View {
                         }
                     }
 
-                    ToolbarItemGroup(placement: .navigationBarTrailing) {
-                        if features.agentTools {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        // 右上角合并为一个功能菜单：新对话 / 置顶 / 删除 / 会话日志 / 内置浏览器
+                        // 其中会话日志与内置浏览器仍受设置开关控制，关闭后不会出现在菜单里。
+                        Menu {
                             Button {
-                                engine.openBrowser(URL(string: "https://www.deepseek.com")!)
+                                engine.newConversation()
                             } label: {
-                                Image(systemName: "safari")
-                                    .font(.system(size: 17))
-                                    .foregroundStyle(DSHTheme.assistantText)
+                                Label("新对话", systemImage: "square.and.pencil")
                             }
-                            .accessibilityIdentifier("topbar.browser")
-                            .accessibilityLabel("内置浏览器")
-                        }
+                            .accessibilityIdentifier("menu.newChat")
 
-                        if features.sessionLog {
-                            Button {
-                                showSessionLog = true
-                            } label: {
-                                Image(systemName: "list.bullet.rectangle")
-                                    .font(.system(size: 16))
-                                    .foregroundStyle(DSHTheme.assistantText)
+                            if let conversation = engine.currentConversation {
+                                Button {
+                                    engine.togglePin(conversation)
+                                } label: {
+                                    Label(
+                                        conversation.isPinned ? "取消置顶" : "置顶",
+                                        systemImage: conversation.isPinned ? "pin.slash" : "pin"
+                                    )
+                                }
+                                .accessibilityIdentifier("menu.pin")
+
+                                Button(role: .destructive) {
+                                    engine.delete(conversation)
+                                } label: {
+                                    Label("删除", systemImage: "trash")
+                                }
+                                .accessibilityIdentifier("menu.delete")
                             }
-                            .accessibilityIdentifier("topbar.sessionlog")
-                            .accessibilityLabel("会话日志")
-                        }
 
-                        Button {
-                            engine.newConversation()
+                            if features.sessionLog {
+                                Button {
+                                    showSessionLog = true
+                                } label: {
+                                    Label("会话日志", systemImage: "list.bullet.rectangle")
+                                }
+                                .accessibilityIdentifier("menu.sessionLog")
+                            }
+
+                            if features.agentTools {
+                                Button {
+                                    engine.openBrowser(URL(string: "https://www.deepseek.com")!)
+                                } label: {
+                                    Label("内置浏览器", systemImage: "safari")
+                                }
+                                .accessibilityIdentifier("menu.browser")
+                            }
                         } label: {
                             Image(systemName: "square.and.pencil")
                                 .font(.system(size: 17))
                                 .foregroundStyle(DSHTheme.assistantText)
                         }
-                        .accessibilityIdentifier("topbar.newchat")
-                        .accessibilityLabel("新对话")
+                        .accessibilityIdentifier("topbar.menu")
+                        .accessibilityLabel("更多")
                     }
                 }
         }
@@ -253,9 +274,15 @@ struct RootView: View {
     private var dragToClose: some Gesture {
         DragGesture(minimumDistance: 12)
             .onChanged { value in
+                let horizontal = abs(value.translation.width) > abs(value.translation.height)
+                // 纵向滑动交给列表滚动，避免抽屉跟着抖动
+                guard horizontal else { return }
+                isHorizontalDrag = true
                 dragOffset = min(0, value.translation.width)
             }
             .onEnded { value in
+                defer { isHorizontalDrag = false }
+                guard isHorizontalDrag else { return }
                 let shouldClose = value.translation.width < -drawerWidth * 0.3
                     || value.predictedEndTranslation.width < -drawerWidth * 0.6
                 if shouldClose {

@@ -54,7 +54,6 @@ struct OnboardingView: View {
     private var header: some View {
         VStack(spacing: DSHTheme.Spacing.medium) {
             DSHWhaleMark(size: 72)
-                .shadow(color: DSHTheme.brand.opacity(0.18), radius: 12, y: 5)
 
             VStack(spacing: 6) {
                 Text("欢迎使用 DeepSeek")
