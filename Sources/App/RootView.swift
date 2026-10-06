@@ -300,6 +300,14 @@ struct RootView: View {
     }
 
     private func openDrawer() {
+        // 抽屉底部的「插件中心 / 设置」固定在屏幕底部不随键盘上移，
+        // 因此打开抽屉时先收起键盘，避免这两个入口被键盘盖住点不到。
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder),
+            to: nil,
+            from: nil,
+            for: nil
+        )
         dragOffset = 0
         withAnimation(DSHAnim.drawer) { drawerOpen = true }
         if settings.hapticsEnabled {
