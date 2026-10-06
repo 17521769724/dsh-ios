@@ -10,6 +10,9 @@ struct ComposerBar: View {
 
     @FocusState.Binding var focused: Bool
 
+    /// 输入行可用宽度（用于按真实换行计算输入框高度）
+    @State private var inputWidth: CGFloat = 0
+
     private var settings: AppSettings { settingsStore.settings }
     private var features: FeatureFlags { settings.features }
 
@@ -58,6 +61,8 @@ struct ComposerBar: View {
         .padding(.bottom, 10)
         .background(DSHTheme.composerCard)
         .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.composer, style: .continuous))
+        // 卡片高度只由内容决定，绝不被外层拉伸
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     /// 卡片底部一行：左侧快捷胶囊，右侧「+」与发送键
@@ -75,6 +80,8 @@ struct ComposerBar: View {
             }
             sendButton
         }
+        // 行高固定，键盘聚焦/收起时胶囊与「+」不会上下偏移
+        .frame(height: 32)
     }
 
     /// 「深度思考」开关：开启后整颗胶囊转为品牌蓝
@@ -145,7 +152,9 @@ struct ComposerBar: View {
         .accessibilityLabel("选择模型")
     }
 
-    /// 输入框：空态保持单行高度，随内容增长，最多 5 行后内部滚动。
+    /// 输入框：高度由内容行数精确算出（1–5 行），不依赖父视图建议的尺寸，
+    /// 因此聚焦、收起键盘时高度都不会跳变或残留（此前点击输入框后模型/＋号会偏移、
+    /// 收键盘后卡片被拉高，都是因为输入框会向上填充 maxHeight 空间）。
     private var inputField: some View {
         TextField("给 DeepSeek 发送消息", text: $engine.draft, axis: .vertical)
             .textFieldStyle(.plain)
@@ -154,10 +163,36 @@ struct ComposerBar: View {
             .lineLimit(1...5)
             .focused($focused)
             .submitLabel(.return)
-            .padding(.vertical, 2)
-            // 上限与 lineLimit(1...5) 对应，避免被外层拉伸
-            .frame(maxHeight: 132, alignment: .top)
+            .frame(height: measuredInputHeight, alignment: .top)
+            .background(inputWidthReader)
+            .onPreferenceChange(ComposerInputWidthKey.self) { inputWidth = $0 }
             .accessibilityIdentifier("composer.input")
+    }
+
+    /// 读取输入行可用宽度，用于按真实换行结果计算高度
+    private var inputWidthReader: some View {
+        GeometryReader { geometry in
+            Color.clear.preference(key: ComposerInputWidthKey.self, value: geometry.size.width)
+        }
+    }
+
+    private var measuredInputHeight: CGFloat {
+        let font = UIFont.systemFont(ofSize: 16)
+        guard inputWidth > 40 else { return font.lineHeight + 6 }
+        let raw = engine.draft
+        var lines = 1
+        if !raw.isEmpty {
+            let rect = (raw as NSString).boundingRect(
+                with: CGSize(width: inputWidth, height: .greatestFiniteMagnitude),
+                options: [.usesLineFragmentOrigin, .usesFontLeading],
+                attributes: [.font: font],
+                context: nil
+            )
+            lines = Int((rect.height / font.lineHeight).rounded(.up))
+            if raw.hasSuffix("\n") { lines += 1 }
+        }
+        let clamped = min(5, max(1, lines))
+        return font.lineHeight * CGFloat(clamped) + 6
     }
 
     private var plusButton: some View {
@@ -327,5 +362,13 @@ struct ComposerBar: View {
             engine.draft = ""
         }
         focusInputSoon()
+    }
+}
+
+/// 输入行宽度上报（用于按真实换行结果计算输入框高度）
+private struct ComposerInputWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }

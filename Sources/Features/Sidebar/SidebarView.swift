@@ -31,10 +31,11 @@ struct SidebarView: View {
     private var pinned: [Conversation] { filtered.filter { $0.isPinned } }
 
     var body: some View {
+        // 顺序：标题 → 搜索（紧随标题下方）→ 新对话 → 对话记录 → 设置
         VStack(spacing: 0) {
             header
-            newConversationButton
             searchField
+            newConversationButton
             list
             footer
         }
@@ -96,14 +97,15 @@ struct SidebarView: View {
             .foregroundStyle(DSHTheme.assistantText)
             .padding(.horizontal, 14)
             .frame(height: 44)
-            .background(DSHTheme.chipFill)
-            .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.chip, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.chip, style: .continuous))
+            // 与新对话、选中行、搜索框统一使用同一底色，保持主题一致
+            .background(DSHTheme.grouped)
+            .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous))
         }
         .buttonStyle(DSHPressStyle(scale: 0.98))
         .accessibilityIdentifier("sidebar.new")
         .padding(.horizontal, DSHTheme.Spacing.medium)
-        .padding(.bottom, DSHTheme.Spacing.small)
+        .padding(.bottom, DSHTheme.Spacing.tight)
     }
 
     private var searchField: some View {
@@ -129,8 +131,9 @@ struct SidebarView: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 38)
-        .background(DSHTheme.chipFill)
-        .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.chip, style: .continuous))
+        // 与「新对话」「选中会话行」统一底色，避免各控件灰阶不一致
+        .background(DSHTheme.grouped)
+        .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous))
         .padding(.horizontal, DSHTheme.Spacing.medium)
         .padding(.bottom, DSHTheme.Spacing.small)
     }
@@ -140,6 +143,9 @@ struct SidebarView: View {
     private var list: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 2) {
+                // 对话记录小标题：下方展示分组后的会话记录
+                sectionLabel("对话记录")
+
                 if !pinned.isEmpty {
                     sectionLabel("置顶")
                     ForEach(pinned) { row($0) }
@@ -241,7 +247,8 @@ struct SidebarView: View {
         }
         .buttonStyle(DSHPressStyle(scale: 0.99))
         .accessibilityIdentifier("sidebar.row")
-        .background(selected ? DSHTheme.chipFill : Color.clear)
+        // 选中行与搜索框、新对话使用统一的主题底色
+        .background(selected ? DSHTheme.grouped : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous))
         // 长按呼出菜单时的高亮与预览也按圆角绘制，避免出现直角背景
         .contentShape(

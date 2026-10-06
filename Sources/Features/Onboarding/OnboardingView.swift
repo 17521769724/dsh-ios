@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// 首次启动引导：必须先完成 API Key 配置，才能进入主页。
 /// API 地址与 API Key 都是常显的独立输入框（不再折叠在「高级选项」里），地址在上、Key 在下。
@@ -11,6 +12,8 @@ struct OnboardingView: View {
     @State private var isValidating = false
     @State private var errorText: String?
     @State private var revealed = false
+    /// 原生 Key 输入框的聚焦状态（用于输入框高亮描边）
+    @State private var keyFieldFocused = false
     @FocusState private var focusedField: Field?
 
     private enum Field { case key, baseURL }
@@ -81,31 +84,29 @@ struct OnboardingView: View {
                     .accessibilityIdentifier("onboarding.baseurl")
             }
 
-            inputGroup(title: "API Key", symbol: "key.fill", focused: focusedField == .key) {
+            inputGroup(
+                title: "API Key",
+                symbol: "key.fill",
+                focused: focusedField == .key || keyFieldFocused
+            ) {
                 HStack(spacing: DSHTheme.Spacing.small) {
-                    Group {
-                        if revealed {
-                            TextField("sk-…", text: $keyInput)
-                        } else {
-                            SecureField("sk-…", text: $keyInput)
-                        }
-                    }
-                    .font(.system(size: 15, design: .monospaced))
-                    .focused($focusedField, equals: .key)
-                    .submitLabel(.go)
-                    // 固定高度：明文/密文切换时高度不变，占位符不会上下跳动
-                    .frame(height: 26)
-                    // 占满剩余宽度：明文/密文切换时输入框宽度保持不变
+                    // 明文 / 密文只切换同一个原生输入框的安全属性，视图不重建，
+                    // 所以点击眼睛图标时「sk-…」占位符不会上下跳动。
+                    SecureInputField(
+                        text: $keyInput,
+                        isSecure: !revealed,
+                        placeholder: "sk-…",
+                        onSubmit: { if canSubmit { validateAndEnter() } },
+                        onFocusChange: { keyFieldFocused = $0 }
+                    )
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityIdentifier("onboarding.key")
-                    .onSubmit { if canSubmit { validateAndEnter() } }
 
                     Button {
                         revealed.toggle()
                     } label: {
                         Image(systemName: revealed ? "eye.slash" : "eye")
                             .font(.system(size: 14))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(DSHTheme.secondaryText)
                             .frame(width: 26, height: 26)
                             .contentShape(Rectangle())
                     }
@@ -265,6 +266,13 @@ struct OnboardingView: View {
         let base = baseURLInput.trimmingCharacters(in: .whitespacesAndNewlines)
         settingsStore.settings.baseURL = base.isEmpty ? AppSettings.default.baseURL : base
         focusedField = nil
+        // 原生 Key 输入框需要显式收起键盘
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder),
+            to: nil,
+            from: nil,
+            for: nil
+        )
     }
 
     private func validateAndEnter() {
