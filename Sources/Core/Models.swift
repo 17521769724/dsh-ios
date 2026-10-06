@@ -217,6 +217,10 @@ struct FeatureFlags: Codable, Equatable {
     var sshTool: Bool = false
     /// 内置浏览器（顶栏菜单入口 + 智能体网页工具）
     var browserTool: Bool = false
+    /// GitHub 工具（智能体可读写仓库、提 issue）
+    var githubTool: Bool = false
+    /// Gitee 工具（智能体可读写仓库、提 issue）
+    var giteeTool: Bool = false
 
     init() {}
 
@@ -241,6 +245,8 @@ struct FeatureFlags: Codable, Equatable {
         let legacy = try legacyContainer.decodeIfPresent(Bool.self, forKey: .agentTools) ?? fallback.sshTool
         self.sshTool = try container.decodeIfPresent(Bool.self, forKey: .sshTool) ?? legacy
         self.browserTool = try container.decodeIfPresent(Bool.self, forKey: .browserTool) ?? legacy
+        self.githubTool = try container.decodeIfPresent(Bool.self, forKey: .githubTool) ?? fallback.githubTool
+        self.giteeTool = try container.decodeIfPresent(Bool.self, forKey: .giteeTool) ?? fallback.giteeTool
     }
 
     init(
@@ -251,7 +257,9 @@ struct FeatureFlags: Codable, Equatable {
         deepThinkingToggle: Bool,
         examplePrompts: Bool,
         sshTool: Bool = false,
-        browserTool: Bool = false
+        browserTool: Bool = false,
+        githubTool: Bool = false,
+        giteeTool: Bool = false
     ) {
         self.sessionLog = sessionLog
         self.pluginCommands = pluginCommands
@@ -261,6 +269,8 @@ struct FeatureFlags: Codable, Equatable {
         self.examplePrompts = examplePrompts
         self.sshTool = sshTool
         self.browserTool = browserTool
+        self.githubTool = githubTool
+        self.giteeTool = giteeTool
     }
 
     static let allOn = FeatureFlags(
@@ -271,7 +281,9 @@ struct FeatureFlags: Codable, Equatable {
         deepThinkingToggle: true,
         examplePrompts: true,
         sshTool: true,
-        browserTool: true
+        browserTool: true,
+        githubTool: true,
+        giteeTool: true
     )
 }
 
@@ -333,6 +345,11 @@ struct AppSettings: Codable, Equatable {
     var features: FeatureFlags
     /// 内置浏览器设置
     var browser: BrowserSettings
+    /// 「回答风格约束」插件追加在每条用户消息末尾的强调指令，可在设置里编辑
+    var styleSuffix: String
+
+    /// 强调指令的默认内容
+    static let defaultStyleSuffix = "[约束] 请用简洁的中文回答，先给结论再给要点。"
 
     static let `default` = AppSettings(
         baseURL: "https://api.deepseek.com",
@@ -346,7 +363,8 @@ struct AppSettings: Codable, Equatable {
         thinkingEnabled: true,
         reasoningEffort: .high,
         features: FeatureFlags(),
-        browser: BrowserSettings.default
+        browser: BrowserSettings.default,
+        styleSuffix: AppSettings.defaultStyleSuffix
     )
 
     init(
@@ -361,7 +379,8 @@ struct AppSettings: Codable, Equatable {
         thinkingEnabled: Bool,
         reasoningEffort: ReasoningEffort,
         features: FeatureFlags,
-        browser: BrowserSettings = .default
+        browser: BrowserSettings = .default,
+        styleSuffix: String = AppSettings.defaultStyleSuffix
     ) {
         self.baseURL = baseURL
         self.defaultModel = defaultModel
@@ -375,6 +394,7 @@ struct AppSettings: Codable, Equatable {
         self.reasoningEffort = reasoningEffort
         self.features = features
         self.browser = browser
+        self.styleSuffix = styleSuffix
     }
 
     /// 宽容解码：旧版本写入的设置缺少新增字段时按默认值补齐，避免升级后偏好被整体重置
@@ -393,6 +413,7 @@ struct AppSettings: Codable, Equatable {
         self.reasoningEffort = try container.decodeIfPresent(ReasoningEffort.self, forKey: .reasoningEffort) ?? fallback.reasoningEffort
         self.features = try container.decodeIfPresent(FeatureFlags.self, forKey: .features) ?? fallback.features
         self.browser = try container.decodeIfPresent(BrowserSettings.self, forKey: .browser) ?? fallback.browser
+        self.styleSuffix = try container.decodeIfPresent(String.self, forKey: .styleSuffix) ?? fallback.styleSuffix
     }
 }
 

@@ -17,6 +17,19 @@ final class PluginManager: ObservableObject {
         refresh()
     }
 
+    // MARK: - 宿主设置
+
+    /// 注入设置读取器：内置插件「回答风格约束」用它读取用户在设置里编辑的强调指令。
+    func configure(settingsStore: SettingsStore) {
+        runtime.settingProvider = { [weak settingsStore] key in
+            guard let settingsStore else { return "" }
+            switch key {
+            case "styleSuffix": return settingsStore.settings.styleSuffix
+            default: return ""
+            }
+        }
+    }
+
     // MARK: - 目录
 
     var userPluginsDirectory: URL {

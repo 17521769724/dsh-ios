@@ -15,6 +15,7 @@ import JavaScriptCore
     func onMessage(_ handler: JSValue)
     func setStorage(_ key: String, _ value: String)
     func getStorage(_ key: String) -> String
+    func getSetting(_ key: String) -> String
     func version() -> String
 }
 
@@ -48,6 +49,10 @@ final class DSHJSBridge: NSObject, DSHJSExports {
         runtime?.getStorage(pluginID: pluginID, key: key) ?? ""
     }
 
+    func getSetting(_ key: String) -> String {
+        runtime?.getSetting(key: key) ?? ""
+    }
+
     func version() -> String {
         "DSH-iOS/0.1 (JavaScriptCore)"
     }
@@ -69,6 +74,9 @@ final class PluginRuntime {
     private var messageHooks: [String: [JSValue]] = [:]
     private var messageHookOrder: [String] = []
     private var storage: [String: String] = [:]
+
+    /// 由宿主注入的设置读取器：插件可通过 dsh.getSetting(key) 读取用户在设置里填写的内容
+    var settingProvider: ((String) -> String)?
 
     private let maxLogEntries = 300
 
@@ -174,6 +182,11 @@ final class PluginRuntime {
 
     func getStorage(pluginID: String, key: String) -> String {
         storage["\(pluginID)::\(key)"] ?? ""
+    }
+
+    /// 读取宿主设置（非插件私有存储）
+    func getSetting(key: String) -> String {
+        settingProvider?(key) ?? ""
     }
 
     // MARK: - 执行

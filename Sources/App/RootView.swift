@@ -88,6 +88,7 @@ struct RootView: View {
                 .environmentObject(engine)
                 .environmentObject(engine.settingsStore)
                 .environmentObject(engine.sshStore)
+                .environmentObject(engine.gitStore)
                 .environmentObject(plugins)
         }
         // 内置浏览器：模型工具调用或手动入口触发

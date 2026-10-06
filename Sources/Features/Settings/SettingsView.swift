@@ -7,6 +7,7 @@ struct SettingsView: View {
     @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var plugins: PluginManager
     @EnvironmentObject private var sshStore: SSHStore
+    @EnvironmentObject private var gitStore: GitAccountStore
     @Environment(\.dismiss) private var dismiss
 
     private var settings: AppSettings { settingsStore.settings }
@@ -19,6 +20,7 @@ struct SettingsView: View {
                 appearanceSection
                 homeFeaturesSection
                 toolsSection
+                gitSection
                 pluginsSection
                 dataSection
                 aboutSection
@@ -130,6 +132,50 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: - 代码托管（GitHub / Gitee）
+
+    private var gitSection: some View {
+        Section {
+            Toggle(isOn: $settingsStore.settings.features.githubTool) {
+                SettingsRowLabel(symbol: "arrow.triangle.branch", color: .black, title: "GitHub 工具")
+            }
+            .accessibilityIdentifier("feature.githubTool")
+
+            NavigationLink {
+                GitAccountSettingsView(provider: .github)
+            } label: {
+                SettingsValueRow(
+                    symbol: "person.crop.circle.fill",
+                    color: .gray,
+                    title: "GitHub 账号",
+                    value: gitStore.statusText(for: .github)
+                )
+            }
+            .accessibilityIdentifier("settings.githubAccount")
+
+            Toggle(isOn: $settingsStore.settings.features.giteeTool) {
+                SettingsRowLabel(symbol: "arrow.triangle.branch", color: .red, title: "Gitee 工具")
+            }
+            .accessibilityIdentifier("feature.giteeTool")
+
+            NavigationLink {
+                GitAccountSettingsView(provider: .gitee)
+            } label: {
+                SettingsValueRow(
+                    symbol: "person.crop.circle.fill",
+                    color: .gray,
+                    title: "Gitee 账号",
+                    value: gitStore.statusText(for: .gitee)
+                )
+            }
+            .accessibilityIdentifier("settings.giteeAccount")
+        } header: {
+            Text("代码托管")
+        } footer: {
+            Text("登录后 Token 只保存在本机钥匙串；开启开关后模型可查看仓库、读写仓库文件与创建 Issue，未登录时对应工具不会下发给模型。")
+        }
+    }
+
     // MARK: - 对话
 
     private var conversationSection: some View {
@@ -237,7 +283,7 @@ struct SettingsView: View {
     // MARK: - 插件
 
     private var pluginsSection: some View {
-        Section("插件") {
+        Section {
             NavigationLink {
                 PluginsView()
                     .environmentObject(engine)
@@ -250,6 +296,22 @@ struct SettingsView: View {
                     value: "\(plugins.manifests.filter { $0.isEnabled }.count) 个已启用"
                 )
             }
+
+            NavigationLink {
+                StyleSuffixSettingsView()
+            } label: {
+                SettingsValueRow(
+                    symbol: "text.bubble.fill",
+                    color: .indigo,
+                    title: "回答风格约束",
+                    value: settings.styleSuffix.isEmpty ? "未设置" : "已设置"
+                )
+            }
+            .accessibilityIdentifier("settings.styleSuffix")
+        } header: {
+            Text("插件")
+        } footer: {
+            Text("「回答风格约束」插件需在插件中心开启；开启后这里编辑的强调指令会追加在每条消息末尾发送给模型。")
         }
     }
 
@@ -627,6 +689,77 @@ struct SystemPromptSettingsView: View {
     }
 }
 
+// MARK: - 回答风格约束（插件）
+
+/// 「回答风格约束」：编辑追加在每条消息末尾的强调指令，并可直接开关该插件。
+struct StyleSuffixSettingsView: View {
+    @EnvironmentObject private var settingsStore: SettingsStore
+    @EnvironmentObject private var plugins: PluginManager
+
+    /// 内置插件「回答风格约束」的固定 id（来自脚本文件名 prompt-suffix.js）
+    private var suffixPlugin: PluginManifest? {
+        plugins.manifests.first { $0.id == "builtin.prompt-suffix" }
+    }
+
+    var body: some View {
+        List {
+            pluginSection
+            editorSection
+            defaultSection
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("回答风格约束")
+        .navigationBarTitleDisplayMode(.inline)
+        .tint(DSHTheme.brand)
+    }
+
+    private var pluginSection: some View {
+        Section {
+            if let suffixPlugin {
+                Toggle(isOn: Binding(
+                    get: { suffixPlugin.isEnabled },
+                    set: { plugins.setEnabled($0, for: suffixPlugin.id) }
+                )) {
+                    SettingsRowLabel(symbol: "text.bubble.fill", color: .indigo, title: "启用回答风格约束")
+                }
+                .accessibilityIdentifier("styleSuffix.enabled")
+            } else {
+                Text("未找到内置插件，可在插件中心刷新后重试。")
+                    .foregroundStyle(.secondary)
+            }
+        } footer: {
+            Text("关闭时不会追加任何内容；修改下方指令后立即生效，无需重启。")
+        }
+    }
+
+    private var editorSection: some View {
+        Section {
+            TextEditor(text: $settingsStore.settings.styleSuffix)
+                .font(.system(size: 15))
+                .frame(minHeight: 140)
+                .accessibilityIdentifier("styleSuffix.editor")
+        } header: {
+            Text("强调指令")
+        } footer: {
+            Text("这段内容会追加在每条用户消息末尾发送给模型，例如：「请用中文分点回答，不要客套话」。留空则使用默认约束。")
+        }
+    }
+
+    private var defaultSection: some View {
+        Section {
+            Button {
+                settingsStore.settings.styleSuffix = AppSettings.defaultStyleSuffix
+            } label: {
+                Label("恢复默认指令", systemImage: "arrow.counterclockwise")
+            }
+            .disabled(settingsStore.settings.styleSuffix == AppSettings.defaultStyleSuffix)
+            .accessibilityIdentifier("styleSuffix.reset")
+        } footer: {
+            Text("默认指令：\(AppSettings.defaultStyleSuffix)")
+        }
+    }
+}
+
 // MARK: - 外观
 
 struct ThemeSettingsView: View {
@@ -765,7 +898,7 @@ struct PluginDirectoryInfoView: View {
                     .textSelection(.enabled)
             }
             Section("可用 API") {
-                Text("dsh.log(msg)\ndsh.registerCommand(name, summary, fn)\ndsh.onMessage(fn)\ndsh.setStorage(key, value)\ndsh.getStorage(key)")
+                Text("dsh.log(msg)\ndsh.registerCommand(name, summary, fn)\ndsh.onMessage(fn)\ndsh.setStorage(key, value)\ndsh.getStorage(key)\ndsh.getSetting(key)  // 读取宿主设置，如 styleSuffix")
                     .font(.system(size: 12, design: .monospaced))
                     .textSelection(.enabled)
             }

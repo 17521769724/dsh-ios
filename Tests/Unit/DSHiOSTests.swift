@@ -165,6 +165,19 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertTrue(settings.features.examplePrompts)
     }
 
+    /// 新增字段：回答风格约束与 GitHub / Gitee 工具开关在旧数据中取默认值
+    func testStyleSuffixDefaultsAndLegacyDecoding() {
+        XCTAssertFalse(AppSettings.default.styleSuffix.isEmpty)
+
+        let legacy = #"{"baseURL":"https://api.deepseek.com"}"#
+        guard let decoded = try? JSONDecoder().decode(AppSettings.self, from: Data(legacy.utf8)) else {
+            return XCTFail("旧版设置应能解码")
+        }
+        XCTAssertEqual(decoded.styleSuffix, AppSettings.defaultStyleSuffix)
+        XCTAssertFalse(decoded.features.githubTool)
+        XCTAssertFalse(decoded.features.giteeTool)
+    }
+
     /// 升级场景：旧版本写入的设置缺少新字段时，旧值应保留、新字段取默认值
     func testLenientDecodingKeepsOldValues() {
         let legacy = """
@@ -389,6 +402,26 @@ final class PluginRuntimeTests: XCTestCase {
         XCTAssertEqual(manager.transformOutgoing("回复", role: "assistant"), "回复")
 
         manager.setEnabled(false, for: plugin.id)
+    }
+
+    /// 「回答风格约束」应使用设置里编辑的强调指令（默认指令只在未编辑时兜底）
+    func testMessageHookUsesStyleSuffixSetting() {
+        let settings = SettingsStore()
+        let original = settings.settings.styleSuffix
+        settings.settings.styleSuffix = "[约束] 只回答一句话。"
+        defer { settings.settings.styleSuffix = original }
+
+        let manager = PluginManager()
+        manager.configure(settingsStore: settings)
+        manager.refresh()
+
+        guard let plugin = manager.manifests.first(where: { $0.id == "builtin.prompt-suffix" }) else {
+            return XCTFail("未找到回答风格约束插件")
+        }
+        manager.setEnabled(true, for: plugin.id)
+        defer { manager.setEnabled(false, for: plugin.id) }
+        XCTAssertEqual(manager.transformOutgoing("你好", role: "user"), "你好\n\n[约束] 只回答一句话。")
+        XCTAssertEqual(manager.transformOutgoing("回复", role: "assistant"), "回复")
     }
 
     func testBrokenPluginIsReportedWithoutCrashing() {

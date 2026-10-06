@@ -12,6 +12,7 @@ final class ChatEngine: ObservableObject {
     let conversationStore: ConversationStore
     let pluginManager: PluginManager
     let sshStore: SSHStore
+    let gitStore: GitAccountStore
 
     // MARK: - 界面状态
 
@@ -39,12 +40,14 @@ final class ChatEngine: ObservableObject {
         settingsStore: SettingsStore,
         conversationStore: ConversationStore,
         pluginManager: PluginManager,
-        sshStore: SSHStore
+        sshStore: SSHStore,
+        gitStore: GitAccountStore
     ) {
         self.settingsStore = settingsStore
         self.conversationStore = conversationStore
         self.pluginManager = pluginManager
         self.sshStore = sshStore
+        self.gitStore = gitStore
         self.client = DeepSeekClient(timeout: settingsStore.settings.requestTimeout)
 
         if let latest = conversationStore.sortedConversations.first {
@@ -355,14 +358,17 @@ final class ChatEngine: ObservableObject {
 
     // MARK: - 工具调用（Agent）
 
-    /// 当前开启的工具集合：SSH 与浏览器各自独立开关，SSH 未配置时不下发 ssh_exec
+    /// 当前开启的工具集合：SSH / 浏览器 / GitHub / Gitee 各自独立开关，
+    /// 未配置（SSH 未填服务器、Git 未登录）的工具不下发，避免模型调用必然失败的工具。
     private func activeTools() -> [APITool] {
         let features = settingsStore.settings.features
         let browser = settingsStore.settings.browser
         return AgentToolCatalog.tools(
             sshEnabled: features.sshTool && sshStore.isConfigured,
             browserEnabled: features.browserTool,
-            browserReadEnabled: features.browserTool && browser.allowAgentRead
+            browserReadEnabled: features.browserTool && browser.allowAgentRead,
+            githubEnabled: features.githubTool && gitStore.isConnected(.github),
+            giteeEnabled: features.giteeTool && gitStore.isConnected(.gitee)
         )
     }
 
@@ -446,6 +452,22 @@ final class ChatEngine: ObservableObject {
             }
             do {
                 return try await WebPageReader.shared.read(url: url)
+            } catch {
+                return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+
+        case AgentToolCatalog.githubName, AgentToolCatalog.giteeName:
+            let provider: GitProvider = call.name == AgentToolCatalog.githubName ? .github : .gitee
+            let token = gitStore.token(for: provider)
+            guard !token.isEmpty else {
+                return "尚未在设置中登录 \(provider.displayName) 账号。"
+            }
+            do {
+                return try await GitService.perform(
+                    provider: provider,
+                    arguments: call.arguments,
+                    token: token
+                )
             } catch {
                 return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }

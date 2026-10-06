@@ -7,6 +7,7 @@ struct DSHiOSApp: App {
     @StateObject private var conversationStore: ConversationStore
     @StateObject private var pluginManager: PluginManager
     @StateObject private var sshStore: SSHStore
+    @StateObject private var gitStore: GitAccountStore
     @StateObject private var engine: ChatEngine
 
     init() {
@@ -14,6 +15,7 @@ struct DSHiOSApp: App {
         let conversations = ConversationStore()
         let pluginManager = PluginManager()
         let sshStore = SSHStore()
+        let gitStore = GitAccountStore()
         let arguments = ProcessInfo.processInfo.arguments
 
         // UI 测试用：-uitest-reset 清空历史，-uitest-seed 注入演示会话，
@@ -35,8 +37,11 @@ struct DSHiOSApp: App {
             settingsStore: settings,
             conversationStore: conversations,
             pluginManager: pluginManager,
-            sshStore: sshStore
+            sshStore: sshStore,
+            gitStore: gitStore
         )
+        // 让插件（如「回答风格约束」）能读到设置里编辑的内容
+        pluginManager.configure(settingsStore: settings)
         // -uitest-server-models 模拟「已从服务端拉取模型列表」，用于验证列表刷新链路
         if arguments.contains("-uitest-server-models") {
             engine.availableModels = DSHModel.list(from: [
@@ -50,6 +55,7 @@ struct DSHiOSApp: App {
         _conversationStore = StateObject(wrappedValue: conversations)
         _pluginManager = StateObject(wrappedValue: pluginManager)
         _sshStore = StateObject(wrappedValue: sshStore)
+        _gitStore = StateObject(wrappedValue: gitStore)
         _engine = StateObject(wrappedValue: engine)
     }
 
@@ -61,6 +67,7 @@ struct DSHiOSApp: App {
                 .environmentObject(conversationStore)
                 .environmentObject(pluginManager)
                 .environmentObject(sshStore)
+                .environmentObject(gitStore)
                 .tint(DSHTheme.brand)
         }
     }
