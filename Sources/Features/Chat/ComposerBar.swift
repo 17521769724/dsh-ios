@@ -372,11 +372,13 @@ struct ComposerBar: View {
             return
         }
 
-        if output.count > 60 {
-            engine.draft = output
-        } else {
+        // 命令结果直接写回输入框（/time、/date 插入时间日期，/upper 等替换选区文本），
+        // 短结果再补一条提示，便于确认执行成功。
+        engine.draft = output
+        if output.count <= 30 {
             engine.showToast("/\(command.name) → \(output)")
-            engine.draft = ""
+        } else {
+            engine.showToast("已插入 /\(command.name) 的结果")
         }
         focusInputSoon()
     }

@@ -25,17 +25,17 @@ enum DSHTheme {
     static let assistantText = dynamic(light: 0x1A1A1A, dark: 0xEDEDED)
     /// 输入卡片底色
     static let composerCard = dynamic(light: 0xF5F6F8, dark: 0x26272B)
-    /// 未激活胶囊底色
-    static let chipFill = dynamic(light: 0xF2F3F5, dark: 0x2C2D32)
+    /// 未激活胶囊底色（比输入卡片底色深一档，保证胶囊可辨识）
+    static let chipFill = dynamic(light: 0xE7EAEF, dark: 0x35363D)
     static let reasoningBackground = dynamic(light: 0xF5F6F8, dark: 0x26272B)
     static let separator = dynamic(light: 0xE9EAEE, dark: 0x303136)
 
     static let secondaryText = dynamic(light: 0x8A8F99, dark: 0x9B9EA5)
     static let tertiaryText = dynamic(light: 0xB4B8C0, dark: 0x6E7076)
 
-    /// 发送键空闲态：灰底 + 灰箭头（与官方一致）
-    static let sendIdle = dynamic(light: 0xE6E8EC, dark: 0x32333A)
-    static let sendIdleIcon = dynamic(light: 0xB9BDC5, dark: 0x6E7076)
+    /// 发送键空闲态：灰底 + 灰箭头（与官方一致，比胶囊再深一档）
+    static let sendIdle = dynamic(light: 0xDFE3EA, dark: 0x3C3D45)
+    static let sendIdleIcon = dynamic(light: 0xA8ADB8, dark: 0x6E7076)
 
     static let danger = Color(uiColor: .systemRed)
     static let warning = Color(uiColor: .systemOrange)
@@ -116,6 +116,25 @@ struct DSHWhaleMark: View {
             .foregroundStyle(color)
             .frame(width: size, height: size)
             .accessibilityHidden(true)
+    }
+}
+
+/// 顶栏右侧的菜单图标：三条横线，右对齐、自上而下依次变短，
+/// 体量与左侧栏图标一致（横向 18pt，线条 2pt 左右）。
+struct DSHMenuGlyph: View {
+    var size: CGFloat = 18
+    var color: Color = DSHTheme.assistantText
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: size * 0.2) {
+            ForEach(0..<3) { index in
+                Capsule(style: .continuous)
+                    .fill(color)
+                    .frame(width: size * (1 - CGFloat(index) * 0.3), height: size * 0.12)
+            }
+        }
+        .frame(width: size, alignment: .trailing)
+        .accessibilityHidden(true)
     }
 }
 

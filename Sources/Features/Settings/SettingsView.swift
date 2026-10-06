@@ -101,7 +101,8 @@ struct SettingsView: View {
                     symbol: "server.rack",
                     color: .gray,
                     title: "SSH 服务器配置",
-                    value: sshStore.isConfigured ? sshStore.displayTarget : "未配置"
+                    // 已配置时不暴露主机与用户名等信息
+                    value: sshStore.isConfigured ? "已配置" : "未配置"
                 )
             }
             .accessibilityIdentifier("settings.ssh")

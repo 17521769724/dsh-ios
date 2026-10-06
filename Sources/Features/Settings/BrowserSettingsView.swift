@@ -11,6 +11,21 @@ struct BrowserSettingsView: View {
     var body: some View {
         List {
             Section {
+                Toggle(isOn: $settingsStore.settings.browser.allowAgentRead) {
+                    SettingsRowLabel(
+                        symbol: "doc.text.magnifyingglass",
+                        color: .orange,
+                        title: "允许智能体读取网页正文"
+                    )
+                }
+                .accessibilityIdentifier("browser.allowAgentRead")
+            } header: {
+                Text("智能体")
+            } footer: {
+                Text("开启后模型可调用 browser_read 读取网页正文纯文本（用户看不到页面）；关闭只影响读取，不影响打开网页。")
+            }
+
+            Section {
                 Toggle(isOn: $settingsStore.settings.browser.desktopSite) {
                     SettingsRowLabel(symbol: "desktopcomputer", color: .indigo, title: "桌面版网站")
                 }
@@ -32,21 +47,6 @@ struct BrowserSettingsView: View {
                 Text("首页")
             } footer: {
                 Text("从顶栏菜单或输入框「+」打开内置浏览器时，首先加载这个地址。")
-            }
-
-            Section {
-                Toggle(isOn: $settingsStore.settings.browser.allowAgentRead) {
-                    SettingsRowLabel(
-                        symbol: "doc.text.magnifyingglass",
-                        color: .orange,
-                        title: "允许智能体读取网页正文"
-                    )
-                }
-                .accessibilityIdentifier("browser.allowAgentRead")
-            } header: {
-                Text("智能体")
-            } footer: {
-                Text("开启后模型可调用 browser_read 读取网页正文纯文本（用户看不到页面）；关闭只影响读取，不影响打开网页。")
             }
 
             Section {

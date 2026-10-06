@@ -31,11 +31,10 @@ struct SidebarView: View {
     private var pinned: [Conversation] { filtered.filter { $0.isPinned } }
 
     var body: some View {
-        // 顺序：标题 → 搜索（紧随标题下方）→ 新对话 → 对话记录 → 设置
+        // 顺序：标题 → 搜索 + 新对话（同一行）→ 对话记录 → 设置
         VStack(spacing: 0) {
             header
-            searchField
-            newConversationButton
+            searchRow
             list
             footer
         }
@@ -82,30 +81,33 @@ struct SidebarView: View {
         .padding(.bottom, DSHTheme.Spacing.medium)
     }
 
+    /// 搜索框与新对话按钮同一行：新对话只保留一个图标按钮（黑色图标，与原文案色一致）
+    private var searchRow: some View {
+        HStack(spacing: DSHTheme.Spacing.small) {
+            searchField
+            newConversationButton
+        }
+        .padding(.horizontal, DSHTheme.Spacing.medium)
+        .padding(.bottom, DSHTheme.Spacing.small)
+    }
+
     private var newConversationButton: some View {
         Button {
             engine.newConversation()
             close()
         } label: {
-            HStack(spacing: DSHTheme.Spacing.small) {
-                Image(systemName: "square.and.pencil")
-                    .font(.system(size: 15, weight: .medium))
-                Text("新对话")
-                    .font(.system(size: 15, weight: .medium))
-                Spacer()
-            }
-            .foregroundStyle(DSHTheme.assistantText)
-            .padding(.horizontal, 14)
-            .frame(height: 44)
-            // 与对话页输入卡片同色，扁平底色、无阴影
-            .background(DSHTheme.composerCard)
-            .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous))
+            Image(systemName: "square.and.pencil")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(DSHTheme.assistantText)
+                .frame(width: 38, height: 38)
+                // 与搜索框同底色、同圆角，视觉上属于同一行
+                .background(DSHTheme.composerCard)
+                .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(DSHPressStyle(scale: 0.95))
         .accessibilityIdentifier("sidebar.new")
-        .padding(.horizontal, DSHTheme.Spacing.medium)
-        .padding(.bottom, DSHTheme.Spacing.tight)
+        .accessibilityLabel("新对话")
     }
 
     private var searchField: some View {
@@ -134,8 +136,6 @@ struct SidebarView: View {
         // 与对话页输入卡片同色，扁平底色、无阴影
         .background(DSHTheme.composerCard)
         .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous))
-        .padding(.horizontal, DSHTheme.Spacing.medium)
-        .padding(.bottom, DSHTheme.Spacing.small)
     }
 
     // MARK: - 列表（按时间分组）

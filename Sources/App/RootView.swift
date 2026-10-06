@@ -203,10 +203,8 @@ struct RootView: View {
                                 .accessibilityIdentifier("menu.browser")
                             }
                         } label: {
-                            // 菜单图标：右上角统一入口，用三条横线的菜单标识
-                            Image(systemName: "line.3.horizontal")
-                                .font(.system(size: 17))
-                                .foregroundStyle(DSHTheme.assistantText)
+                            // 菜单图标：三条横线右对齐、上长下短，与左侧栏图标同尺寸
+                            DSHMenuGlyph()
                         }
                         .accessibilityIdentifier("topbar.menu")
                         .accessibilityLabel("菜单")
@@ -316,6 +314,13 @@ struct RootView: View {
     }
 
     private func closeDrawer() {
+        // 收起抽屉时一并收起键盘（点搜索框后点空白处关闭抽屉，键盘不应还留在屏幕上）
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder),
+            to: nil,
+            from: nil,
+            for: nil
+        )
         withAnimation(DSHAnim.drawer) {
             drawerOpen = false
             dragOffset = 0
