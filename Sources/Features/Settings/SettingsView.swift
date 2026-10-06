@@ -293,7 +293,8 @@ struct SettingsView: View {
                     symbol: "puzzlepiece.extension.fill",
                     color: .purple,
                     title: "插件中心",
-                    value: "\(plugins.manifests.filter { $0.isEnabled }.count) 个已启用"
+                    // 与插件中心列表一致：不含由本页单独管理的「回答风格约束」
+                    value: "\(plugins.manifests.filter { $0.isEnabled && !PluginManager.settingsManagedPluginIDs.contains($0.id) }.count) 个已启用"
                 )
             }
 

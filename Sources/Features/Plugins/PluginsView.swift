@@ -4,20 +4,26 @@ import SwiftUI
 struct PluginsView: View {
     @EnvironmentObject private var plugins: PluginManager
 
+    /// 由设置页单独管理的插件：在「设置 → 插件 → 回答风格约束」里开关与编辑，
+    /// 不在插件中心重复出现，避免两处开关造成困惑。
+    private var visibleManifests: [PluginManifest] {
+        plugins.manifests.filter { !PluginManager.settingsManagedPluginIDs.contains($0.id) }
+    }
+
     var body: some View {
         List {
             Section {
-                ForEach(plugins.manifests) { manifest in
+                ForEach(visibleManifests) { manifest in
                     manifestRow(manifest)
                 }
-                if plugins.manifests.isEmpty {
+                if visibleManifests.isEmpty {
                     Text("未发现插件")
                         .foregroundStyle(.secondary)
                 }
             } header: {
-                Text("已安装（\(plugins.manifests.count)）")
+                Text("已安装（\(visibleManifests.count)）")
             } footer: {
-                Text("内置插件随 App 分发；用户插件放在 Documents/Plugins 目录。关闭插件会立即卸载其命令与钩子。")
+                Text("内置插件随 App 分发；用户插件放在 Documents/Plugins 目录。关闭插件会立即卸载其命令与钩子。\n「回答风格约束」在「设置 → 插件 → 回答风格约束」中单独管理。")
             }
 
             Section {

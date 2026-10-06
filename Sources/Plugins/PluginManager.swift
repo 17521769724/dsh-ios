@@ -17,6 +17,10 @@ final class PluginManager: ObservableObject {
         refresh()
     }
 
+    /// 由「设置 → 插件 → 回答风格约束」单独管理的内置插件，
+    /// 不在插件中心重复展示（避免同一个插件出现两个开关）。
+    static let settingsManagedPluginIDs: Set<String> = ["builtin.prompt-suffix"]
+
     // MARK: - 宿主设置
 
     /// 注入设置读取器：内置插件「回答风格约束」用它读取用户在设置里编辑的强调指令。

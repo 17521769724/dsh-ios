@@ -14,6 +14,8 @@ struct ComposerBar: View {
     @State private var inputWidth: CGFloat = 0
     /// 「+」更多操作面板
     @State private var showMoreActions = false
+    /// 插件命令列表（与输入框内容无关，点击「+ → 插件命令」始终能看到全部命令）
+    @State private var showCommandPicker = false
     /// 模型选择面板
     @State private var showModelPicker = false
 
@@ -59,6 +61,12 @@ struct ComposerBar: View {
         .fixedSize(horizontal: false, vertical: true)
         .animation(DSHAnim.standard, value: matchedCommands.count)
         .animation(DSHAnim.standard, value: engine.isStreaming)
+        .sheet(isPresented: $showCommandPicker) {
+            PluginCommandPickerSheet { command in
+                insert(command)
+            }
+            .environmentObject(plugins)
+        }
     }
 
     // MARK: - 输入卡片
@@ -229,11 +237,8 @@ struct ComposerBar: View {
         .accessibilityLabel("更多")
         .confirmationDialog("更多操作", isPresented: $showMoreActions, titleVisibility: .hidden) {
             Button("插件命令") {
-                // 插入「/」后命令面板会立即出现（面板不再依赖聚焦状态）
-                if !engine.draft.hasPrefix("/") {
-                    engine.draft = "/" + engine.draft
-                }
-                focusInputSoon()
+                // 始终打开完整命令列表：输入框里已有内容（例如输入了一半的 /xxx）也能看到全部插件命令
+                showCommandPicker = true
             }
             if features.browserTool {
                 Button("内置浏览器") {
@@ -381,6 +386,89 @@ struct ComposerBar: View {
             engine.showToast("已插入 /\(command.name) 的结果")
         }
         focusInputSoon()
+    }
+
+    /// 从命令列表选中一条命令：把「/命令名 」写进输入框（丢弃输入框里没写完的 /xxx），
+    /// 随后输入框上方的命令面板会出现该命令，点一下即可执行。
+    private func insert(_ command: PluginCommand) {
+        var remainder = ""
+        let text = engine.draft
+        if text.hasPrefix("/") {
+            let body = text.dropFirst()
+            if let spaceIndex = body.firstIndex(of: " ") {
+                remainder = String(body[spaceIndex...]).trimmingCharacters(in: .whitespaces)
+            }
+        } else {
+            remainder = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        engine.draft = remainder.isEmpty ? "/\(command.name) " : "/\(command.name) \(remainder)"
+        focusInputSoon()
+    }
+}
+
+/// 插件命令列表：按插件分组展示全部命令，与输入框内容无关。
+private struct PluginCommandPickerSheet: View {
+    @EnvironmentObject private var plugins: PluginManager
+    @Environment(\.dismiss) private var dismiss
+
+    let onPick: (PluginCommand) -> Void
+
+    private struct CommandGroup: Identifiable {
+        let id: String
+        let title: String
+        let commands: [PluginCommand]
+    }
+
+    private var groups: [CommandGroup] {
+        plugins.manifests.compactMap { manifest in
+            let commands = plugins.commands.filter { $0.pluginID == manifest.id }
+            guard !commands.isEmpty else { return nil }
+            return CommandGroup(id: manifest.id, title: manifest.name, commands: commands)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if groups.isEmpty {
+                    Text("当前没有可用命令")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(groups) { group in
+                    Section(group.title) {
+                        ForEach(group.commands) { command in
+                            Button {
+                                onPick(command)
+                                dismiss()
+                            } label: {
+                                HStack(spacing: DSHTheme.Spacing.medium) {
+                                    Text("/" + command.name)
+                                        .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                                        .foregroundStyle(DSHTheme.brand)
+                                    Text(command.summary.isEmpty ? "无说明" : command.summary)
+                                        .font(.system(size: 13))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                    Spacer(minLength: 0)
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("picker.command.\(command.name)")
+                        }
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .navigationTitle("插件命令")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 }
 

@@ -27,6 +27,46 @@ enum GitService {
     /// 传给模型的输出上限
     static let maxCharacters = 8_000
 
+    // MARK: - 仓库列表（设置页展示）
+
+    /// 仓库摘要
+    struct RepositorySummary: Identifiable, Hashable {
+        let id: String
+        let fullName: String
+        let isPrivate: Bool
+        let defaultBranch: String
+        let summary: String
+        let webURL: URL?
+
+        var visibilityText: String { isPrivate ? "私有" : "公开" }
+    }
+
+    /// 拉取账号下最近更新的仓库（最多 30 个），用于设置页展示
+    static func listRepositories(provider: GitProvider, token: String) async throws -> [RepositorySummary] {
+        let list = try await listRequest(
+            provider: provider,
+            token: token,
+            method: "GET",
+            path: "/user/repos",
+            query: ["per_page": "30", "sort": "updated"]
+        )
+        return list.prefix(30).map { repo in
+            let fullName = repo["full_name"] as? String
+                ?? repo["path"] as? String
+                ?? "(未知仓库)"
+            let description = (repo["description"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return RepositorySummary(
+                id: fullName,
+                fullName: fullName,
+                isPrivate: (repo["private"] as? Bool) ?? false,
+                defaultBranch: repo["default_branch"] as? String ?? "main",
+                summary: description,
+                webURL: (repo["html_url"] as? String).flatMap(URL.init(string:))
+            )
+        }
+    }
+
     // MARK: - 账号
 
     /// 用 Token 拉取账号名，用于校验 Token 是否有效

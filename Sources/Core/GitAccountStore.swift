@@ -97,6 +97,17 @@ final class GitAccountStore: ObservableObject {
         return name
     }
 
+    /// GitHub 设备码登录成功后写入 Token（Token 由 GitHub 直接下发，同样校验一次账号名）
+    @discardableResult
+    func connectGitHub(accessToken: String) async throws -> String {
+        let token = accessToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else { throw GitServiceError.emptyToken }
+        let name = try await GitService.fetchAccount(provider: .github, token: token)
+        setToken(token, for: .github)
+        setAccount(name, for: .github)
+        return name
+    }
+
     func signOut(_ provider: GitProvider) {
         setToken("", for: provider)
         setAccount(nil, for: provider)
