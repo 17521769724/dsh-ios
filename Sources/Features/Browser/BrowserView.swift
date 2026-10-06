@@ -12,6 +12,7 @@ struct BrowserView: View {
     let initialURL: URL
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var settingsStore: SettingsStore
     @StateObject private var model = BrowserWebModel()
     @State private var address = ""
 
@@ -37,6 +38,23 @@ struct BrowserView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
+                    Menu {
+                        Toggle(isOn: $settingsStore.settings.browser.desktopSite) {
+                            Label("桌面版网站", systemImage: "desktopcomputer")
+                        }
+                        Button {
+                            address = settingsStore.settings.browser.homeLink.absoluteString
+                            model.load(settingsStore.settings.browser.homeLink)
+                        } label: {
+                            Label("回到首页", systemImage: "house")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .accessibilityIdentifier("browser.options")
+                    .accessibilityLabel("浏览器选项")
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button("完成") { dismiss() }
                         .accessibilityIdentifier("browser.done")
                 }
@@ -59,7 +77,12 @@ struct BrowserView: View {
         }
         .onAppear {
             address = initialURL.absoluteString
+            model.applyDesktopMode(settingsStore.settings.browser.desktopSite)
             model.load(initialURL)
+        }
+        .onChange(of: settingsStore.settings.browser.desktopSite) { on in
+            model.applyDesktopMode(on)
+            model.reload()
         }
         .onChange(of: model.currentURL) { url in
             guard let url else { return }
@@ -158,6 +181,11 @@ final class BrowserWebModel: NSObject, ObservableObject, WKNavigationDelegate {
     func load(_ url: URL) {
         failureText = nil
         webView.load(URLRequest(url: url))
+    }
+
+    /// 桌面版网站：设置对应 User-Agent（nil 表示恢复移动版）
+    func applyDesktopMode(_ on: Bool) {
+        webView.customUserAgent = on ? BrowserSettings.desktopUserAgent : nil
     }
 
     func goBack() { webView.goBack() }

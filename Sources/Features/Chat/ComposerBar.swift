@@ -12,6 +12,16 @@ struct ComposerBar: View {
 
     /// 输入行可用宽度（用于按真实换行计算输入框高度）
     @State private var inputWidth: CGFloat = 0
+    /// 「+」更多操作面板
+    @State private var showMoreActions = false
+    /// 模型选择面板
+    @State private var showModelPicker = false
+
+    /// 控制行高度：所有胶囊与按钮都以此为基准垂直居中，
+    /// 行高只由这个常量决定，不受子视图（菜单/键盘）影响。
+    private static let controlHeight: CGFloat = 32
+    /// 胶囊与圆形按钮的可视高度
+    private static let chipHeight: CGFloat = 30
 
     private var settings: AppSettings { settingsStore.settings }
     private var features: FeatureFlags { settings.features }
@@ -61,20 +71,16 @@ struct ComposerBar: View {
         .padding(.horizontal, 14)
         .padding(.top, 12)
         .padding(.bottom, 10)
-        .frame(height: cardHeight, alignment: .top)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(DSHTheme.composerCard)
         .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.composer, style: .continuous))
     }
 
-    /// 卡片总高完全由内容决定（输入行 + 间距 + 操作行 + 内边距），
-    /// 不参与外层空间分配，聚焦/收起键盘时高度都不会变。
-    private var cardHeight: CGFloat {
-        measuredInputHeight + 8 + 32 + 12 + 10
-    }
-
-    /// 卡片底部一行：左侧快捷胶囊，右侧「+」与发送键
+    /// 卡片底部一行：左侧快捷胶囊，右侧「+」与发送键。
+    /// 行内每一项都用固定高度容器包住，键盘弹出 / 输入换行 / 流式状态变化时
+    /// 都不会因为子视图的固有尺寸变化而上下错位。
     private var controlRow: some View {
-        HStack(spacing: 8) {
+        HStack(alignment: .center, spacing: 8) {
             if features.deepThinkingToggle {
                 thinkingChip
             }
@@ -87,8 +93,7 @@ struct ComposerBar: View {
             }
             sendButton
         }
-        // 行高固定，键盘聚焦/收起时胶囊与「+」不会上下偏移
-        .frame(height: 32)
+        .frame(height: Self.controlHeight, alignment: .center)
     }
 
     /// 「深度思考」开关：开启后整颗胶囊转为品牌蓝
@@ -108,7 +113,7 @@ struct ComposerBar: View {
             }
             .foregroundStyle(on ? DSHTheme.brand : DSHTheme.assistantText)
             .padding(.horizontal, 10)
-            .frame(height: 30)
+            .frame(height: Self.chipHeight)
             .background(on ? DSHTheme.brandSoft : DSHTheme.chipFill)
             .clipShape(Capsule())
             .overlay(
@@ -117,26 +122,20 @@ struct ComposerBar: View {
             .contentShape(Capsule())
         }
         .buttonStyle(DSHPressStyle(scale: 0.95))
+        .frame(height: Self.chipHeight)
         .animation(DSHAnim.standard, value: on)
         .accessibilityIdentifier("composer.thinking")
         .accessibilityLabel("深度思考")
         .accessibilityValue(on ? "已开启" : "已关闭")
     }
 
-    /// 模型选择：与「深度思考」同为灰底胶囊，文字保持正文色
+    /// 模型选择：与「深度思考」同为灰底胶囊，文字保持正文色。
+    /// 选择列表用底部面板弹出，不用系统 Menu —— SwiftUI 的 Menu 由 UIKit 按钮承载，
+    /// 键盘弹出后其标签会停留在旧位置，正是「模型胶囊上移错位」的根源。
     private var modelChip: some View {
-        Menu {
-            ForEach(engine.availableModels) { model in
-                Button {
-                    engine.selectModel(model.id)
-                } label: {
-                    if engine.activeModelID == model.id {
-                        Label(model.name, systemImage: "checkmark")
-                    } else {
-                        Text(model.name)
-                    }
-                }
-            }
+        Button {
+            focused = false
+            showModelPicker = true
         } label: {
             HStack(spacing: 4) {
                 Image(systemName: "cpu")
@@ -150,13 +149,22 @@ struct ComposerBar: View {
             }
             .foregroundStyle(DSHTheme.assistantText)
             .padding(.horizontal, 10)
-            .frame(height: 30)
+            .frame(height: Self.chipHeight)
             .background(DSHTheme.chipFill)
             .clipShape(Capsule())
             .contentShape(Capsule())
         }
+        .buttonStyle(DSHPressStyle(scale: 0.95))
+        .frame(height: Self.chipHeight)
         .accessibilityIdentifier("composer.model")
         .accessibilityLabel("选择模型")
+        .confirmationDialog("选择模型", isPresented: $showModelPicker, titleVisibility: .visible) {
+            ForEach(engine.availableModels) { model in
+                Button(model.name) {
+                    engine.selectModel(model.id)
+                }
+            }
+        }
     }
 
     /// 输入框：高度由内容行数精确算出（1–5 行），不依赖父视图建议的尺寸，
@@ -203,50 +211,47 @@ struct ComposerBar: View {
     }
 
     private var plusButton: some View {
-        Menu {
-            Button {
+        Button {
+            focused = false
+            showMoreActions = true
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(DSHTheme.secondaryText)
+                .frame(width: Self.chipHeight, height: Self.chipHeight)
+                .background(Circle().fill(DSHTheme.chipFill))
+                .contentShape(Circle())
+        }
+        .buttonStyle(DSHPressStyle(scale: 0.9))
+        .frame(height: Self.chipHeight)
+        .disabled(engine.isStreaming)
+        .accessibilityIdentifier("composer.plus")
+        .accessibilityLabel("更多")
+        .confirmationDialog("更多操作", isPresented: $showMoreActions, titleVisibility: .hidden) {
+            Button("插件命令") {
                 // 插入「/」后命令面板会立即出现（面板不再依赖聚焦状态）
                 if !engine.draft.hasPrefix("/") {
                     engine.draft = "/" + engine.draft
                 }
                 focusInputSoon()
-            } label: {
-                Label("插件命令", systemImage: "command")
             }
-            Button {
-                engine.openBrowser(defaultURL)
-            } label: {
-                Label("内置浏览器", systemImage: "safari")
-            }
-            if !engine.draft.isEmpty {
-                Button {
-                    // 只清空内容，不在这里改动焦点，避免输入卡片高度被异常撑开
-                    engine.draft = ""
-                } label: {
-                    Label("清空输入", systemImage: "eraser")
+            if features.browserTool {
+                Button("内置浏览器") {
+                    engine.openBrowser(settings.browser.homeLink)
                 }
             }
-        } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(DSHTheme.secondaryText)
-                .frame(width: 30, height: 30)
-                .background(Circle().fill(DSHTheme.chipFill))
-                .contentShape(Circle())
+            if !engine.draft.isEmpty {
+                Button("清空输入", role: .destructive) {
+                    // 只清空内容，不在这里改动焦点，避免输入卡片高度被异常撑开
+                    engine.draft = ""
+                }
+            }
         }
-        .disabled(engine.isStreaming)
-        .accessibilityIdentifier("composer.plus")
-        .accessibilityLabel("更多")
     }
 
     /// 菜单收起后再聚焦，避免菜单退场动画期间聚焦失败导致命令面板不出现
     private func focusInputSoon() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { focused = true }
-    }
-
-    /// 手动打开内置浏览器时的默认首页
-    private var defaultURL: URL {
-        URL(string: "https://www.deepseek.com")!
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { focused = true }
     }
 
     /// 发送 / 停止：空闲灰底灰箭头，有内容时整颗转为品牌蓝
@@ -264,6 +269,7 @@ struct ComposerBar: View {
                     .contentShape(Circle())
             }
             .buttonStyle(DSHPressStyle(scale: 0.9))
+            .frame(height: Self.controlHeight)
             .accessibilityIdentifier("composer.stop")
             .accessibilityLabel("停止生成")
         } else {
@@ -279,6 +285,7 @@ struct ComposerBar: View {
                     .contentShape(Circle())
             }
             .buttonStyle(DSHPressStyle(scale: 0.9))
+            .frame(height: Self.controlHeight)
             .disabled(!canSend)
             .animation(DSHAnim.standard, value: canSend)
             .accessibilityIdentifier("composer.send")

@@ -213,10 +213,17 @@ struct FeatureFlags: Codable, Equatable {
     var deepThinkingToggle: Bool = true
     /// 空会话示例提示
     var examplePrompts: Bool = true
-    /// 工具调用（智能体可自主执行 SSH / 内置浏览器）
-    var agentTools: Bool = false
+    /// SSH 云服务器工具（智能体可通过 ssh_exec 在服务器执行命令）
+    var sshTool: Bool = false
+    /// 内置浏览器（顶栏菜单入口 + 智能体网页工具）
+    var browserTool: Bool = false
 
     init() {}
+
+    /// 旧版本只有单一的总开关，解码时用于迁移
+    private enum LegacyKeys: String, CodingKey {
+        case agentTools
+    }
 
     /// 宽容解码：新增开关在旧数据中缺失时取默认值
     init(from decoder: Decoder) throws {
@@ -228,7 +235,12 @@ struct FeatureFlags: Codable, Equatable {
         self.usageMetrics = try container.decodeIfPresent(Bool.self, forKey: .usageMetrics) ?? fallback.usageMetrics
         self.deepThinkingToggle = try container.decodeIfPresent(Bool.self, forKey: .deepThinkingToggle) ?? fallback.deepThinkingToggle
         self.examplePrompts = try container.decodeIfPresent(Bool.self, forKey: .examplePrompts) ?? fallback.examplePrompts
-        self.agentTools = try container.decodeIfPresent(Bool.self, forKey: .agentTools) ?? fallback.agentTools
+
+        // 旧版本用 agentTools 一个开关同时控制 SSH 与浏览器，这里按它迁移到两个新开关
+        let legacyContainer = try decoder.container(keyedBy: LegacyKeys.self)
+        let legacy = try legacyContainer.decodeIfPresent(Bool.self, forKey: .agentTools) ?? fallback.sshTool
+        self.sshTool = try container.decodeIfPresent(Bool.self, forKey: .sshTool) ?? legacy
+        self.browserTool = try container.decodeIfPresent(Bool.self, forKey: .browserTool) ?? legacy
     }
 
     init(
@@ -238,7 +250,8 @@ struct FeatureFlags: Codable, Equatable {
         usageMetrics: Bool,
         deepThinkingToggle: Bool,
         examplePrompts: Bool,
-        agentTools: Bool = false
+        sshTool: Bool = false,
+        browserTool: Bool = false
     ) {
         self.sessionLog = sessionLog
         self.pluginCommands = pluginCommands
@@ -246,7 +259,8 @@ struct FeatureFlags: Codable, Equatable {
         self.usageMetrics = usageMetrics
         self.deepThinkingToggle = deepThinkingToggle
         self.examplePrompts = examplePrompts
-        self.agentTools = agentTools
+        self.sshTool = sshTool
+        self.browserTool = browserTool
     }
 
     static let allOn = FeatureFlags(
@@ -256,8 +270,50 @@ struct FeatureFlags: Codable, Equatable {
         usageMetrics: true,
         deepThinkingToggle: true,
         examplePrompts: true,
-        agentTools: true
+        sshTool: true,
+        browserTool: true
     )
+}
+
+// MARK: - 内置浏览器设置
+
+struct BrowserSettings: Codable, Equatable {
+    /// 打开浏览器时的首页
+    var homeURL: String
+    /// 允许智能体读取网页正文（browser_read）
+    var allowAgentRead: Bool
+    /// 以桌面版网站方式加载
+    var desktopSite: Bool
+
+    static let `default` = BrowserSettings(
+        homeURL: "https://www.deepseek.com",
+        allowAgentRead: true,
+        desktopSite: false
+    )
+
+    /// 桌面版网站使用的 User-Agent
+    static let desktopUserAgent =
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 "
+        + "(KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+
+    init(homeURL: String, allowAgentRead: Bool, desktopSite: Bool) {
+        self.homeURL = homeURL
+        self.allowAgentRead = allowAgentRead
+        self.desktopSite = desktopSite
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = BrowserSettings.default
+        self.homeURL = try container.decodeIfPresent(String.self, forKey: .homeURL) ?? fallback.homeURL
+        self.allowAgentRead = try container.decodeIfPresent(Bool.self, forKey: .allowAgentRead) ?? fallback.allowAgentRead
+        self.desktopSite = try container.decodeIfPresent(Bool.self, forKey: .desktopSite) ?? fallback.desktopSite
+    }
+
+    /// 首页 URL（非法或为空时回退默认）
+    var homeLink: URL {
+        WebAddress.normalize(homeURL) ?? URL(string: "https://www.deepseek.com")!
+    }
 }
 
 // MARK: - 应用设置
@@ -275,6 +331,8 @@ struct AppSettings: Codable, Equatable {
     var thinkingEnabled: Bool
     var reasoningEffort: ReasoningEffort
     var features: FeatureFlags
+    /// 内置浏览器设置
+    var browser: BrowserSettings
 
     static let `default` = AppSettings(
         baseURL: "https://api.deepseek.com",
@@ -287,7 +345,8 @@ struct AppSettings: Codable, Equatable {
         appTheme: .system,
         thinkingEnabled: true,
         reasoningEffort: .high,
-        features: FeatureFlags()
+        features: FeatureFlags(),
+        browser: BrowserSettings.default
     )
 
     init(
@@ -301,7 +360,8 @@ struct AppSettings: Codable, Equatable {
         appTheme: AppThemePreference,
         thinkingEnabled: Bool,
         reasoningEffort: ReasoningEffort,
-        features: FeatureFlags
+        features: FeatureFlags,
+        browser: BrowserSettings = .default
     ) {
         self.baseURL = baseURL
         self.defaultModel = defaultModel
@@ -314,6 +374,7 @@ struct AppSettings: Codable, Equatable {
         self.thinkingEnabled = thinkingEnabled
         self.reasoningEffort = reasoningEffort
         self.features = features
+        self.browser = browser
     }
 
     /// 宽容解码：旧版本写入的设置缺少新增字段时按默认值补齐，避免升级后偏好被整体重置
@@ -331,6 +392,7 @@ struct AppSettings: Codable, Equatable {
         self.thinkingEnabled = try container.decodeIfPresent(Bool.self, forKey: .thinkingEnabled) ?? fallback.thinkingEnabled
         self.reasoningEffort = try container.decodeIfPresent(ReasoningEffort.self, forKey: .reasoningEffort) ?? fallback.reasoningEffort
         self.features = try container.decodeIfPresent(FeatureFlags.self, forKey: .features) ?? fallback.features
+        self.browser = try container.decodeIfPresent(BrowserSettings.self, forKey: .browser) ?? fallback.browser
     }
 }
 

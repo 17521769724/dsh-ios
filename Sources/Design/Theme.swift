@@ -156,22 +156,57 @@ extension View {
             )
     }
 
-    /// 统一应用主题偏好。需要在每个浮层（sheet）的根视图上单独调用，
-    /// 否则在设置页内切换深浅色时当前浮层不会立即刷新。
+    /// 统一应用主题偏好。
+    ///
+    /// 这里刻意不用 SwiftUI 的 `preferredColorScheme`：它把偏好写进场景后，
+    /// 从「深色」切回「跟随系统」时传 nil 并不会撤销已生效的深色，
+    /// 设置页会一直停留在深色（点「浅色」因为是一个新的具体值才会立刻刷新）。
+    /// 改为在窗口层直接设置 `overrideUserInterfaceStyle`：深浅与跟随系统都能立即生效，
+    /// 而且对设置这类 sheet 浮层同样有效。需要在每个浮层（sheet）的根视图上单独调用。
     func dshAppearance(_ preference: AppThemePreference) -> some View {
-        self.preferredColorScheme(preference.colorScheme)
+        background(WindowAppearanceBinder(preference: preference))
+    }
+}
+
+/// 把外观偏好写到所在窗口：窗口 trait 变化后，整个界面（含 sheet）立即重绘。
+private struct WindowAppearanceBinder: UIViewRepresentable {
+    let preference: AppThemePreference
+
+    func makeUIView(context: Context) -> UIView {
+        let view = AppearanceProbeView()
+        view.apply(preference)
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        (uiView as? AppearanceProbeView)?.apply(preference)
+    }
+}
+
+/// 零尺寸探针：进入窗口或偏好变化时，把样式写到窗口上
+private final class AppearanceProbeView: UIView {
+    private var preference: AppThemePreference?
+
+    func apply(_ preference: AppThemePreference) {
+        self.preference = preference
+        guard let window else { return }
+        applyToWindow(window)
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard let window, let preference else { return }
+        applyToWindow(window)
+    }
+
+    private func applyToWindow(_ window: UIWindow) {
+        let style = preference?.uiInterfaceStyle ?? .unspecified
+        guard window.overrideUserInterfaceStyle != style else { return }
+        window.overrideUserInterfaceStyle = style
     }
 }
 
 extension AppThemePreference {
-    var colorScheme: ColorScheme? {
-        switch self {
-        case .system: return nil
-        case .light: return .light
-        case .dark: return .dark
-        }
-    }
-
     /// 供窗口级交叉淡入淡出使用
     var uiInterfaceStyle: UIUserInterfaceStyle {
         switch self {

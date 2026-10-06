@@ -355,10 +355,15 @@ final class ChatEngine: ObservableObject {
 
     // MARK: - 工具调用（Agent）
 
-    /// 当前开启的工具集合：需要在设置里打开「智能体工具调用」，且 SSH 已配置才包含 ssh_exec
+    /// 当前开启的工具集合：SSH 与浏览器各自独立开关，SSH 未配置时不下发 ssh_exec
     private func activeTools() -> [APITool] {
-        guard settingsStore.settings.features.agentTools else { return [] }
-        return AgentToolCatalog.tools(sshConfigured: sshStore.isConfigured)
+        let features = settingsStore.settings.features
+        let browser = settingsStore.settings.browser
+        return AgentToolCatalog.tools(
+            sshEnabled: features.sshTool && sshStore.isConfigured,
+            browserEnabled: features.browserTool,
+            browserReadEnabled: features.browserTool && browser.allowAgentRead
+        )
     }
 
     private func attachToolCalls(_ calls: [ToolCall], assistantID: UUID) {

@@ -88,21 +88,44 @@ struct SettingsView: View {
 
     private var toolsSection: some View {
         Section {
+            // SSH 与内置浏览器各自独立控制，互不影响
+            Toggle(isOn: $settingsStore.settings.features.sshTool) {
+                SettingsRowLabel(symbol: "terminal.fill", color: .black, title: "SSH 云服务器工具")
+            }
+            .accessibilityIdentifier("feature.sshTool")
+
             NavigationLink {
                 SSHSettingsView()
             } label: {
                 SettingsValueRow(
-                    symbol: "terminal.fill",
-                    color: .black,
-                    title: "SSH 云服务器",
+                    symbol: "server.rack",
+                    color: .gray,
+                    title: "SSH 服务器配置",
                     value: sshStore.isConfigured ? sshStore.displayTarget : "未配置"
                 )
             }
             .accessibilityIdentifier("settings.ssh")
+
+            Toggle(isOn: $settingsStore.settings.features.browserTool) {
+                SettingsRowLabel(symbol: "safari.fill", color: .blue, title: "内置浏览器工具")
+            }
+            .accessibilityIdentifier("feature.browserTool")
+
+            NavigationLink {
+                BrowserSettingsView()
+            } label: {
+                SettingsValueRow(
+                    symbol: "globe",
+                    color: .teal,
+                    title: "浏览器设置",
+                    value: settings.browser.desktopSite ? "桌面版网站" : "移动版网站"
+                )
+            }
+            .accessibilityIdentifier("settings.browser")
         } header: {
             Text("智能体工具")
         } footer: {
-            Text("配置后，模型可在对话中调用 ssh_exec 执行服务器命令，并可打开或读取网页（需开启「智能体工具调用」）。")
+            Text("两个开关彼此独立：SSH 控制智能体能否在服务器上执行命令（需先配置服务器），浏览器控制智能体能否打开或读取网页；关闭后模型不会再调用对应工具。")
         }
     }
 
@@ -203,10 +226,6 @@ struct SettingsView: View {
                 SettingsRowLabel(symbol: "command", color: .purple, title: "插件命令与入口")
             }
             .accessibilityIdentifier("feature.pluginCommands")
-            Toggle(isOn: $settingsStore.settings.features.agentTools) {
-                SettingsRowLabel(symbol: "wand.and.stars", color: .indigo, title: "智能体工具调用（SSH / 浏览器）")
-            }
-            .accessibilityIdentifier("feature.agentTools")
         } header: {
             Text("主页功能")
         } footer: {

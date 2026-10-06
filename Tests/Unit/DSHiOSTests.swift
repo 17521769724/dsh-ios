@@ -625,7 +625,7 @@ final class NetworkingTests: XCTestCase {
         await runStream(
             model: "deepseek-flash",
             settings: .default,
-            tools: AgentToolCatalog.tools(sshConfigured: true)
+            tools: AgentToolCatalog.tools(sshEnabled: true, browserEnabled: true, browserReadEnabled: true)
         )
 
         let body = try XCTUnwrap(MockURLProtocol.decodedLastRequestBody())
@@ -643,18 +643,32 @@ final class NetworkingTests: XCTestCase {
         XCTAssertNil(plainBody["tools"], "未开启工具时不应下发 tools")
     }
 
-    /// SSH 未配置时不下发 ssh_exec，避免模型调用必然失败的工具
+    /// SSH 未配置时不下发 ssh_exec，避免模型调用必然失败的工具；
+    /// 浏览器开关关闭时也不下发浏览器工具（两个开关互相独立）
     func testSSHToolIsOmittedWhenNotConfigured() async throws {
         await runStream(
             model: "deepseek-flash",
             settings: .default,
-            tools: AgentToolCatalog.tools(sshConfigured: false)
+            tools: AgentToolCatalog.tools(sshEnabled: false, browserEnabled: true, browserReadEnabled: true)
         )
 
         let body = try XCTUnwrap(MockURLProtocol.decodedLastRequestBody())
         let tools = try XCTUnwrap(body["tools"] as? [[String: Any]])
         let names = tools.compactMap { ($0["function"] as? [String: Any])?["name"] as? String }
         XCTAssertEqual(names, ["browser_open", "browser_read"])
+
+        // 浏览器开关开启但关闭「允许读取正文」时，只提供 browser_open
+        XCTAssertEqual(
+            AgentToolCatalog.tools(sshEnabled: false, browserEnabled: true, browserReadEnabled: false)
+                .map(\.name),
+            [AgentToolCatalog.browserOpenName]
+        )
+        // 只开 SSH 时，浏览器工具完全不出现
+        XCTAssertEqual(
+            AgentToolCatalog.tools(sshEnabled: true, browserEnabled: false, browserReadEnabled: false)
+                .map(\.name),
+            [AgentToolCatalog.sshExecName]
+        )
     }
 
     /// 工具调用消息按 OpenAI 兼容格式编码（assistant.tool_calls / tool.tool_call_id）

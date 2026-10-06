@@ -93,6 +93,7 @@ struct RootView: View {
         // 内置浏览器：模型工具调用或手动入口触发
         .sheet(item: $engine.browserRequest) { request in
             BrowserView(initialURL: request.url)
+                .environmentObject(settingsStore)
                 .dshAppearance(settings.appTheme)
         }
         .sheet(isPresented: $showPlugins) {
@@ -144,7 +145,8 @@ struct RootView: View {
                             Button {
                                 openDrawer()
                             } label: {
-                                Image(systemName: "line.3.horizontal")
+                                // 打开侧栏：面板样式的侧栏图标，和右上角的「菜单」区分开
+                                Image(systemName: "sidebar.left")
                                     .font(.system(size: 17, weight: .medium))
                                     .foregroundStyle(DSHTheme.assistantText)
                             }
@@ -192,21 +194,22 @@ struct RootView: View {
                                 .accessibilityIdentifier("menu.sessionLog")
                             }
 
-                            if features.agentTools {
+                            if features.browserTool {
                                 Button {
-                                    engine.openBrowser(URL(string: "https://www.deepseek.com")!)
+                                    engine.openBrowser(settings.browser.homeLink)
                                 } label: {
                                     Label("内置浏览器", systemImage: "safari")
                                 }
                                 .accessibilityIdentifier("menu.browser")
                             }
                         } label: {
-                            Image(systemName: "square.and.pencil")
+                            // 菜单图标：右上角统一入口，用三条横线的菜单标识
+                            Image(systemName: "line.3.horizontal")
                                 .font(.system(size: 17))
                                 .foregroundStyle(DSHTheme.assistantText)
                         }
                         .accessibilityIdentifier("topbar.menu")
-                        .accessibilityLabel("更多")
+                        .accessibilityLabel("菜单")
                     }
                 }
         }
@@ -226,6 +229,9 @@ struct RootView: View {
             openSettings: { presentOverlay { showSettings = true } },
             openPlugins: { presentOverlay { showPlugins = true } }
         )
+        // 搜索框聚焦弹出键盘时，抽屉底部的「插件中心 / 设置」保持固定在屏幕底部，
+        // 不随键盘上移（被键盘遮挡也保持原位置）。
+        .ignoresSafeArea(.keyboard, edges: .bottom)
     }
 
     /// 先让浮层（设置/插件）升起，再让抽屉在其遮挡下收起，

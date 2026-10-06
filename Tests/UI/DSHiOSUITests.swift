@@ -561,7 +561,9 @@ final class DSHiOSUITests: XCTestCase {
         // 返回设置主页（必须点 SSH 页自己的返回按钮，避免误点到根导航栏的「完成」把设置关掉）
         app.navigationBars["SSH 云服务器"].buttons.firstMatch.tap()
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5), "未返回设置页")
-        toggleFeature("feature.agentTools", on: true)
+        // SSH 与浏览器是两个独立开关：这里只开浏览器
+        XCTAssertTrue(scrollTo("feature.sshTool").exists, "缺少 SSH 工具开关")
+        toggleFeature("feature.browserTool", on: true)
         closeSettings()
 
         // 开关打开后，菜单里应出现「内置浏览器」入口
@@ -579,7 +581,7 @@ final class DSHiOSUITests: XCTestCase {
 
         // 恢复默认，避免影响其它用例
         openSettings()
-        toggleFeature("feature.agentTools", on: false)
+        toggleFeature("feature.browserTool", on: false)
         closeSettings()
     }
 

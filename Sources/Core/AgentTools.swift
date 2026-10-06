@@ -7,14 +7,23 @@ enum AgentToolCatalog {
     static let browserOpenName = "browser_open"
     static let browserReadName = "browser_read"
 
-    /// 当前可用的工具：SSH 未配置时不下发 ssh_exec，避免模型调用必然失败的工具
-    static func tools(sshConfigured: Bool) -> [APITool] {
+    /// 当前可用的工具：只有开启且可用的工具才下发给模型，
+    /// 避免模型调用必然失败的工具（SSH 未配置、浏览器功能关闭等）。
+    static func tools(
+        sshEnabled: Bool,
+        browserEnabled: Bool,
+        browserReadEnabled: Bool
+    ) -> [APITool] {
         var tools: [APITool] = []
-        if sshConfigured {
+        if sshEnabled {
             tools.append(sshExec)
         }
-        tools.append(browserOpen)
-        tools.append(browserRead)
+        if browserEnabled {
+            tools.append(browserOpen)
+            if browserReadEnabled {
+                tools.append(browserRead)
+            }
+        }
         return tools
     }
 
