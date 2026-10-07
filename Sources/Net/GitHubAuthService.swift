@@ -24,6 +24,7 @@ enum GitHubAuthService {
         case malformed
         case denied
         case expired
+        case network(String)
 
         var errorDescription: String? {
             switch self {
@@ -35,6 +36,9 @@ enum GitHubAuthService {
                 return "已取消授权"
             case .expired:
                 return "设备码已过期，请重新发起登录"
+            case .network(let detail):
+                // 国内网络下 github.com 常被阻断，这里直接给出可操作的替代方案
+                return "连接 GitHub 失败（\(detail)）已自动重试 3 次。请检查网络或代理后重试，也可以直接用下方「Token 登录」粘贴 Token。"
             }
         }
     }
@@ -107,12 +111,38 @@ enum GitHubAuthService {
         guard let url = URL(string: "https://github.com" + path) else { throw AuthError.malformed }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = 30
+        request.timeoutInterval = 20
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         request.setValue("DSH-iOS", forHTTPHeaderField: "User-Agent")
         request.httpBody = formEncode(fields).data(using: .utf8)
+        return try await send(request)
+    }
 
+    /// 国内网络访问 github.com 经常握手失败或超时，这里退避重试三次；
+    /// 服务器明确返回的错误（4xx/5xx）不重试，直接抛给界面。
+    private static func send(_ request: URLRequest) async throws -> [String: Any] {
+        var lastError: Error?
+        for attempt in 0..<3 {
+            do {
+                return try await perform(request)
+            } catch let error as URLError {
+                lastError = AuthError.network(error.localizedDescription)
+            } catch let error as AuthError {
+                lastError = error
+                // 拿到明确的服务端响应就没必要重试
+                if case .http(let code, _) = error, (400..<600).contains(code) { throw error }
+            } catch {
+                throw error
+            }
+            if attempt < 2 {
+                try? await Task.sleep(nanoseconds: UInt64(1_500_000_000) * UInt64(attempt + 1))
+            }
+        }
+        throw lastError ?? AuthError.malformed
+    }
+
+    private static func perform(_ request: URLRequest) async throws -> [String: Any] {
         let (data, response) = try await URLSession.shared.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {

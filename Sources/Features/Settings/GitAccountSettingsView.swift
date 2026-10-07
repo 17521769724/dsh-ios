@@ -89,9 +89,11 @@ struct GitAccountSettingsView: View {
     private var accountSection: some View {
         if isConnected {
             connectedSection
-        } else if supportsDeviceFlow {
-            deviceLoginSection
         } else {
+            // GitHub 走设备码一键登录；网络不通时下方始终保留 Token 登录作为兜底
+            if supportsDeviceFlow {
+                deviceLoginSection
+            }
             manualTokenSection
         }
     }
@@ -176,11 +178,11 @@ struct GitAccountSettingsView: View {
         } header: {
             Text("登录")
         } footer: {
-            Text("点击后会打开 GitHub 授权页（设备码自动复制），确认后 App 会自己完成登录，无需手动创建 Token。")
+            Text("点击后会打开 GitHub 授权页（设备码自动复制），确认后 App 会自己完成登录，无需手动创建 Token。若网络连不上 GitHub，可用下方「Token 登录（备用）」。")
         }
     }
 
-    /// Gitee / 备用方案：手动填写 Token
+    /// 手动填写 Token：Gitee 唯一可用的登录方式，也是 GitHub 网络不通时的兜底
     private var manualTokenSection: some View {
         Section {
             HStack(spacing: DSHTheme.Spacing.small) {
@@ -212,7 +214,7 @@ struct GitAccountSettingsView: View {
             Button {
                 browserRequest = BrowserRequest(url: provider.tokenPageURL)
             } label: {
-                Label("打开 \(provider.displayName) 创建 Token 页面", systemImage: "safari")
+                Label("打开 \(provider.displayName) 令牌页（勾选 \(provider.requiredScopes)）", systemImage: "safari")
             }
             .accessibilityIdentifier("git.openTokenPage")
 
@@ -236,9 +238,9 @@ struct GitAccountSettingsView: View {
                 statusView(message, ok: succeeded, identifier: "git.login.result")
             }
         } header: {
-            Text("登录")
+            Text(supportsDeviceFlow ? "Token 登录（备用）" : "登录")
         } footer: {
-            Text("\(provider.scopeHint) 登录时会请求一次账号信息校验 Token；Token 只保存在本机钥匙串。")
+            Text("\(provider.scopeHint)登录时会用 Token 拉取一次账号信息做校验，失败会说明具体原因；Token 只保存在本机钥匙串。")
         }
     }
 

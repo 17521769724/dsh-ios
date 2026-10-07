@@ -5,6 +5,7 @@ enum GitServiceError: LocalizedError {
     case emptyToken
     case invalidArguments(String)
     case unauthorized(String)
+    case network(String)
     case http(Int, String)
 
     var errorDescription: String? {
@@ -14,7 +15,9 @@ enum GitServiceError: LocalizedError {
         case .invalidArguments(let detail):
             return "工具参数错误：\(detail)"
         case .unauthorized(let detail):
-            return "Token 无效或权限不足：\(detail)"
+            return "登录校验未通过：\(detail)"
+        case .network(let detail):
+            return "网络连接失败（\(detail)），请检查网络后重试。"
         case .http(let code, let detail):
             return "请求失败（HTTP \(code)）：\(detail)"
         }
@@ -74,7 +77,7 @@ enum GitService {
         let json = try await objectRequest(provider: provider, token: token, method: "GET", path: "/user")
         if let login = json["login"] as? String, !login.isEmpty { return login }
         if let name = json["name"] as? String, !name.isEmpty { return name }
-        throw GitServiceError.unauthorized("无法读取账号信息")
+        throw GitServiceError.unauthorized("返回内容里没有账号信息，Token 可能不是有效的用户授权码。")
     }
 
     // MARK: - 智能体动作
@@ -268,7 +271,7 @@ enum GitService {
         }
     }
 
-    /// 发起请求；非 2xx 时抛出带状态码的错误
+    /// 发起请求；GET 是幂等的，网络抖动时自动重试，写操作不重试以免重复提交
     private static func rawRequest(
         provider: GitProvider,
         token: String,
@@ -291,7 +294,7 @@ enum GitService {
 
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = method
-        urlRequest.timeoutInterval = 30
+        urlRequest.timeoutInterval = 20
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
         urlRequest.setValue("DSH-iOS", forHTTPHeaderField: "User-Agent")
         if provider == .github {
@@ -303,11 +306,36 @@ enum GitService {
             urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
 
+        let attempts = method == "GET" ? 3 : 1
+        var lastError: Error?
+        for attempt in 0..<attempts {
+            do {
+                return try await perform(urlRequest, provider: provider)
+            } catch let error as URLError {
+                lastError = GitServiceError.network("\(provider.displayName) \(error.localizedDescription)")
+            } catch {
+                // 服务器已明确响应（含 401/403/404/5xx），不再重试
+                throw error
+            }
+            if attempt < attempts - 1 {
+                try? await Task.sleep(nanoseconds: UInt64(1_200_000_000) * UInt64(attempt + 1))
+            }
+        }
+        throw lastError ?? GitServiceError.network("\(provider.displayName) 请求失败")
+    }
+
+    /// 单次请求；非 2xx 时抛出带状态码的错误
+    private static func perform(_ urlRequest: URLRequest, provider: GitProvider) async throws -> Any? {
         let (data, response) = try await URLSession.shared.data(for: urlRequest)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
             if status == 401 || status == 403 {
-                throw GitServiceError.unauthorized("HTTP \(status)，请检查 Token 是否有效、是否具备 repo 权限")
+                let scope = provider == .github
+                    ? "repo"
+                    : "projects（仓库读写）与 issues（Issue 读写）"
+                throw GitServiceError.unauthorized(
+                    "Token 无效或权限不足（HTTP \(status)）。请在 \(provider.displayName) 重新生成 Token 并勾选 \(scope)。"
+                )
             }
             throw GitServiceError.http(status, message(from: data))
         }
