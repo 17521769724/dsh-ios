@@ -38,6 +38,13 @@ final class ChatEngine: ObservableObject {
     private var client: DeepSeekClient
     private var cancellables: Set<AnyCancellable> = []
 
+    /// 流式增量缓冲区：模型每秒可能推送几十个增量，逐条刷新会让消息列表、
+    /// Markdown 解析与滚动反复重排导致明显卡顿，这里先攒起来再按固定节奏写入。
+    private var pendingStreamDeltas: (assistantID: UUID, content: String, reasoning: String)?
+    private var streamFlushTask: Task<Void, Never>?
+    /// 后台执行申请：进入后台时若仍在生成，用它把请求续跑一段时间
+    private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+
     init(
         settingsStore: SettingsStore,
         conversationStore: ConversationStore,
@@ -63,6 +70,15 @@ final class ChatEngine: ObservableObject {
             .sink { [weak self] _ in
                 self?.objectWillChange.send()
             }
+            .store(in: &cancellables)
+
+        // 后台继续生成：App 退到后台时若仍在流式请求，申请一段后台执行时间，
+        // 否则进程被挂起、网络回调停止，模型回复会「暂停」到回到前台才继续。
+        NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)
+            .sink { [weak self] _ in self?.beginBackgroundAssertionIfNeeded() }
+            .store(in: &cancellables)
+        NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)
+            .sink { [weak self] _ in self?.flushPendingStream() }
             .store(in: &cancellables)
     }
 
@@ -217,7 +233,10 @@ final class ChatEngine: ObservableObject {
     func stopStreaming() {
         streamTask?.cancel()
         streamTask = nil
+        endBackgroundAssertion()
         if isStreaming {
+            // 先落地缓冲区里的文字，停止时不会丢内容
+            flushPendingStream()
             isStreaming = false
             finalizeStreamingMessage()
         }
@@ -556,29 +575,107 @@ final class ChatEngine: ObservableObject {
     }
 
     private func appendContent(_ delta: String, assistantID: UUID) {
-        mutateMessage(id: assistantID) { message in
-            message.content += delta
-        }
-        streamingTick &+= 1
+        coalesceStreamDelta(assistantID: assistantID, content: delta, reasoning: "")
     }
 
     private func appendReasoning(_ delta: String, assistantID: UUID) {
-        streamingReasoning += delta
-        mutateMessage(id: assistantID) { message in
-            message.reasoning = (message.reasoning ?? "") + delta
+        coalesceStreamDelta(assistantID: assistantID, content: "", reasoning: delta)
+    }
+
+    /// 把增量攒进缓冲区，并按节奏统一写入消息（约 12 次/秒，长回复进一步降频）。
+    /// 逐条写入时每个 token 都会重排消息列表与 Markdown 视图，是生成过程卡顿的主因。
+    private func coalesceStreamDelta(assistantID: UUID, content: String, reasoning: String) {
+        if var pending = pendingStreamDeltas, pending.assistantID == assistantID {
+            pending.content += content
+            pending.reasoning += reasoning
+            pendingStreamDeltas = pending
+        } else {
+            // 换了消息（例如工具调用后的新一轮），先把上一条攒下的内容落盘到界面
+            flushPendingStream()
+            pendingStreamDeltas = (assistantID, content, reasoning)
+        }
+        scheduleStreamFlush()
+    }
+
+    private func scheduleStreamFlush() {
+        guard streamFlushTask == nil else { return }
+        let buffered = pendingStreamDeltas?.content.count ?? 0
+        let interval: UInt64 = buffered < 2_000 ? 80_000_000 : (buffered < 10_000 ? 200_000_000 : 400_000_000)
+        streamFlushTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: interval)
+            guard let self else { return }
+            self.streamFlushTask = nil
+            self.flushPendingStream()
         }
     }
 
+    /// 立刻把缓冲区内容写入消息（生成结束、停止、回到前台时调用，保证不丢字）
+    private func flushPendingStream() {
+        streamFlushTask?.cancel()
+        streamFlushTask = nil
+        guard let pending = pendingStreamDeltas else { return }
+        pendingStreamDeltas = nil
+        if !pending.reasoning.isEmpty {
+            streamingReasoning += pending.reasoning
+            mutateMessage(id: pending.assistantID) { message in
+                message.reasoning = (message.reasoning ?? "") + pending.reasoning
+            }
+        }
+        if !pending.content.isEmpty {
+            mutateMessage(id: pending.assistantID) { message in
+                message.content += pending.content
+            }
+            streamingTick &+= 1
+        }
+    }
+
+    // MARK: - 后台续跑
+
+    private func beginBackgroundAssertionIfNeeded() {
+        guard isStreaming, backgroundTaskID == .invalid else { return }
+        backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "dsh.stream") { [weak self] in
+            // 系统即将收回后台时间：主动结束申请，让 App 正常进入挂起
+            self?.endBackgroundAssertion()
+        }
+    }
+
+    private func endBackgroundAssertion() {
+        guard backgroundTaskID != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTaskID)
+        backgroundTaskID = .invalid
+    }
+
     private func finish(assistantID: UUID, conversationID: UUID, usage: TokenUsage?) {
+        // 收尾前先把缓冲区写入，否则最后几十毫秒的内容会丢
+        flushPendingStream()
+        endBackgroundAssertion()
+
+        var finalUsage = usage
+        var estimated = false
+        if finalUsage == nil {
+            // 服务端未在流式结束时返回 usage（少数中转服务会这样）时的兜底：
+            // 按文本长度估算，保证「用量」始终可用（界面以 ≈ 标注为估算值）
+            let completion = (message(id: assistantID)?.content ?? "")
+                + (message(id: assistantID)?.reasoning ?? "")
+            if !completion.isEmpty {
+                finalUsage = TokenUsage.estimate(
+                    prompt: Self.estimatedPromptText(conversation: currentConversation, excluding: assistantID),
+                    completion: completion
+                )
+                estimated = true
+            }
+        }
+
         mutateMessage(id: assistantID) { message in
             message.isStreaming = false
             _ = conversationID
         }
-        if let usage {
-            conversationStore.recordUsage(prompt: usage.promptTokens, completion: usage.completionTokens)
+        if let finalUsage {
+            conversationStore.recordUsage(prompt: finalUsage.promptTokens, completion: finalUsage.completionTokens)
             mutateMessage(id: assistantID) { message in
-                message.promptTokens = usage.promptTokens
-                message.completionTokens = usage.completionTokens
+                message.promptTokens = finalUsage.promptTokens
+                message.completionTokens = finalUsage.completionTokens
+                message.tokensEstimated = estimated
             }
         }
         if let conversation = currentConversation {
@@ -589,7 +686,21 @@ final class ChatEngine: ObservableObject {
         haptic(.light)
     }
 
+    private func message(id: UUID) -> ChatMessage? {
+        currentConversation?.messages.first(where: { $0.id == id })
+    }
+
+    /// 估算用上下文：除本次要写 token 的助手消息外，其余消息的正文
+    private static func estimatedPromptText(conversation: Conversation?, excluding id: UUID) -> String {
+        (conversation?.messages ?? [])
+            .filter { $0.id != id }
+            .map(\.content)
+            .joined(separator: "\n")
+    }
+
     private func fail(assistantID: UUID, conversationID: UUID, error: Error) {
+        flushPendingStream()
+        endBackgroundAssertion()
         let text = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         mutateMessage(id: assistantID) { message in
             message.isStreaming = false

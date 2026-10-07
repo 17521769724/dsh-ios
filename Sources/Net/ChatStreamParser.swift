@@ -36,7 +36,9 @@ struct ChatStreamParser {
         }
 
         var results: [ChatStreamParseResult] = []
-        let choice = chunk.choices.first
+        // choices 允许缺失：部分实现（含只带 usage 的收尾块）不会下发 choices，
+        // 若按必填解析会整块丢弃，导致 token 统计拿不到数据。
+        let choice = chunk.choices?.first
 
         if let reasoning = choice?.delta?.reasoningContent, !reasoning.isEmpty {
             results.append(.reasoning(reasoning))
@@ -126,6 +128,6 @@ struct ChatStreamChunk: Decodable {
         }
     }
 
-    let choices: [Choice]
+    let choices: [Choice]?
     let usage: TokenUsage?
 }

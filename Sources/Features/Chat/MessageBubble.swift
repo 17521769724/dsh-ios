@@ -3,7 +3,7 @@ import UIKit
 
 /// 消息视图，对齐 iOS DeepSeek 官方客户端：
 /// 用户消息为右侧灰色气泡；助手消息无气泡整宽排版，思考区为可折叠灰卡，底部一行操作图标。
-struct MessageBubble: View {
+struct MessageBubble: View, Equatable {
     let message: ChatMessage
     let isLastAssistant: Bool
     var onCopy: () -> Void
@@ -11,6 +11,13 @@ struct MessageBubble: View {
     var onEdit: () -> Void
     var onRegenerate: () -> Void
     var onRate: (Int) -> Void
+
+    /// 只按「消息内容 + 是否最后一条助手消息」判断是否需要重绘：
+    /// 流式生成时其它气泡因此完全不参与重绘，是生成过程流畅的关键。
+    /// 回调闭包各自捕获本条消息，内容相同则行为一致，无需参与比较。
+    static func == (lhs: MessageBubble, rhs: MessageBubble) -> Bool {
+        lhs.message == rhs.message && lhs.isLastAssistant == rhs.isLastAssistant
+    }
 
     @State private var showReasoning = false
     @State private var showToolOutput = false
@@ -95,13 +102,14 @@ struct MessageBubble: View {
             if message.content.isEmpty && message.isStreaming {
                 TypingIndicator()
             } else {
+                // 不再给逐字增长的正文加隐式动画：那会让整条消息（连同上方思考区标题）
+                // 在生成过程中反复插值位移，看起来就是「字体上下跳动」。
                 HStack(alignment: .bottom, spacing: 4) {
                     MarkdownContentView(content: message.content)
                     if message.isStreaming {
                         StreamingCursor()
                     }
                 }
-                .animation(DSHAnim.stream, value: message.content)
             }
 
             if let error = message.errorText {

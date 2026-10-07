@@ -140,6 +140,8 @@ struct ChatMessage: Identifiable, Codable, Hashable {
     var model: String?
     var promptTokens: Int?
     var completionTokens: Int?
+    /// token 数为本地估算（服务端未返回 usage 时的兜底），界面会标注 ≈
+    var tokensEstimated: Bool?
     /// 用户对回复的反馈：1 赞，-1 踩，nil 未评价
     var rating: Int?
     /// 助手消息发起的工具调用
@@ -161,6 +163,7 @@ struct ChatMessage: Identifiable, Codable, Hashable {
         model: String? = nil,
         promptTokens: Int? = nil,
         completionTokens: Int? = nil,
+        tokensEstimated: Bool? = nil,
         rating: Int? = nil,
         toolCalls: [ToolCall]? = nil,
         toolCallID: String? = nil,
@@ -177,6 +180,7 @@ struct ChatMessage: Identifiable, Codable, Hashable {
         self.model = model
         self.promptTokens = promptTokens
         self.completionTokens = completionTokens
+        self.tokensEstimated = tokensEstimated
         self.rating = rating
         self.toolCalls = toolCalls
         self.toolCallID = toolCallID

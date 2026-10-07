@@ -50,6 +50,27 @@ struct TokenUsage: Codable, Hashable {
         case promptTokens = "prompt_tokens"
         case completionTokens = "completion_tokens"
     }
+
+    /// 按文本长度粗略估算 token（中文约 0.6、其余约 0.3 token/字符）。
+    /// 仅在服务端没有返回 usage 时兜底，界面会以 ≈ 标注为估算值。
+    static func estimate(prompt: String, completion: String) -> TokenUsage {
+        TokenUsage(promptTokens: estimateCount(prompt), completionTokens: estimateCount(completion))
+    }
+
+    static func estimateCount(_ text: String) -> Int {
+        guard !text.isEmpty else { return 0 }
+        var cjk = 0
+        var other = 0
+        for scalar in text.unicodeScalars {
+            switch scalar.value {
+            case 0x3000...0x30FF, 0x4E00...0x9FFF, 0xFF00...0xFFEF:
+                cjk += 1
+            default:
+                other += 1
+            }
+        }
+        return max(1, Int((Double(cjk) * 0.6 + Double(other) * 0.3).rounded()))
+    }
 }
 
 enum StreamEvent: Hashable {

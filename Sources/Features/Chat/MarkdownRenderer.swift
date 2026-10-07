@@ -130,6 +130,63 @@ struct CodeBlockView: View {
     }
 }
 
+// MARK: - 渲染缓存
+
+/// Markdown 渲染缓存：流式输出时同一段文本会被反复渲染，
+/// 缓存块拆分结果与行内富文本，避免每个刷新周期都重新解析（长回复下开销明显）。
+/// 只在主线程（视图 body）访问，故无需加锁。
+final class MarkdownRenderCache {
+    static let shared = MarkdownRenderCache()
+
+    private var blocks = Cache<[MarkdownBlock]>(limit: 120)
+    private var inlines = Cache<AttributedString>(limit: 240)
+
+    func blocks(for content: String) -> [MarkdownBlock] {
+        if let cached = blocks.value(for: content) { return cached }
+        let parsed = MarkdownParser.parse(content)
+        blocks.insert(parsed, for: content)
+        return parsed
+    }
+
+    func inline(for text: String) -> AttributedString? {
+        if let cached = inlines.value(for: text) { return cached }
+        guard let attributed = try? AttributedString(
+            markdown: text,
+            options: AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        ) else {
+            return nil
+        }
+        inlines.insert(attributed, for: text)
+        return attributed
+    }
+
+    /// 超过上限时丢弃最早写入的条目
+    private struct Cache<Value> {
+        private var storage: [String: Value] = [:]
+        private var keys: [String] = []
+        private let limit: Int
+
+        init(limit: Int) {
+            self.limit = limit
+        }
+
+        mutating func value(for key: String) -> Value? {
+            storage[key]
+        }
+
+        mutating func insert(_ value: Value, for key: String) {
+            if storage[key] == nil {
+                keys.append(key)
+                if keys.count > limit {
+                    let oldest = keys.removeFirst()
+                    storage.removeValue(forKey: oldest)
+                }
+            }
+            storage[key] = value
+        }
+    }
+}
+
 // MARK: - Markdown 内容
 
 struct MarkdownContentView: View {
@@ -137,17 +194,13 @@ struct MarkdownContentView: View {
     var textColor: Color = .primary
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DSHTheme.Spacing.small) {
-            ForEach(MarkdownParser.parse(content)) { block in
+        let blocks = MarkdownRenderCache.shared.blocks(for: content)
+        return VStack(alignment: .leading, spacing: DSHTheme.Spacing.small) {
+            ForEach(blocks) { block in
                 switch block.kind {
                 case .text(let text):
                     let normalized = MarkdownParser.normalizeListMarkers(text)
-                    if let attributed = try? AttributedString(
-                        markdown: normalized,
-                        options: AttributedString.MarkdownParsingOptions(
-                            interpretedSyntax: .inlineOnlyPreservingWhitespace
-                        )
-                    ) {
+                    if let attributed = MarkdownRenderCache.shared.inline(for: normalized) {
                         Text(attributed)
                             .font(.system(size: 16))
                             .foregroundStyle(textColor)

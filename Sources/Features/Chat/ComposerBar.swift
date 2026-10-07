@@ -403,9 +403,10 @@ struct ComposerBar: View {
         HStack(spacing: 6) {
             Text("\(rounds) 轮")
             Text("·")
-            Text("输入 \(lastPromptTokens) tok")
+            // 服务端未返回 usage 时使用本地估算，用 ≈ 明确标注，不与真实统计混淆
+            Text("\(tokensEstimated ? "≈" : "")输入 \(lastPromptTokens) tok")
             Text("·")
-            Text("输出 \(lastCompletionTokens) tok")
+            Text("\(tokensEstimated ? "≈" : "")输出 \(lastCompletionTokens) tok")
             Spacer(minLength: 0)
             Text(engine.isStreaming ? "生成中" : settings.thinkingEnabled ? "已开启深度思考" : "已关闭深度思考")
         }
@@ -418,12 +419,21 @@ struct ComposerBar: View {
         (engine.currentConversation?.messages.filter { $0.role == .user }.count) ?? 0
     }
 
+    /// 最近一条带用量的消息（生成中会暂时沿用上一轮，不会突然显示 0）
+    private var lastUsageMessage: ChatMessage? {
+        engine.currentConversation?.messages.last(where: { $0.promptTokens != nil })
+    }
+
+    private var tokensEstimated: Bool {
+        lastUsageMessage?.tokensEstimated == true
+    }
+
     private var lastPromptTokens: Int {
-        engine.currentConversation?.messages.last(where: { $0.promptTokens != nil })?.promptTokens ?? 0
+        lastUsageMessage?.promptTokens ?? 0
     }
 
     private var lastCompletionTokens: Int {
-        engine.currentConversation?.messages.last(where: { $0.completionTokens != nil })?.completionTokens ?? 0
+        lastUsageMessage?.completionTokens ?? 0
     }
 
     // MARK: - 插件命令面板（可选）

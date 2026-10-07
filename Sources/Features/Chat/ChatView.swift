@@ -7,6 +7,8 @@ struct ChatView: View {
     @EnvironmentObject private var engine: ChatEngine
 
     @FocusState private var inputFocused: Bool
+    /// 用户是否停留在底部（向上翻阅历史时暂停自动跟随）
+    @State private var followsBottom = true
 
     var body: some View {
         // 输入框与消息列表同处一个竖向栈：键盘弹出/收起时整栈跟随系统安全区平滑位移，
@@ -21,13 +23,16 @@ struct ChatView: View {
     // MARK: - 对话区
 
     private var conversationScroll: some View {
-        ScrollViewReader { proxy in
+        // 一次性算出「最后一条助手消息」，避免每条消息都遍历整个会话（O(n²)）
+        let lastAssistantID = engine.currentConversation?.messages
+            .last(where: { $0.role == .assistant })?.id
+        return ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: DSHTheme.Spacing.large) {
                     ForEach(engine.currentConversation?.messages ?? []) { message in
                         MessageBubble(
                             message: message,
-                            isLastAssistant: isLastAssistant(message),
+                            isLastAssistant: message.role == .assistant && message.id == lastAssistantID,
                             onCopy: {
                                 UIPasteboard.general.string = message.content
                                 engine.showToast("已复制")
@@ -39,6 +44,8 @@ struct ChatView: View {
                             onRegenerate: { engine.regenerateLast() },
                             onRate: { engine.rate(message, value: $0) }
                         )
+                        // 内容没变就不重绘：生成过程中只有正在输出的那条消息刷新
+                        .equatable()
                         .id(message.id)
                         .modifier(AppearFade())
                     }
@@ -54,6 +61,10 @@ struct ChatView: View {
                     Color.clear
                         .frame(height: 1)
                         .id(Self.bottomAnchor)
+                        // 底部锚点是否可见 = 用户是否正在看最新内容：
+                        // 向上翻阅历史时不再强制拉回底部，避免和用户抢滚动
+                        .onAppear { followsBottom = true }
+                        .onDisappear { followsBottom = false }
                 }
                 .padding(.top, DSHTheme.Spacing.medium)
                 .padding(.bottom, DSHTheme.Spacing.small)
@@ -62,10 +73,11 @@ struct ChatView: View {
             .scrollDismissesKeyboard(.immediately)
             .background(DSHTheme.page)
             .onChange(of: engine.streamingTick) { _ in
-                guard engine.isStreaming, isConversationEmpty == false else { return }
+                guard engine.isStreaming, isConversationEmpty == false, followsBottom else { return }
                 proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
             }
             .onChange(of: engine.currentConversation?.messages.count ?? 0) { _ in
+                followsBottom = true
                 withAnimation(DSHAnim.list) {
                     proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
                 }
@@ -77,12 +89,6 @@ struct ChatView: View {
 
     private var isConversationEmpty: Bool {
         (engine.currentConversation?.messages.isEmpty ?? true)
-    }
-
-    private func isLastAssistant(_ message: ChatMessage) -> Bool {
-        guard message.role == .assistant else { return false }
-        let messages = engine.currentConversation?.messages ?? []
-        return messages.last(where: { $0.role == .assistant })?.id == message.id
     }
 }
 

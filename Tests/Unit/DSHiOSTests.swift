@@ -895,6 +895,24 @@ final class ChatStreamParserTests: XCTestCase {
         XCTAssertTrue(parser.finish().isEmpty, "不应重复产出工具调用")
     }
 
+    /// 官方文档：收尾块的 usage 挂在最后一个内容块上（delta 为空、finish_reason 非 null）
+    func testFinalChunkCarriesUsage() {
+        var parser = ChatStreamParser()
+        let results = parser.consume(
+            line: #"data: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":11,"completion_tokens":7}}"#
+        )
+        XCTAssertEqual(results, [.usage(TokenUsage(promptTokens: 11, completionTokens: 7))])
+    }
+
+    /// 只带 usage、没有 choices 的收尾块也不能被整块丢弃，否则 token 统计一直是 0
+    func testUsageOnlyChunkIsParsed() {
+        var parser = ChatStreamParser()
+        let results = parser.consume(
+            line: #"data: {"usage":{"prompt_tokens":31,"completion_tokens":9}}"#
+        )
+        XCTAssertEqual(results, [.usage(TokenUsage(promptTokens: 31, completionTokens: 9))])
+    }
+
     func testUsageAndIgnoredLines() {
         var parser = ChatStreamParser()
         XCTAssertTrue(parser.consume(line: "").isEmpty)
@@ -908,5 +926,29 @@ final class ChatStreamParserTests: XCTestCase {
         XCTAssertEqual(ToolArguments.string("command", in: #"{"command":" ls -la "}"#), "ls -la")
         XCTAssertNil(ToolArguments.string("command", in: #"{"url":"https://a"}"#))
         XCTAssertNil(ToolArguments.string("command", in: "not-json"))
+    }
+}
+
+// MARK: - 用量统计
+
+final class TokenUsageTests: XCTestCase {
+
+    /// 服务端未返回 usage 时的兜底估算：中文按 0.6、其余按 0.3 token/字符
+    func testEstimateFromText() {
+        let usage = TokenUsage.estimate(prompt: "你好世界", completion: "hello world")
+        XCTAssertEqual(usage.promptTokens, 2)      // 4 个汉字 × 0.6 = 2.4 → 四舍五入 2
+        XCTAssertEqual(usage.completionTokens, 3)  // 11 个 ASCII × 0.3 = 3.3 → 四舍五入 3
+        XCTAssertEqual(TokenUsage.estimateCount(""), 0)
+        XCTAssertGreaterThan(TokenUsage.estimateCount(String(repeating: "字", count: 100)), 50)
+    }
+
+    /// 旧数据没有 tokensEstimated 字段时也要能解码
+    func testMessageDecodingWithoutEstimatedFlag() throws {
+        let legacy = #"{"id":"11111111-1111-1111-1111-111111111111","role":"assistant","content":"hi","createdAt":0,"isStreaming":false,"promptTokens":5,"completionTokens":6}"#
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .deferredToDate
+        let message = try decoder.decode(ChatMessage.self, from: Data(legacy.utf8))
+        XCTAssertNil(message.tokensEstimated)
+        XCTAssertEqual(message.promptTokens, 5)
     }
 }
