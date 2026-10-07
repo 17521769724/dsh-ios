@@ -22,14 +22,6 @@ enum GitProvider: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    /// 生成 Token 时需要勾选的权限名（用于按钮与提示文案）
-    var requiredScopes: String {
-        switch self {
-        case .github: return "repo"
-        case .gitee: return "projects、issues"
-        }
-    }
-
     /// Token 需要的权限说明
     var scopeHint: String {
         switch self {

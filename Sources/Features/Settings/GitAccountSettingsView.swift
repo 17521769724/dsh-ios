@@ -191,6 +191,13 @@ struct GitAccountSettingsView: View {
     /// Token 直接登录：Gitee 唯一的登录方式，GitHub 与设备码一键登录并存
     private var manualTokenSection: some View {
         Section {
+            Button {
+                browserRequest = BrowserRequest(url: provider.tokenPageURL)
+            } label: {
+                Label("打开 \(provider.displayName) 令牌页", systemImage: "safari")
+            }
+            .accessibilityIdentifier("git.openTokenPage")
+
             HStack(spacing: DSHTheme.Spacing.small) {
                 Group {
                     if revealed {
@@ -218,17 +225,10 @@ struct GitAccountSettingsView: View {
             .accessibilityIdentifier("git.token")
 
             Button {
-                browserRequest = BrowserRequest(url: provider.tokenPageURL)
-            } label: {
-                Label("打开 \(provider.displayName) 令牌页（勾选 \(provider.requiredScopes)）", systemImage: "safari")
-            }
-            .accessibilityIdentifier("git.openTokenPage")
-
-            Button {
                 connect()
             } label: {
                 HStack {
-                    Label("登录", systemImage: "key.fill")
+                    Label("登录", systemImage: "person.crop.circle.badge.checkmark")
                     Spacer()
                     if connecting {
                         ProgressView().controlSize(.small)
