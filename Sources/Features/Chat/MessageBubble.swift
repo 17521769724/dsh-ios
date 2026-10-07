@@ -1,33 +1,41 @@
 import SwiftUI
 import UIKit
 
-/// 消息视图，对齐 iOS DeepSeek 官方客户端：
-/// 用户消息为右侧灰色气泡；助手消息无气泡整宽排版，思考区为可折叠灰卡，底部一行操作图标。
+/// 消息视图，对齐 TraeCode 的呈现方式：
+/// 用户消息为右侧灰色气泡；助手消息整宽排版，正文只展示叙述性内容，
+/// 「思考过程」「工具过程」折叠为一行，点击弹出「过程」弹窗查看细节。
 struct MessageBubble: View, Equatable {
     let message: ChatMessage
     let isLastAssistant: Bool
+    /// 会话正在生成的缓冲：只有正在输出的那条消息会用到
+    let streaming: StreamingText?
+    /// 这条消息的「过程」（思考 + 工具步骤），为空时不显示折叠行
+    let process: ChatProcess?
     var onCopy: () -> Void
     var onDelete: () -> Void
     var onEdit: () -> Void
     var onRegenerate: () -> Void
     var onRate: (Int) -> Void
 
-    /// 只按「消息内容 + 是否最后一条助手消息」判断是否需要重绘：
-    /// 流式生成时其它气泡因此完全不参与重绘，是生成过程流畅的关键。
+    /// 只按「消息内容 + 是否最后一条助手消息 + 过程 + 流式缓冲」判断是否需要重绘：
+    /// 生成过程中其它气泡因此完全不参与重绘，是滚动流畅的关键。
     /// 回调闭包各自捕获本条消息，内容相同则行为一致，无需参与比较。
     static func == (lhs: MessageBubble, rhs: MessageBubble) -> Bool {
-        lhs.message == rhs.message && lhs.isLastAssistant == rhs.isLastAssistant
+        lhs.message == rhs.message
+            && lhs.isLastAssistant == rhs.isLastAssistant
+            && lhs.process == rhs.process
+            && lhs.streaming === rhs.streaming
     }
 
-    @State private var showReasoning = false
-    @State private var showToolOutput = false
+    @State private var showProcess = false
 
     private var isUser: Bool { message.role == .user }
 
     var body: some View {
         Group {
             if message.role == .tool {
-                toolRow
+                // 工具结果统一折进「过程」弹窗，不再单独占一行
+                EmptyView()
             } else if isUser {
                 userRow
             } else {
@@ -95,210 +103,52 @@ struct MessageBubble: View, Equatable {
 
     private var assistantRow: some View {
         VStack(alignment: .leading, spacing: DSHTheme.Spacing.medium) {
-            if let reasoning = message.reasoning, !reasoning.isEmpty {
-                reasoningCard(reasoning)
-            }
-
-            if message.content.isEmpty && message.isStreaming {
-                TypingIndicator()
+            if let buffer = liveBuffer {
+                StreamingAssistantBody(buffer: buffer, onOpenProcess: { showProcess = true })
             } else {
-                // 不再给逐字增长的正文加隐式动画：那会让整条消息（连同上方思考区标题）
-                // 在生成过程中反复插值位移，看起来就是「字体上下跳动」。
-                HStack(alignment: .bottom, spacing: 4) {
+                if process?.hasReasoning == true {
+                    ProcessRowButton(
+                        icon: "brain.head.profile",
+                        text: "思考过程",
+                        identifier: "message.thinking"
+                    ) { showProcess = true }
+                }
+
+                if !message.content.isEmpty {
                     MarkdownContentView(content: message.content)
-                    if message.isStreaming {
-                        StreamingCursor()
-                    }
                 }
-            }
 
-            if let error = message.errorText {
-                errorView(error)
-            }
-
-            if let calls = message.toolCalls, !calls.isEmpty {
-                toolCallList(calls)
-            }
-
-            if !message.isStreaming && !message.content.isEmpty {
-                actionRow
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    // MARK: - 工具调用（Agent）
-
-    /// 助手消息里的工具调用记录
-    private func toolCallList(_ calls: [ToolCall]) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(calls) { call in
-                HStack(spacing: 6) {
-                    Image(systemName: Self.toolIcon(for: call.name))
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(DSHTheme.brand)
-                    Text(call.name)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(DSHTheme.assistantText)
-                    Text(call.argumentPreview)
-                        .font(.system(size: 12))
-                        .foregroundStyle(DSHTheme.secondaryText)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    Spacer(minLength: 0)
+                if let process, process.hasSteps {
+                    ProcessRowButton(
+                        icon: "wrench.and.screwdriver",
+                        text: process.summary,
+                        identifier: "message.process"
+                    ) { showProcess = true }
                 }
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(DSHTheme.brandSoft)
-        .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.card, style: .continuous))
-        .accessibilityIdentifier("message.toolCall")
-    }
 
-    /// 工具执行结果消息
-    private var toolRow: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Image(systemName: Self.toolIcon(for: message.toolName))
-                    .font(.system(size: 12))
-                Text(message.toolName ?? "工具")
-                    .font(.system(size: 12, weight: .medium))
-                Text(message.isStreaming ? "执行中…" : "已完成")
-                    .font(.system(size: 12))
-                    .foregroundStyle(DSHTheme.tertiaryText)
-                Spacer(minLength: 0)
+                if let error = message.errorText {
+                    errorView(error)
+                }
+
                 if !message.isStreaming && !message.content.isEmpty {
-                    Button {
-                        withAnimation(DSHAnim.standard) { showToolOutput.toggle() }
-                    } label: {
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 10, weight: .semibold))
-                            .rotationEffect(.degrees(showToolOutput ? 180 : 0))
-                            .frame(width: 22, height: 22)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(showToolOutput ? "收起输出" : "展开输出")
+                    actionRow
                 }
             }
-            .foregroundStyle(DSHTheme.secondaryText)
-
-            if message.isStreaming {
-                Text("正在执行…")
-                    .font(.system(size: 12))
-                    .foregroundStyle(DSHTheme.tertiaryText)
-            } else if showToolOutput {
-                Text(message.content)
-                    .font(.system(size: 12, design: .monospaced))
-                    .foregroundStyle(DSHTheme.assistantText)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(DSHTheme.Spacing.small)
-                    .background(DSHTheme.page)
-                    .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.chip, style: .continuous))
-                    .transition(.opacity)
-            } else {
-                Text(preview(message.content))
-                    .font(.system(size: 12))
-                    .foregroundStyle(DSHTheme.tertiaryText)
-                    .lineLimit(1)
-            }
         }
-        .padding(DSHTheme.Spacing.medium)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(DSHTheme.grouped)
-        .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.card, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: DSHTheme.Radius.card, style: .continuous)
-                .stroke(DSHTheme.separator.opacity(0.6), lineWidth: 0.5)
-        )
-        .accessibilityIdentifier("message.toolResult")
-    }
-
-    private static func toolIcon(for name: String?) -> String {
-        switch name {
-        case AgentToolCatalog.sshExecName: return "terminal"
-        case AgentToolCatalog.browserOpenName: return "safari"
-        case AgentToolCatalog.browserReadName: return "doc.text.magnifyingglass"
-        default: return "wrench.and.screwdriver"
+        .sheet(isPresented: $showProcess) {
+            ProcessSheet(
+                steps: process?.steps ?? [],
+                reasoning: process?.reasoning,
+                liveReasoning: liveBuffer
+            )
         }
     }
 
-    // MARK: - 思考区（官方：灰卡 + 可折叠）
-
-    private func reasoningCard(_ text: String) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withAnimation(DSHAnim.list) { showReasoning.toggle() }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "brain.head.profile")
-                        .font(.system(size: 12, weight: .medium))
-                    Text(showReasoning ? "已深度思考" : "深度思考")
-                        .font(.system(size: 13, weight: .medium))
-                    if !showReasoning {
-                        Text(preview(text))
-                            .font(.system(size: 13))
-                            .foregroundStyle(DSHTheme.tertiaryText)
-                            .lineLimit(1)
-                    }
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                        .rotationEffect(.degrees(showReasoning ? 90 : 0))
-                }
-                .foregroundStyle(DSHTheme.secondaryText)
-                .padding(.horizontal, 12)
-                .frame(height: 38)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("message.thinking")
-
-            if showReasoning {
-                reasoningBody(text)
-            }
-        }
-        .background(DSHTheme.reasoningBackground)
-        .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.card, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: DSHTheme.Radius.card, style: .continuous)
-                .stroke(DSHTheme.separator.opacity(0.6), lineWidth: 0.5)
-        )
-    }
-
-    /// 展开的思考正文：按块渲染，而不是整段塞进一个 Text。
-    /// 生成过程中思考内容每隔几十毫秒就变一次，整段一个 Text 会让每次刷新都对
-    /// 全篇重新排版（长思考下正是上下滑动卡顿的元凶）；分块后只有最后一块重排，
-    /// 前面已经定型的块直接复用排版结果。
-    private func reasoningBody(_ text: String) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(TextChunker.chunk(text)) { chunk in
-                TextChunkView(
-                    text: chunk.text,
-                    font: .system(size: 14),
-                    lineSpacing: 3,
-                    color: DSHTheme.secondaryText
-                )
-                // 已定型的块整块复用（含排版），生成过程中只有最后一块重排
-                .equatable()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, chunk.id == 0 || chunk.isContinuation ? 0 : DSHTheme.Spacing.small)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 12)
-        .transition(.opacity)
-    }
-
-    private func preview(_ text: String) -> String {
-        // 只处理开头一小段：长思考/长输出在生成过程中每次刷新都会走这里，
-        // 整篇做换行替换在大文本下并不便宜
-        let flat = text.prefix(120).replacingOccurrences(of: "\n", with: " ")
-        return flat.count > 40 ? String(flat.prefix(40)) + "…" : flat
+    /// 正在输出这条消息时返回它的流式缓冲
+    private var liveBuffer: StreamingText? {
+        guard message.isStreaming, let streaming, streaming.messageID == message.id else { return nil }
+        return streaming
     }
 
     // MARK: - 操作行
@@ -345,6 +195,60 @@ struct MessageBubble: View, Equatable {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(DSHTheme.danger.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.chip, style: .continuous))
+    }
+}
+
+// MARK: - 正在生成的助手正文
+
+/// 生成中的助手正文：只订阅流式缓冲。
+/// 生成期间只有这一个子视图会刷新——会话列表、输入区、侧栏抽屉、导航栏都不参与重算，
+/// 这是「边生成边滑动/开抽屉也不卡」的关键。
+struct StreamingAssistantBody: View {
+    @ObservedObject var buffer: StreamingText
+    let onOpenProcess: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DSHTheme.Spacing.medium) {
+            if buffer.hasReasoning {
+                ProcessRowButton(
+                    icon: "brain.head.profile",
+                    text: "思考过程",
+                    identifier: "message.thinking",
+                    action: onOpenProcess
+                )
+            }
+
+            if buffer.hasContent {
+                VStack(alignment: .leading, spacing: DSHTheme.Spacing.medium) {
+                    // 已定型的块内容恒定：整块复用排版结果，不随生成刷新
+                    ForEach(Array(buffer.contentBlocks.enumerated()), id: \.offset) { _, block in
+                        TextChunkView(
+                            text: block,
+                            font: .system(size: 16),
+                            color: DSHTheme.assistantText,
+                            inlineMarkdown: true
+                        )
+                        .equatable()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    // 只有末尾这一块随生成增长
+                    HStack(alignment: .bottom, spacing: 4) {
+                        TextChunkView(
+                            text: buffer.contentTail,
+                            font: .system(size: 16),
+                            color: DSHTheme.assistantText,
+                            inlineMarkdown: true
+                        )
+                        .equatable()
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        StreamingCursor()
+                    }
+                }
+            } else {
+                TypingIndicator()
+            }
+        }
     }
 }
 

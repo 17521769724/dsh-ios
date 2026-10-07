@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import UIKit
 
 /// 对话主界面，对齐 iOS DeepSeek 官方客户端：
@@ -23,16 +24,26 @@ struct ChatView: View {
     // MARK: - 对话区
 
     private var conversationScroll: some View {
-        // 一次性算出「最后一条助手消息」，避免每条消息都遍历整个会话（O(n²)）
-        let lastAssistantID = engine.currentConversation?.messages
-            .last(where: { $0.role == .assistant })?.id
+        let messages = engine.currentConversation?.messages ?? []
+        // 一次遍历算出：可见消息（工具结果折进「过程」弹窗，不再单独占行）、
+        // 最后一条助手消息、每条助手消息的过程摘要
+        let visibleMessages = messages.filter { $0.role != .tool }
+        let lastAssistantID = messages.last(where: { $0.role == .assistant })?.id
+        let processes = Self.processes(in: messages)
+        // 跟随滚动由流式缓冲的版本号驱动：只有真正写入新内容时才滚动，
+        // 而且不会让 ChatView 整体重算（onReceive 不触发 body）
+        let streamRevision = engine.streaming?.$revision.eraseToAnyPublisher()
+            ?? Empty<Int, Never>().eraseToAnyPublisher()
+
         return ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: DSHTheme.Spacing.large) {
-                    ForEach(engine.currentConversation?.messages ?? []) { message in
+                    ForEach(visibleMessages) { message in
                         MessageBubble(
                             message: message,
                             isLastAssistant: message.role == .assistant && message.id == lastAssistantID,
+                            streaming: engine.streaming,
+                            process: processes[message.id],
                             onCopy: {
                                 UIPasteboard.general.string = message.content
                                 engine.showToast("已复制")
@@ -72,8 +83,8 @@ struct ChatView: View {
             }
             .scrollDismissesKeyboard(.immediately)
             .background(DSHTheme.page)
-            .onChange(of: engine.streamingTick) { _ in
-                guard engine.isStreaming, isConversationEmpty == false, followsBottom else { return }
+            .onReceive(streamRevision) { _ in
+                guard followsBottom, !isConversationEmpty else { return }
                 proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
             }
             .onChange(of: engine.currentConversation?.messages.count ?? 0) { _ in
@@ -89,6 +100,37 @@ struct ChatView: View {
 
     private var isConversationEmpty: Bool {
         (engine.currentConversation?.messages.isEmpty ?? true)
+    }
+
+    /// 每条助手消息的「过程」：把紧随其后的工具结果消息折进来，
+    /// 界面上只显示一行摘要，细节放进「过程」弹窗。
+    private static func processes(in messages: [ChatMessage]) -> [UUID: ChatProcess] {
+        var result: [UUID: ChatProcess] = [:]
+        var assistant: ChatMessage?
+        var toolMessages: [ChatMessage] = []
+
+        func flush() {
+            guard let assistant else { return }
+            let process = ChatProcess(message: assistant, toolMessages: toolMessages)
+            if !process.isEmpty { result[assistant.id] = process }
+        }
+
+        for message in messages {
+            switch message.role {
+            case .assistant:
+                flush()
+                assistant = message
+                toolMessages = []
+            case .tool:
+                toolMessages.append(message)
+            case .user, .system:
+                flush()
+                assistant = nil
+                toolMessages = []
+            }
+        }
+        flush()
+        return result
     }
 }
 
