@@ -330,6 +330,13 @@ struct SettingsView: View {
                     value: "\(engine.conversationStore.conversations.count) 个会话"
                 )
             }
+
+            NavigationLink {
+                CacheCleanupSettingsView()
+            } label: {
+                CacheCleanupRow()
+            }
+            .accessibilityIdentifier("settings.cache")
         }
     }
 

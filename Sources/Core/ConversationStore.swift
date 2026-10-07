@@ -16,7 +16,11 @@ final class ConversationStore: ObservableObject {
     init(fileName: String = "state.json") {
         let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         self.fileURL = dir.appendingPathComponent(fileName)
-        load()
+        // 历史版本删除会话时不会清理图片文件，启动时顺手清掉这些不再被引用的残留图片。
+        // 只在状态文件读取成功后才清理，避免文件损坏时误删仍在使用的图片。
+        if load() {
+            AppCache.purgeOrphanImages(conversations: conversations)
+        }
     }
 
     // MARK: - 查询
@@ -52,11 +56,16 @@ final class ConversationStore: ObservableObject {
     }
 
     func delete(id: UUID) {
+        // 会话里的图片文件不随 state.json 一起删除，这里同步清掉，避免长期使用后残留占空间
+        if let conversation = conversations.first(where: { $0.id == id }) {
+            ChatAttachment.delete(conversation.messages.flatMap { $0.attachments ?? [] })
+        }
         conversations.removeAll { $0.id == id }
         scheduleSave()
     }
 
     func deleteAll() {
+        ChatAttachment.delete(conversations.flatMap { $0.messages.flatMap { $0.attachments ?? [] } })
         conversations.removeAll()
         scheduleSave()
     }
@@ -151,12 +160,14 @@ final class ConversationStore: ObservableObject {
 
     // MARK: - 持久化
 
-    private func load() {
-        guard let data = try? Data(contentsOf: fileURL) else { return }
-        if let state = try? JSONDecoder().decode(PersistedState.self, from: data) {
-            conversations = state.conversations
-            usage = state.usage
-        }
+    /// 读取本地状态，成功解码时返回 true
+    @discardableResult
+    private func load() -> Bool {
+        guard let data = try? Data(contentsOf: fileURL) else { return false }
+        guard let state = try? JSONDecoder().decode(PersistedState.self, from: data) else { return false }
+        conversations = state.conversations
+        usage = state.usage
+        return true
     }
 
     private func scheduleSave() {

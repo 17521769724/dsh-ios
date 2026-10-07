@@ -119,7 +119,8 @@ struct ComposerBar: View {
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
 
             Button {
-                engine.draftImages.removeAll { $0.id == attachment.id }
+                // 连同磁盘文件一起移除，避免放弃发送的图片残留占空间
+                engine.removeDraftImage(attachment)
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 8, weight: .bold))

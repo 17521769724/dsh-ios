@@ -298,6 +298,62 @@ final class ConversationStoreTests: XCTestCase {
     }
 }
 
+// MARK: - 缓存清理
+
+final class AppCacheTests: XCTestCase {
+
+    func testByteFormatting() {
+        XCTAssertEqual(AppCache.format(0), "0 KB")
+        XCTAssertEqual(AppCache.format(1024), "1 KB")
+        XCTAssertEqual(AppCache.format(1024 * 1024 * 3 / 2), "1.5 MB")
+    }
+
+    /// 会话引用的图片应保留，历史遗留的残留图片应被识别并清理
+    func testOrphanImagesAreDetectedAndPurged() throws {
+        let keptName = "cache-test-\(UUID().uuidString).jpg"
+        let orphanName = "cache-test-\(UUID().uuidString).jpg"
+        let keptURL = ChatAttachment.directory.appendingPathComponent(keptName)
+        let orphanURL = ChatAttachment.directory.appendingPathComponent(orphanName)
+        try Data(repeating: 0xAB, count: 4096).write(to: keptURL)
+        try Data(repeating: 0xCD, count: 8192).write(to: orphanURL)
+        defer {
+            try? FileManager.default.removeItem(at: keptURL)
+            try? FileManager.default.removeItem(at: orphanURL)
+        }
+
+        var conversation = Conversation(model: "deepseek-flash")
+        conversation.messages = [
+            ChatMessage(role: .user, content: "看看这张图", attachments: [ChatAttachment(fileName: keptName)])
+        ]
+
+        let snapshot = AppCache.snapshot(conversations: [conversation])
+        XCTAssertGreaterThanOrEqual(snapshot.inUseImageBytes, 4096, "会话中的图片应计入在用缓存")
+        XCTAssertGreaterThanOrEqual(snapshot.orphanImageBytes, 8192, "无引用的图片应计入可清理缓存")
+
+        let freed = AppCache.purgeOrphanImages(conversations: [conversation])
+        XCTAssertGreaterThanOrEqual(freed, 8192)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: keptURL.path), "会话中使用的图片应保留")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: orphanURL.path), "残留图片应被清理")
+    }
+
+    /// 删除会话时，会话里的图片文件要一起删除
+    func testDeletingConversationRemovesItsImages() throws {
+        let name = "cache-test-\(UUID().uuidString).jpg"
+        let url = ChatAttachment.directory.appendingPathComponent(name)
+        try Data(repeating: 0xEF, count: 2048).write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let store = ConversationStore(fileName: "test-\(UUID().uuidString).json")
+        var conversation = store.createConversation(model: "deepseek-flash")
+        conversation.messages = [
+            ChatMessage(role: .user, content: "看图", attachments: [ChatAttachment(fileName: name)])
+        ]
+        store.upsert(conversation)
+        store.delete(id: conversation.id)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "会话删除后图片文件不应残留")
+    }
+}
+
 // MARK: - 插件系统（JavaScriptCore 端到端）
 
 final class PluginRuntimeTests: XCTestCase {

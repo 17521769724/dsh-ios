@@ -82,6 +82,17 @@ struct ChatAttachment: Identifiable, Codable, Hashable {
         }
         return ChatAttachment(fileName: fileName)
     }
+
+    /// 删除图片文件与对应的内存缓存：
+    /// 图片只被消息引用一次，删掉消息（或撤销待发图片）时文件也要一起删，
+    /// 否则会一直留在磁盘上占空间。
+    static func delete(_ attachments: [ChatAttachment]) {
+        guard !attachments.isEmpty else { return }
+        for attachment in attachments {
+            try? FileManager.default.removeItem(at: attachment.fileURL)
+        }
+        AttachmentImageCache.removeAll()
+    }
 }
 
 /// 图片解码缓存：输入框缩略图与消息气泡每次重绘都要用，
@@ -96,6 +107,11 @@ enum AttachmentImageCache {
         let scaled = downscaled(image, maxSide: maxSide)
         cache.setObject(scaled, forKey: key)
         return scaled
+    }
+
+    /// 图片文件被删除或清理缓存时调用，避免内存里继续持有已删除的图片
+    static func removeAll() {
+        cache.removeAllObjects()
     }
 
     /// 等比缩放到最长边不超过 maxSide（原图更小则原样返回）

@@ -244,10 +244,19 @@ final class ChatEngine: ObservableObject {
 
     func deleteMessage(_ message: ChatMessage) {
         guard var conversation = currentConversation, !isStreaming else { return }
+        guard conversation.messages.contains(where: { $0.id == message.id }) else { return }
         conversation.messages.removeAll { $0.id == message.id }
         conversation.updatedAt = Date()
         currentConversation = conversation
         conversationStore.upsert(conversation)
+        // 消息没了，附带的图片文件也一起删掉，否则会长期留在磁盘上
+        ChatAttachment.delete(message.attachments ?? [])
+    }
+
+    /// 移除一张待发送图片（连同磁盘文件）
+    func removeDraftImage(_ attachment: ChatAttachment) {
+        draftImages.removeAll { $0.id == attachment.id }
+        ChatAttachment.delete([attachment])
     }
 
     /// 打开内置浏览器（手动入口）
@@ -273,10 +282,16 @@ final class ChatEngine: ObservableObject {
         draft = message.content
         // 图片一并回到输入框，否则重发时附件会被静默丢掉
         draftImages = message.attachments ?? []
+        // 被截断的消息里，除回到输入框的图片外，其余图片文件一并删除
+        let reusedIDs = Set(draftImages.map(\.id))
+        let dropped = conversation.messages[index...]
+            .flatMap { $0.attachments ?? [] }
+            .filter { !reusedIDs.contains($0.id) }
         conversation.messages.removeSubrange(index...)
         conversation.updatedAt = Date()
         currentConversation = conversation
         conversationStore.upsert(conversation)
+        ChatAttachment.delete(dropped)
         haptic(.light)
     }
 
