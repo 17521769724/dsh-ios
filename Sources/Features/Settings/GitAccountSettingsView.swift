@@ -50,7 +50,6 @@ struct GitAccountSettingsView: View {
         // 登录状态切换会整段替换登录/账号区块，SwiftUI 增量更新时有概率漏画分隔线（退出登录上方那条）。
         // 用 id 让列表在状态变化时整体重建，分隔线一定重新绘制。
         .id(isConnected)
-        .listRowSeparator(.visible)
         .navigationTitle(provider.displayName)
         .navigationBarTitleDisplayMode(.inline)
         .tint(DSHTheme.brand)
@@ -111,8 +110,10 @@ struct GitAccountSettingsView: View {
             Button(role: .destructive) {
                 showSignOutConfirm = true
             } label: {
-                Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right")
+                // power 是各版本 iOS 都有的退出符号，避免较新的矩形箭头符号在某些机型上渲染异常
+                Label("退出登录", systemImage: "power")
             }
+            .listRowSeparator(.visible)
             .accessibilityIdentifier("git.signOut")
         } header: {
             Text("账号")
@@ -191,13 +192,6 @@ struct GitAccountSettingsView: View {
     /// Token 直接登录：Gitee 唯一的登录方式，GitHub 与设备码一键登录并存
     private var manualTokenSection: some View {
         Section {
-            Button {
-                browserRequest = BrowserRequest(url: provider.tokenPageURL)
-            } label: {
-                Label("打开 \(provider.displayName) 令牌页", systemImage: "safari")
-            }
-            .accessibilityIdentifier("git.openTokenPage")
-
             LabeledContent("Token") {
                 HStack(spacing: DSHTheme.Spacing.small) {
                     Group {
@@ -207,7 +201,6 @@ struct GitAccountSettingsView: View {
                             SecureField("粘贴 Token", text: $tokenInput)
                         }
                     }
-                    .multilineTextAlignment(.trailing)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .font(.system(size: 14, design: .monospaced))
@@ -225,6 +218,13 @@ struct GitAccountSettingsView: View {
                 }
                 .accessibilityIdentifier("git.token")
             }
+
+            Button {
+                browserRequest = BrowserRequest(url: provider.tokenPageURL)
+            } label: {
+                Label("打开 \(provider.displayName) 令牌页", systemImage: "safari")
+            }
+            .accessibilityIdentifier("git.openTokenPage")
 
             Button {
                 connect()
