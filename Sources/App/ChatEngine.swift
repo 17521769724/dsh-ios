@@ -24,8 +24,9 @@ final class ChatEngine: ObservableObject {
     /// 输入框里待发送的图片（发送后清空）
     @Published var draftImages: [ChatAttachment] = []
     @Published var commandPaletteVisible: Bool = false
-    /// 流式内容每次变化自增，用于驱动视图滚动
-    @Published var streamingTick: Int = 0
+    /// 正在生成的增量缓冲：只有订阅它的那一条消息视图会随生成刷新，
+    /// 其余界面（会话列表、输入区、侧栏抽屉、导航栏）在生成期间完全不动，滑动才跟手
+    @Published private(set) var streaming: StreamingText?
     /// 可用模型列表（可来自服务端 /models，失败时回退内置列表）
     @Published var availableModels: [DSHModel] = DSHModel.catalog
     @Published var isRefreshingModels: Bool = false
@@ -233,9 +234,10 @@ final class ChatEngine: ObservableObject {
         streamTask = nil
         endBackgroundAssertion()
         if isStreaming {
-            // 先落地缓冲区里的文字，停止时不会丢内容
-            flushPendingStream()
+            // 先把缓冲里的文字落进消息，停止时不会丢内容
+            if let buffer = streaming { commitStreamingBuffer(to: buffer.messageID) }
             isStreaming = false
+            streaming = nil
             finalizeStreamingMessage()
         }
     }
@@ -323,6 +325,7 @@ final class ChatEngine: ObservableObject {
 
         client = DeepSeekClient(timeout: settings.requestTimeout)
         isStreaming = true
+        streaming = StreamingText(messageID: assistantID)
 
         streamTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -414,6 +417,9 @@ final class ChatEngine: ObservableObject {
     }
 
     private func attachToolCalls(_ calls: [ToolCall], assistantID: UUID) {
+        // 先把这一段正文落进消息再标记「生成结束」，
+        // 否则该消息在界面上会变成空白（内容还留在缓冲里没落库）
+        commitStreamingBuffer(to: assistantID)
         mutateMessage(id: assistantID) { message in
             message.toolCalls = calls
             message.isStreaming = false
@@ -457,6 +463,8 @@ final class ChatEngine: ObservableObject {
             currentConversation = conversation
             conversationStore.upsert(conversation)
         }
+        // 新一轮重新开始累积：缓冲切换到新消息
+        streaming?.restart(for: message.id)
         return message.id
     }
 
@@ -579,15 +587,15 @@ final class ChatEngine: ObservableObject {
         coalesceStreamDelta(assistantID: assistantID, content: "", reasoning: delta)
     }
 
-    /// 把增量攒进缓冲区，并按节奏统一写入消息（约 12 次/秒，长回复进一步降频）。
-    /// 逐条写入时每个 token 都会重排消息列表与 Markdown 视图，是生成过程卡顿的主因。
+    /// 把增量攒进缓冲区，并按固定节奏写入界面缓冲（约 14 次/秒）。
+    /// 逐条写入时每个 token 都会触发一次界面刷新，攒起来再写可以显著减少刷新次数。
     private func coalesceStreamDelta(assistantID: UUID, content: String, reasoning: String) {
         if var pending = pendingStreamDeltas, pending.assistantID == assistantID {
             pending.content += content
             pending.reasoning += reasoning
             pendingStreamDeltas = pending
         } else {
-            // 换了消息（例如工具调用后的新一轮），先把上一条攒下的内容落盘到界面
+            // 换了消息（例如工具调用后的新一轮），先把上一条攒下的内容落地
             flushPendingStream()
             pendingStreamDeltas = (assistantID, content, reasoning)
         }
@@ -595,47 +603,39 @@ final class ChatEngine: ObservableObject {
     }
 
     private func scheduleStreamFlush() {
-        guard streamFlushTask == nil, let pending = pendingStreamDeltas else { return }
-        // 刷新节奏按「这条消息已经有多长」自适应：文本越长，界面里需要重排的内容越多，
-        // 界面刷新就放慢一些。分块渲染后单次刷新只处理末尾一块，这里取 60~160ms，
-        // 既保留打字机观感，又不会让主线程被排版占满（滚动才跟手）。
-        let flushedLength = message(id: pending.assistantID).map { $0.content.count + ($0.reasoning?.count ?? 0) } ?? 0
-        let total = flushedLength + pending.content.count + pending.reasoning.count
-        let interval: UInt64
-        if total < 4_000 {
-            interval = 60_000_000
-        } else if total < 20_000 {
-            interval = 100_000_000
-        } else {
-            interval = 160_000_000
-        }
+        guard streamFlushTask == nil, pendingStreamDeltas != nil else { return }
         streamFlushTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: interval)
+            try? await Task.sleep(nanoseconds: 70_000_000)
             guard let self else { return }
             self.streamFlushTask = nil
             self.flushPendingStream()
         }
     }
 
-    /// 立刻把缓冲区内容写入消息（生成结束、停止、回到前台时调用，保证不丢字）
+    /// 把缓冲区内容写入「流式缓冲对象」。
+    /// 注意这里不动 `currentConversation`：生成期间只有订阅缓冲的那一条消息视图会刷新，
+    /// 其余界面（列表、输入区、侧栏）完全不参与，这是滑动/开抽屉不卡的关键。
     private func flushPendingStream() {
         streamFlushTask?.cancel()
         streamFlushTask = nil
         guard let pending = pendingStreamDeltas else { return }
         pendingStreamDeltas = nil
         guard !pending.content.isEmpty || !pending.reasoning.isEmpty else { return }
-        // 思考与正文在同一次变更里写入：视图只更新一轮，
-        // 避免一次刷新触发多次重排（此前思考/正文各自 mutate 会发出多次更新）
-        mutateMessage(id: pending.assistantID) { message in
-            if !pending.reasoning.isEmpty {
-                message.reasoning = (message.reasoning ?? "") + pending.reasoning
-            }
-            if !pending.content.isEmpty {
-                message.content += pending.content
-            }
-        }
-        if !pending.content.isEmpty {
-            streamingTick &+= 1
+        guard let buffer = streaming, buffer.messageID == pending.assistantID else { return }
+        buffer.appendReasoning(pending.reasoning)
+        buffer.appendContent(pending.content)
+    }
+
+    /// 生成结束 / 停止 / 切换新一轮时：把缓冲里的完整内容落进消息
+    private func commitStreamingBuffer(to assistantID: UUID) {
+        flushPendingStream()
+        guard let buffer = streaming, buffer.messageID == assistantID else { return }
+        guard !buffer.content.isEmpty || !buffer.reasoning.isEmpty else { return }
+        let content = buffer.content
+        let reasoning = buffer.reasoning
+        mutateMessage(id: assistantID) { message in
+            message.content = content
+            message.reasoning = reasoning.isEmpty ? nil : reasoning
         }
     }
 
@@ -656,8 +656,9 @@ final class ChatEngine: ObservableObject {
     }
 
     private func finish(assistantID: UUID, conversationID: UUID, usage: TokenUsage?) {
-        // 收尾前先把缓冲区写入，否则最后几十毫秒的内容会丢
-        flushPendingStream()
+        // 收尾前先把缓冲里的完整内容落进消息，否则最后几十毫秒的内容会丢
+        commitStreamingBuffer(to: assistantID)
+        streaming = nil
         endBackgroundAssertion()
 
         var finalUsage = usage
@@ -709,7 +710,8 @@ final class ChatEngine: ObservableObject {
     }
 
     private func fail(assistantID: UUID, conversationID: UUID, error: Error) {
-        flushPendingStream()
+        commitStreamingBuffer(to: assistantID)
+        streaming = nil
         endBackgroundAssertion()
         let text = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         mutateMessage(id: assistantID) { message in
