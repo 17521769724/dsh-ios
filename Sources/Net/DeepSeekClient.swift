@@ -9,6 +9,8 @@ struct APIMessage: Codable, Hashable {
     var toolCalls: [ToolCall]? = nil
     /// 工具结果消息对应的调用 id（角色为 tool 时使用）
     var toolCallID: String? = nil
+    /// 用户消息附带的图片，作为多模态 content 数组发送
+    var images: [ChatAttachment]? = nil
 }
 
 /// 提供给模型的可调用工具定义（OpenAI 兼容）
@@ -156,9 +158,27 @@ struct DeepSeekClient {
         return body
     }
 
-    /// APIMessage → OpenAI 兼容的 JSON 对象（含 tool_calls / tool_call_id）
+    /// APIMessage → OpenAI 兼容的 JSON 对象（含 tool_calls / tool_call_id / 多模态图片）
     private static func jsonObject(for message: APIMessage) -> [String: Any] {
         var object: [String: Any] = ["role": message.role, "content": message.content]
+
+        // 带图片时 content 换成 OpenAI 兼容的多模态数组：
+        // [{type:"text",text:...}, {type:"image_url",image_url:{url:"data:image/jpeg;base64,..."}}]
+        if let images = message.images, !images.isEmpty {
+            var parts: [[String: Any]] = []
+            if !message.content.isEmpty {
+                parts.append(["type": "text", "text": message.content])
+            }
+            for image in images {
+                guard let data = image.data, !data.isEmpty else { continue }
+                let url = "data:\(image.mimeType);base64,\(data.base64EncodedString())"
+                parts.append(["type": "image_url", "image_url": ["url": url]])
+            }
+            if !parts.isEmpty {
+                object["content"] = parts
+            }
+        }
+
         if let calls = message.toolCalls, !calls.isEmpty {
             object["tool_calls"] = calls.map { call in
                 [

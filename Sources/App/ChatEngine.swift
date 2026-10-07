@@ -22,6 +22,8 @@ final class ChatEngine: ObservableObject {
     @Published var toast: String?
     @Published var lastError: String?
     @Published var draft: String = ""
+    /// 输入框里待发送的图片（发送后清空）
+    @Published var draftImages: [ChatAttachment] = []
     @Published var commandPaletteVisible: Bool = false
     /// 流式内容每次变化自增，用于驱动视图滚动
     @Published var streamingTick: Int = 0
@@ -173,7 +175,9 @@ final class ChatEngine: ObservableObject {
 
     func send(_ rawText: String? = nil) {
         let text = (rawText ?? draft).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !isStreaming else { return }
+        // 只有从输入框直接发送时才带上待发图片（插件改写、编辑重发等走 rawText 的路径不带）
+        let attachments = rawText == nil ? draftImages : []
+        guard !text.isEmpty || !attachments.isEmpty, !isStreaming else { return }
 
         guard settingsStore.isConfigured else {
             presentError(DSHError.missingAPIKey.localizedDescription)
@@ -186,10 +190,14 @@ final class ChatEngine: ObservableObject {
         guard var conversation = currentConversation else { return }
 
         draft = ""
+        draftImages = []
         let outgoing = pluginManager.transformOutgoing(text, role: "user")
 
         var userMessage = ChatMessage(role: .user, content: text)
         userMessage.model = conversation.model
+        if !attachments.isEmpty {
+            userMessage.attachments = attachments
+        }
         conversation.messages.append(userMessage)
 
         var assistantMessage = ChatMessage(role: .assistant, content: "", isStreaming: true)
@@ -263,6 +271,8 @@ final class ChatEngine: ObservableObject {
         guard var conversation = currentConversation, !isStreaming else { return }
         guard let index = conversation.messages.firstIndex(where: { $0.id == message.id }) else { return }
         draft = message.content
+        // 图片一并回到输入框，否则重发时附件会被静默丢掉
+        draftImages = message.attachments ?? []
         conversation.messages.removeSubrange(index...)
         conversation.updatedAt = Date()
         currentConversation = conversation
@@ -489,12 +499,14 @@ final class ChatEngine: ObservableObject {
             switch message.role {
             case .user, .assistant:
                 let toolCalls = message.toolCalls ?? []
-                guard !message.content.isEmpty || !toolCalls.isEmpty else { continue }
+                let images = message.role == .user ? message.attachments : nil
+                guard !message.content.isEmpty || !toolCalls.isEmpty || !(images ?? []).isEmpty else { continue }
                 result.append(APIMessage(
                     role: message.role.rawValue,
                     content: message.content,
                     toolCalls: toolCalls.isEmpty ? nil : toolCalls,
-                    toolCallID: nil
+                    toolCallID: nil,
+                    images: images
                 ))
             case .tool:
                 guard !message.content.isEmpty else { continue }
@@ -509,9 +521,13 @@ final class ChatEngine: ObservableObject {
             }
         }
 
-        // 确保最新的用户输入（可能被插件改写）出现在最后
+        // 确保最新的用户输入（可能被插件改写）出现在最后；图片要一并保留
         if let last = result.last, last.role == "user" {
-            result[result.count - 1] = APIMessage(role: "user", content: latestUserText)
+            result[result.count - 1] = APIMessage(
+                role: "user",
+                content: latestUserText,
+                images: last.images
+            )
         }
         return result
     }

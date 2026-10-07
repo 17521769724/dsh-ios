@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import PhotosUI
 
 /// 底部输入区，对齐 iOS DeepSeek 官方客户端：
 /// 一张圆角灰卡片，上半是输入行，下半左侧为「深度思考 / 模型」胶囊，右侧为「+」与发送键。
@@ -18,6 +19,9 @@ struct ComposerBar: View {
     @State private var showCommandPicker = false
     /// 模型选择面板
     @State private var showModelPicker = false
+    /// 相册图片选择
+    @State private var showImagePicker = false
+    @State private var photoSelection: [PhotosPickerItem] = []
 
     /// 控制行高度：所有胶囊与按钮都以此为基准垂直居中，
     /// 行高只由这个常量决定，不受子视图（菜单/键盘）影响。
@@ -67,12 +71,98 @@ struct ComposerBar: View {
             }
             .environmentObject(plugins)
         }
+        // 系统相册选择器：最多 4 张，不需要相册权限（用户选中的图片才交给 App）
+        .photosPicker(
+            isPresented: $showImagePicker,
+            selection: $photoSelection,
+            maxSelectionCount: 4,
+            matching: .images
+        )
+        .onChange(of: photoSelection) { items in
+            guard !items.isEmpty else { return }
+            Task { await loadPickedImages(items) }
+        }
+    }
+
+    // MARK: - 图片附件
+
+    /// 待发送图片的缩略图行，右上角可单独移除
+    private var attachmentStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(engine.draftImages) { attachment in
+                    attachmentThumbnail(attachment)
+                }
+            }
+            .padding(.vertical, 6)
+            .padding(.trailing, 6)
+        }
+    }
+
+    private func attachmentThumbnail(_ attachment: ChatAttachment) -> some View {
+        ZStack(alignment: .topTrailing) {
+            Group {
+                if let image = AttachmentImageCache.image(for: attachment, maxSide: 160) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    DSHTheme.chipFill
+                        .overlay(
+                            Image(systemName: "photo")
+                                .font(.system(size: 16))
+                                .foregroundStyle(DSHTheme.secondaryText)
+                        )
+                }
+            }
+            .frame(width: 58, height: 58)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+            Button {
+                engine.draftImages.removeAll { $0.id == attachment.id }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 17, height: 17)
+                    .background(Circle().fill(Color.black.opacity(0.7)))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .offset(x: 5, y: -5)
+            .accessibilityLabel("移除图片")
+        }
+        .frame(width: 63, height: 63)
+        .accessibilityIdentifier("composer.attachment")
+    }
+
+    /// 读取相册选中的图片：压缩、落盘放后台线程，避免多张大图卡住输入
+    private func loadPickedImages(_ items: [PhotosPickerItem]) async {
+        var raw: [Data] = []
+        for item in items {
+            if let data = try? await item.loadTransferable(type: Data.self) {
+                raw.append(data)
+            }
+        }
+        let datas = raw
+        let attachments = await Task.detached(priority: .userInitiated) {
+            datas.compactMap { ChatAttachment.save($0) }
+        }.value
+
+        engine.draftImages.append(contentsOf: attachments)
+        photoSelection = []
+        if attachments.count < items.count {
+            engine.showToast("有 \(items.count - attachments.count) 张图片读取失败")
+        }
     }
 
     // MARK: - 输入卡片
 
     private var inputCard: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if !engine.draftImages.isEmpty {
+                attachmentStrip
+            }
             inputField
             controlRow
         }
@@ -236,6 +326,9 @@ struct ComposerBar: View {
         .accessibilityIdentifier("composer.plus")
         .accessibilityLabel("更多")
         .confirmationDialog("更多操作", isPresented: $showMoreActions, titleVisibility: .hidden) {
+            Button("选择图片") {
+                showImagePicker = true
+            }
             Button("插件命令") {
                 // 始终打开完整命令列表：输入框里已有内容（例如输入了一半的 /xxx）也能看到全部插件命令
                 showCommandPicker = true
@@ -245,10 +338,11 @@ struct ComposerBar: View {
                     engine.openBrowser(settings.browser.homeLink)
                 }
             }
-            if !engine.draft.isEmpty {
+            if !engine.draft.isEmpty || !engine.draftImages.isEmpty {
                 Button("清空输入", role: .destructive) {
                     // 只清空内容，不在这里改动焦点，避免输入卡片高度被异常撑开
                     engine.draft = ""
+                    engine.draftImages = []
                 }
             }
         }
@@ -299,7 +393,7 @@ struct ComposerBar: View {
     }
 
     private var canSend: Bool {
-        !engine.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !engine.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !engine.draftImages.isEmpty
     }
 
     // MARK: - 指标行（可选）

@@ -35,22 +35,53 @@ struct MessageBubble: View {
     private var userRow: some View {
         HStack {
             Spacer(minLength: 48)
-            Text(message.content)
-                .font(.system(size: 16))
-                .foregroundStyle(DSHTheme.userText)
-                .lineSpacing(2)
-                .textSelection(.enabled)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(DSHTheme.userBubble)
-                .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.bubble, style: .continuous))
-                .contextMenu {
-                    Button { onCopy() } label: { Label("复制", systemImage: "doc.on.doc") }
-                    Button { onEdit() } label: { Label("编辑并重发", systemImage: "pencil") }
-                    Button(role: .destructive) { onDelete() } label: { Label("删除", systemImage: "trash") }
+            VStack(alignment: .trailing, spacing: 8) {
+                if let attachments = message.attachments, !attachments.isEmpty {
+                    ForEach(attachments) { attachment in
+                        attachmentImage(attachment)
+                    }
                 }
+                if !message.content.isEmpty {
+                    Text(message.content)
+                        .font(.system(size: 16))
+                        .foregroundStyle(DSHTheme.userText)
+                        .lineSpacing(2)
+                        .textSelection(.enabled)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(DSHTheme.userBubble)
+            .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.bubble, style: .continuous))
+            .contextMenu {
+                Button { onCopy() } label: { Label("复制", systemImage: "doc.on.doc") }
+                Button { onEdit() } label: { Label("编辑并重发", systemImage: "pencil") }
+                Button(role: .destructive) { onDelete() } label: { Label("删除", systemImage: "trash") }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    /// 用户消息附带的图片：等比展示，限制在气泡宽度内
+    private func attachmentImage(_ attachment: ChatAttachment) -> some View {
+        Group {
+            if let image = AttachmentImageCache.image(for: attachment, maxSide: 720) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(DSHTheme.chipFill)
+                    .frame(width: 160, height: 120)
+                    .overlay(
+                        Image(systemName: "photo")
+                            .font(.system(size: 20))
+                            .foregroundStyle(DSHTheme.secondaryText)
+                    )
+            }
+        }
+        .frame(maxWidth: 220, maxHeight: 280)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     // MARK: - 助手消息

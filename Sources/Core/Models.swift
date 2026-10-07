@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 // MARK: - 角色
 
@@ -38,6 +39,78 @@ struct ToolCall: Codable, Hashable, Identifiable {
     }
 }
 
+// MARK: - 图片附件
+
+/// 用户消息附带的一张图片。
+/// 图片压缩后存到 Documents/attachments/ 下的独立文件，消息里只保存文件名，
+/// 避免 state.json 因为内嵌 Base64 膨胀。
+struct ChatAttachment: Identifiable, Codable, Hashable {
+    var id: UUID
+    var fileName: String
+    var mimeType: String
+
+    init(id: UUID = UUID(), fileName: String, mimeType: String = "image/jpeg") {
+        self.id = id
+        self.fileName = fileName
+        self.mimeType = mimeType
+    }
+
+    static var directory: URL {
+        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("attachments", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: dir.path) {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        return dir
+    }
+
+    var fileURL: URL { Self.directory.appendingPathComponent(fileName) }
+
+    var data: Data? { try? Data(contentsOf: fileURL) }
+
+    /// 相册原图动辄几 MB，先缩到最长边 1280 再按 JPEG 存盘；
+    /// 失败（不是图片 / 写盘错误）返回 nil。
+    static func save(_ imageData: Data) -> ChatAttachment? {
+        guard let image = UIImage(data: imageData) else { return nil }
+        let scaled = AttachmentImageCache.downscaled(image, maxSide: 1280)
+        guard let jpeg = scaled.jpegData(compressionQuality: 0.75) else { return nil }
+        let fileName = UUID().uuidString + ".jpg"
+        do {
+            try jpeg.write(to: directory.appendingPathComponent(fileName))
+        } catch {
+            return nil
+        }
+        return ChatAttachment(fileName: fileName)
+    }
+}
+
+/// 图片解码缓存：输入框缩略图与消息气泡每次重绘都要用，
+/// 缓存住解码结果，避免反复读盘 + 解码导致输入卡顿。
+enum AttachmentImageCache {
+    private static let cache = NSCache<NSString, UIImage>()
+
+    static func image(for attachment: ChatAttachment, maxSide: CGFloat) -> UIImage? {
+        let key = "\(attachment.fileName)@\(Int(maxSide))" as NSString
+        if let cached = cache.object(forKey: key) { return cached }
+        guard let data = attachment.data, let image = UIImage(data: data) else { return nil }
+        let scaled = downscaled(image, maxSide: maxSide)
+        cache.setObject(scaled, forKey: key)
+        return scaled
+    }
+
+    /// 等比缩放到最长边不超过 maxSide（原图更小则原样返回）
+    static func downscaled(_ image: UIImage, maxSide: CGFloat) -> UIImage {
+        let longest = max(image.size.width, image.size.height)
+        guard longest > maxSide, longest > 0 else { return image }
+        let scale = maxSide / longest
+        let target = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let renderer = UIGraphicsImageRenderer(size: target)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: target))
+        }
+    }
+}
+
 // MARK: - 消息
 
 struct ChatMessage: Identifiable, Codable, Hashable {
@@ -58,6 +131,8 @@ struct ChatMessage: Identifiable, Codable, Hashable {
     /// 工具结果消息对应的调用 id 与工具名
     var toolCallID: String?
     var toolName: String?
+    /// 用户消息附带的图片
+    var attachments: [ChatAttachment]?
 
     init(
         id: UUID = UUID(),
@@ -73,7 +148,8 @@ struct ChatMessage: Identifiable, Codable, Hashable {
         rating: Int? = nil,
         toolCalls: [ToolCall]? = nil,
         toolCallID: String? = nil,
-        toolName: String? = nil
+        toolName: String? = nil,
+        attachments: [ChatAttachment]? = nil
     ) {
         self.id = id
         self.role = role
@@ -89,6 +165,7 @@ struct ChatMessage: Identifiable, Codable, Hashable {
         self.toolCalls = toolCalls
         self.toolCallID = toolCallID
         self.toolName = toolName
+        self.attachments = attachments
     }
 }
 
