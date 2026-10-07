@@ -1008,3 +1008,123 @@ final class TokenUsageTests: XCTestCase {
         XCTAssertEqual(message.promptTokens, 5)
     }
 }
+
+// MARK: - 流式缓冲
+
+/// 生成过程的流畅度依赖两条性质：已定型的块永不改变、末尾块长度有上限。
+/// 前者保证视图能整块复用排版，后者保证单次刷新的排版量与全文长度无关。
+final class StreamingTextTests: XCTestCase {
+
+    func testFinalizedBlocksNeverChangeWhileStreaming() {
+        let buffer = StreamingText(messageID: UUID())
+        let body = String(repeating: "这是一段用来触发切块的文字，长度需要超过单块上限。", count: 12)
+        var previous: [String] = []
+        var streamed = ""
+
+        for character in body {
+            buffer.appendContent(String(character))
+            streamed.append(character)
+            let blocks = buffer.contentBlocks
+            for index in 0..<min(previous.count, blocks.count) {
+                XCTAssertEqual(blocks[index], previous[index], "已定型的块不应随增量变化")
+            }
+            previous = blocks
+        }
+
+        XCTAssertEqual(buffer.content, streamed, "完整正文应与输入一致")
+        XCTAssertFalse(buffer.contentBlocks.isEmpty, "超过上限后应出现已定型块")
+        XCTAssertLessThanOrEqual(buffer.contentTail.count, StreamingText.blockLimit + 1, "末尾块长度应受限")
+    }
+
+    func testShortContentStaysInTail() {
+        let buffer = StreamingText(messageID: UUID())
+        buffer.appendContent("甲段\n\n乙段")
+        XCTAssertTrue(buffer.contentBlocks.isEmpty, "短文本不应切块")
+        XCTAssertEqual(buffer.contentTail, "甲段\n\n乙段")
+        XCTAssertEqual(buffer.content, "甲段\n\n乙段")
+    }
+
+    func testReasoningIsTrackedSeparately() {
+        let buffer = StreamingText(messageID: UUID())
+        buffer.appendReasoning("先想一想")
+        buffer.appendContent("正文")
+        XCTAssertEqual(buffer.reasoning, "先想一想")
+        XCTAssertEqual(buffer.content, "正文")
+        XCTAssertTrue(buffer.hasReasoning)
+        XCTAssertTrue(buffer.hasContent)
+    }
+
+    /// 工具调用后的新一轮：清空并切换到新的消息 id
+    func testRestartClearsBufferAndSwitchesMessage() {
+        let buffer = StreamingText(messageID: UUID())
+        buffer.appendContent("上一轮的内容")
+        buffer.appendReasoning("上一轮的思考")
+        let newID = UUID()
+        buffer.restart(for: newID)
+        XCTAssertEqual(buffer.messageID, newID)
+        XCTAssertTrue(buffer.content.isEmpty)
+        XCTAssertTrue(buffer.reasoning.isEmpty)
+        XCTAssertTrue(buffer.contentBlocks.isEmpty)
+        XCTAssertTrue(buffer.contentTail.isEmpty)
+        XCTAssertFalse(buffer.hasContent)
+    }
+}
+
+// MARK: - 过程（思考 + 工具步骤）
+
+final class ChatProcessTests: XCTestCase {
+
+    func testSummaryCountsTools() {
+        var message = ChatMessage(role: .assistant, content: "好的", reasoning: "先看看再动手")
+        message.toolCalls = [
+            ToolCall(id: "1", name: AgentToolCatalog.sshExecName, arguments: #"{"command":"ls -la"}"#),
+            ToolCall(id: "2", name: AgentToolCatalog.sshExecName, arguments: #"{"command":"pwd"}"#),
+            ToolCall(id: "3", name: AgentToolCatalog.browserReadName, arguments: #"{"url":"https://example.com"}"#)
+        ]
+
+        let process = ChatProcess(message: message, toolMessages: [])
+        XCTAssertEqual(process.summary, "已执行 2 条命令，读取 1 个网页")
+        XCTAssertEqual(process.steps.count, 3)
+        XCTAssertEqual(process.steps[0].title, "执行命令")
+        XCTAssertEqual(process.steps[0].detail, "ls -la")
+        XCTAssertEqual(process.steps[2].title, "读取网页")
+        XCTAssertEqual(process.steps[2].detail, "https://example.com")
+        XCTAssertTrue(process.hasReasoning)
+        XCTAssertFalse(process.isRunning)
+    }
+
+    /// 工具还在执行时用「正在…」文案
+    func testRunningToolUsesInProgressWording() {
+        var message = ChatMessage(role: .assistant, content: "")
+        message.toolCalls = [ToolCall(id: "1", name: AgentToolCatalog.sshExecName, arguments: #"{"command":"ls"}"#)]
+        var toolMessage = ChatMessage(role: .tool, content: "", isStreaming: true)
+        toolMessage.toolCallID = "1"
+
+        let process = ChatProcess(message: message, toolMessages: [toolMessage])
+        XCTAssertTrue(process.isRunning)
+        XCTAssertEqual(process.summary, "正在执行 1 条命令")
+    }
+
+    /// 工具输出会带进弹窗内容
+    func testToolOutputIsIncluded() {
+        var message = ChatMessage(role: .assistant, content: "")
+        message.toolCalls = [ToolCall(id: "1", name: AgentToolCatalog.sshExecName, arguments: #"{"command":"ls"}"#)]
+        var toolMessage = ChatMessage(role: .tool, content: "文件A\n文件B")
+        toolMessage.toolCallID = "1"
+
+        let process = ChatProcess(message: message, toolMessages: [toolMessage])
+        XCTAssertEqual(process.steps.first?.output, "文件A\n文件B")
+    }
+
+    /// 只有思考、没有工具调用时也要能显示「思考过程」
+    func testReasoningOnlyProcess() {
+        let message = ChatMessage(role: .assistant, content: "答案", reasoning: "先想一下")
+        let process = ChatProcess(message: message, toolMessages: [])
+        XCTAssertTrue(process.hasReasoning)
+        XCTAssertFalse(process.hasSteps)
+        XCTAssertFalse(process.isEmpty)
+
+        let empty = ChatProcess(message: ChatMessage(role: .assistant, content: "没有思考"), toolMessages: [])
+        XCTAssertTrue(empty.isEmpty, "既无思考也无工具时不应显示折叠行")
+    }
+}
