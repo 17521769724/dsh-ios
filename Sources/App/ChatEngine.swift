@@ -18,7 +18,6 @@ final class ChatEngine: ObservableObject {
 
     @Published var currentConversation: Conversation?
     @Published var isStreaming: Bool = false
-    @Published var streamingReasoning: String = ""
     @Published var toast: String?
     @Published var lastError: String?
     @Published var draft: String = ""
@@ -225,7 +224,6 @@ final class ChatEngine: ObservableObject {
         currentConversation = conversation
         conversationStore.upsert(conversation)
 
-        streamingReasoning = ""
         haptic(.medium)
         startStreaming(conversationID: conversation.id, assistantID: assistantMessage.id, outgoing: outgoing)
     }
@@ -256,7 +254,6 @@ final class ChatEngine: ObservableObject {
         conversationStore.upsert(conversation)
 
         let outgoing = lastUserText(in: conversation) ?? ""
-        streamingReasoning = ""
         haptic(.medium)
         startStreaming(conversationID: conversation.id, assistantID: assistantMessage.id, outgoing: outgoing)
     }
@@ -598,9 +595,20 @@ final class ChatEngine: ObservableObject {
     }
 
     private func scheduleStreamFlush() {
-        guard streamFlushTask == nil else { return }
-        let buffered = pendingStreamDeltas?.content.count ?? 0
-        let interval: UInt64 = buffered < 2_000 ? 80_000_000 : (buffered < 10_000 ? 200_000_000 : 400_000_000)
+        guard streamFlushTask == nil, let pending = pendingStreamDeltas else { return }
+        // 刷新节奏按「这条消息已经有多长」自适应：文本越长，界面里需要重排的内容越多，
+        // 界面刷新就放慢一些。分块渲染后单次刷新只处理末尾一块，这里取 60~160ms，
+        // 既保留打字机观感，又不会让主线程被排版占满（滚动才跟手）。
+        let flushedLength = message(id: pending.assistantID).map { $0.content.count + ($0.reasoning?.count ?? 0) } ?? 0
+        let total = flushedLength + pending.content.count + pending.reasoning.count
+        let interval: UInt64
+        if total < 4_000 {
+            interval = 60_000_000
+        } else if total < 20_000 {
+            interval = 100_000_000
+        } else {
+            interval = 160_000_000
+        }
         streamFlushTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: interval)
             guard let self else { return }
@@ -615,16 +623,18 @@ final class ChatEngine: ObservableObject {
         streamFlushTask = nil
         guard let pending = pendingStreamDeltas else { return }
         pendingStreamDeltas = nil
-        if !pending.reasoning.isEmpty {
-            streamingReasoning += pending.reasoning
-            mutateMessage(id: pending.assistantID) { message in
+        guard !pending.content.isEmpty || !pending.reasoning.isEmpty else { return }
+        // 思考与正文在同一次变更里写入：视图只更新一轮，
+        // 避免一次刷新触发多次重排（此前思考/正文各自 mutate 会发出多次更新）
+        mutateMessage(id: pending.assistantID) { message in
+            if !pending.reasoning.isEmpty {
                 message.reasoning = (message.reasoning ?? "") + pending.reasoning
+            }
+            if !pending.content.isEmpty {
+                message.content += pending.content
             }
         }
         if !pending.content.isEmpty {
-            mutateMessage(id: pending.assistantID) { message in
-                message.content += pending.content
-            }
             streamingTick &+= 1
         }
     }

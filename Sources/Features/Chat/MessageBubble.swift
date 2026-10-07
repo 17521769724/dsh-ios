@@ -259,16 +259,7 @@ struct MessageBubble: View, Equatable {
             .accessibilityIdentifier("message.thinking")
 
             if showReasoning {
-                Text(text)
-                    .font(.system(size: 14))
-                    .foregroundStyle(DSHTheme.secondaryText)
-                    .lineSpacing(3)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 12)
-                    .transition(.opacity)
+                reasoningBody(text)
             }
         }
         .background(DSHTheme.reasoningBackground)
@@ -279,8 +270,34 @@ struct MessageBubble: View, Equatable {
         )
     }
 
+    /// 展开的思考正文：按块渲染，而不是整段塞进一个 Text。
+    /// 生成过程中思考内容每隔几十毫秒就变一次，整段一个 Text 会让每次刷新都对
+    /// 全篇重新排版（长思考下正是上下滑动卡顿的元凶）；分块后只有最后一块重排，
+    /// 前面已经定型的块直接复用排版结果。
+    private func reasoningBody(_ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(TextChunker.chunk(text)) { chunk in
+                TextChunkView(
+                    text: chunk.text,
+                    font: .system(size: 14),
+                    lineSpacing: 3,
+                    color: DSHTheme.secondaryText
+                )
+                // 已定型的块整块复用（含排版），生成过程中只有最后一块重排
+                .equatable()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, chunk.id == 0 || chunk.isContinuation ? 0 : DSHTheme.Spacing.small)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 12)
+        .transition(.opacity)
+    }
+
     private func preview(_ text: String) -> String {
-        let flat = text.replacingOccurrences(of: "\n", with: " ")
+        // 只处理开头一小段：长思考/长输出在生成过程中每次刷新都会走这里，
+        // 整篇做换行替换在大文本下并不便宜
+        let flat = text.prefix(120).replacingOccurrences(of: "\n", with: " ")
         return flat.count > 40 ? String(flat.prefix(40)) + "…" : flat
     }
 

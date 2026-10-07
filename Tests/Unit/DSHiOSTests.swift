@@ -62,6 +62,62 @@ final class MarkdownParserTests: XCTestCase {
         XCTAssertTrue(output.contains("普通行"))
         XCTAssertTrue(output.contains("1. 编号项"), "有序列不应被改写")
     }
+
+    // MARK: 分块渲染（流式滚动性能）
+
+    /// 空行分隔的段落各自成块：已定型的块不会因为后续增量到达而重新排版
+    func testBlankLineSeparatesParagraphs() {
+        let blocks = MarkdownParser.parse("第一段\n\n第二段")
+        XCTAssertEqual(blocks.count, 2)
+        guard case .text(let first) = blocks[0].kind, case .text(let second) = blocks[1].kind else {
+            return XCTFail("应为两个文本块")
+        }
+        XCTAssertEqual(first, "第一段")
+        XCTAssertEqual(second, "第二段")
+        XCTAssertFalse(blocks[0].isContinuation)
+        XCTAssertFalse(blocks[1].isContinuation, "空行分隔的段落之间应保留段间距")
+    }
+
+    /// 超长段落（没有空行、甚至没有换行）也必须切块，
+    /// 否则单个超大 Text 会让每次流式刷新都对全文做一次全量排版
+    func testLongParagraphIsSplitIntoBlocks() {
+        let long = String(repeating: "字", count: MarkdownParser.maxTextBlockLength * 2)
+        let blocks = MarkdownParser.parse(long)
+        XCTAssertGreaterThan(blocks.count, 1, "超长段落应被切成多块")
+        XCTAssertFalse(blocks[0].isContinuation)
+        for block in blocks.dropFirst() {
+            XCTAssertTrue(block.isContinuation, "同一段落被切开的后继块应标记为续写（零间距接上）")
+        }
+        let joined = blocks.compactMap { block -> String? in
+            if case .text(let text) = block.kind { return text }
+            return nil
+        }.joined()
+        XCTAssertEqual(joined, long, "切块不应改变正文内容")
+    }
+
+    func testTextChunkerSplitsOnBlankLines() {
+        let chunks = TextChunker.chunk("a\nb\n\nc", maxLength: 100)
+        XCTAssertEqual(chunks.map(\.text), ["a\nb", "c"])
+        XCTAssertEqual(chunks.map(\.isContinuation), [false, false])
+    }
+
+    func testTextChunkerSplitsLongLineIntoContinuationChunks() {
+        let chunks = TextChunker.chunk(String(repeating: "x", count: 250), maxLength: 100)
+        XCTAssertEqual(chunks.count, 3)
+        XCTAssertFalse(chunks[0].isContinuation)
+        XCTAssertTrue(chunks[1].isContinuation)
+        XCTAssertTrue(chunks[2].isContinuation)
+        XCTAssertEqual(chunks.map(\.text).joined(), String(repeating: "x", count: 250))
+    }
+
+    /// 代码块不能拆断整行，否则每行都会被切成两段单独渲染
+    func testTextChunkerKeepsCodeLinesIntact() {
+        let longLine = String(repeating: "x", count: 200)
+        let chunks = TextChunker.chunk(longLine + "\nshort", maxLength: 50, splitsLongLines: false)
+        XCTAssertEqual(chunks.count, 2)
+        XCTAssertEqual(chunks[0].text, longLine)
+        XCTAssertEqual(chunks[1].text, "short")
+    }
 }
 
 // MARK: - 会话模型
