@@ -1017,7 +1017,10 @@ final class StreamingTextTests: XCTestCase {
 
     func testFinalizedBlocksNeverChangeWhileStreaming() {
         let buffer = StreamingText(messageID: UUID())
-        let body = String(repeating: "这是一段用来触发切块的文字，长度需要超过单块上限。", count: 12)
+        // 文本必须明显超过 StreamingText.blockLimit，否则末尾块永远不会定型，断言失去意义
+        let unit = "这是一段用来触发切块的文字，长度需要超过单块上限。"
+        var body = ""
+        while body.count <= StreamingText.blockLimit * 2 { body += unit }
         var previous: [String] = []
         var streamed = ""
 
