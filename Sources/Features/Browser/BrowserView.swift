@@ -10,6 +10,8 @@ struct BrowserRequest: Identifiable, Equatable {
 /// 内置浏览器：地址栏 + 前进/后退/刷新 + 分享。
 struct BrowserView: View {
     let initialURL: URL
+    /// 命中判定时取消这次跳转并把地址交回调用方（用于拦截 OAuth 回调）
+    var onRedirect: ((URL) -> Bool)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var settingsStore: SettingsStore
@@ -77,6 +79,7 @@ struct BrowserView: View {
         }
         .onAppear {
             address = initialURL.absoluteString
+            model.onRedirect = onRedirect
             model.applyDesktopMode(settingsStore.settings.browser.desktopSite)
             model.load(initialURL)
         }
@@ -169,6 +172,9 @@ final class BrowserWebModel: NSObject, ObservableObject, WKNavigationDelegate {
 
     let webView: WKWebView
 
+    /// 拦截跳转：返回 true 表示已接管这次跳转，不再加载该地址
+    var onRedirect: ((URL) -> Bool)?
+
     override init() {
         let configuration = WKWebViewConfiguration()
         configuration.allowsInlineMediaPlayback = true
@@ -195,6 +201,19 @@ final class BrowserWebModel: NSObject, ObservableObject, WKNavigationDelegate {
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         isLoading = true
         failureText = nil
+    }
+
+    /// 先给调用方一次拦截机会（OAuth 回调），未命中才正常加载
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        if let url = navigationAction.request.url, onRedirect?(url) == true {
+            decisionHandler(.cancel)
+            return
+        }
+        decisionHandler(.allow)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

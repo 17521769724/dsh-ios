@@ -24,6 +24,12 @@ struct GitAccountSettingsView: View {
     @State private var copiedCode = false
     @State private var deviceTask: Task<Void, Never>?
 
+    // Gitee 一键登录（授权码模式）
+    @State private var pendingGiteeState: String?
+    @State private var awaitingGiteeCallback = false
+    @State private var giteeMessage: String?
+    @State private var giteeSucceeded = false
+
     // 内置浏览器（打开授权页 / 创建令牌页）
     @State private var browserRequest: BrowserRequest?
 
@@ -34,8 +40,10 @@ struct GitAccountSettingsView: View {
 
     private var settings: AppSettings { settingsStore.settings }
     private var isConnected: Bool { gitStore.isConnected(provider) }
-    /// Gitee 官方未提供设备码登录，只有 GitHub 支持一键登录
+    /// GitHub 走设备码流程
     private var supportsDeviceFlow: Bool { provider == .github }
+    /// Gitee 走授权码流程（需要应用凭据）
+    private var supportsGiteeOneClick: Bool { provider == .gitee && GiteeAuthService.isConfigured }
 
     var body: some View {
         List {
@@ -55,11 +63,19 @@ struct GitAccountSettingsView: View {
         .tint(DSHTheme.brand)
         .onAppear { loadRepositories() }
         .onDisappear { deviceTask?.cancel() }
-        // 用内置浏览器打开网站，用户不必离开 App
+        // 用内置浏览器打开网站，用户不必离开 App；Gitee 授权回调在这里被拦下
         .sheet(item: $browserRequest) { request in
-            BrowserView(initialURL: request.url)
+            BrowserView(initialURL: request.url, onRedirect: handleRedirect)
                 .environmentObject(settingsStore)
                 .dshAppearance(settings.appTheme)
+        }
+        .onChange(of: browserRequest) { request in
+            // 用户手动关掉内置浏览器：结束等待授权状态
+            guard request == nil, awaitingGiteeCallback else { return }
+            pendingGiteeState = nil
+            awaitingGiteeCallback = false
+            giteeSucceeded = false
+            giteeMessage = "已取消登录"
         }
         .confirmationDialog(
             "退出 \(provider.displayName) 账号？",
@@ -93,9 +109,12 @@ struct GitAccountSettingsView: View {
         if isConnected {
             connectedSection
         } else {
-            // GitHub 走设备码一键登录；网络不通时下方始终保留 Token 登录作为兜底
+            // GitHub 走设备码；Gitee 走授权码；两者都保留 Token 登录
             if supportsDeviceFlow {
                 deviceLoginSection
+            }
+            if supportsGiteeOneClick {
+                giteeOneClickSection
             }
             manualTokenSection
         }
@@ -189,7 +208,51 @@ struct GitAccountSettingsView: View {
         }
     }
 
-    /// Token 直接登录：Gitee 唯一的登录方式，GitHub 与设备码一键登录并存
+    /// Gitee：一键登录（授权码模式，需要已配置应用凭据）
+    private var giteeOneClickSection: some View {
+        Section {
+            if awaitingGiteeCallback {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("已打开 Gitee 授权页，点「同意授权」后会自动完成登录。")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text("等待你在网页完成授权…")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Button("取消登录", role: .destructive) { cancelGiteeLogin() }
+                        .accessibilityIdentifier("git.giteeCancel")
+                }
+                .padding(.vertical, 4)
+            } else {
+                Button {
+                    startGiteeLogin()
+                } label: {
+                    HStack {
+                        Label("一键登录 Gitee", systemImage: "person.badge.key.fill")
+                        Spacer()
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("git.giteeLogin")
+            }
+
+            if let giteeMessage {
+                statusView(giteeMessage, ok: giteeSucceeded, identifier: "git.gitee.result")
+            }
+        } header: {
+            Text("一键登录")
+        } footer: {
+            Text("点击后会打开 Gitee 授权页，点「同意授权」后 App 会自己用授权码换取 Token，无需手动创建 Token。")
+        }
+    }
+
+    /// Token 直接登录：手动粘贴 Token，网络不通或一键登录不可用时的兜底
     private var manualTokenSection: some View {
         Section {
             LabeledContent("Token") {
@@ -390,6 +453,71 @@ struct GitAccountSettingsView: View {
         tokenInput.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    // MARK: - 行为：Gitee 一键登录（授权码）
+
+    private func startGiteeLogin() {
+        let state = GiteeAuthService.makeState()
+        guard let url = GiteeAuthService.authorizeURL(state: state) else {
+            giteeSucceeded = false
+            giteeMessage = "尚未配置 Gitee 应用凭据。"
+            return
+        }
+        pendingGiteeState = state
+        awaitingGiteeCallback = true
+        giteeSucceeded = false
+        giteeMessage = nil
+        browserRequest = BrowserRequest(url: url)
+    }
+
+    private func cancelGiteeLogin() {
+        pendingGiteeState = nil
+        awaitingGiteeCallback = false
+        browserRequest = nil
+        giteeSucceeded = false
+        giteeMessage = "已取消登录"
+    }
+
+    /// 内置浏览器的跳转拦截：命中 Gitee 回调就接管并换取 Token
+    private func handleRedirect(_ url: URL) -> Bool {
+        guard provider == .gitee, awaitingGiteeCallback, GiteeAuthService.isCallback(url) else {
+            return false
+        }
+        finishGiteeLogin(with: url)
+        return true
+    }
+
+    private func finishGiteeLogin(with callback: URL) {
+        let expectedState = pendingGiteeState ?? ""
+        // 先结束等待状态，再关闭浏览器，避免 onChange 把它当成「用户取消」
+        pendingGiteeState = nil
+        awaitingGiteeCallback = false
+
+        let code: String
+        do {
+            code = try GiteeAuthService.authorizationCode(from: callback, expectedState: expectedState)
+        } catch {
+            browserRequest = nil
+            giteeSucceeded = false
+            giteeMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            return
+        }
+
+        browserRequest = nil
+        giteeMessage = "正在完成登录…"
+        Task { @MainActor in
+            do {
+                let token = try await GiteeAuthService.exchangeToken(code: code)
+                let name = try await gitStore.connect(.gitee, token: token)
+                giteeSucceeded = true
+                giteeMessage = "已登录 \(name)"
+                loadRepositories()
+            } catch {
+                giteeSucceeded = false
+                giteeMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+        }
+    }
+
     // MARK: - 行为：设备码登录
 
     private func startDeviceLogin() {
@@ -457,6 +585,9 @@ struct GitAccountSettingsView: View {
         tokenInput = ""
         message = nil
         deviceMessage = nil
+        giteeMessage = nil
+        awaitingGiteeCallback = false
+        pendingGiteeState = nil
         repositories = []
         repositoryError = nil
     }
