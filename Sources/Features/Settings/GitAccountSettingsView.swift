@@ -198,31 +198,33 @@ struct GitAccountSettingsView: View {
             }
             .accessibilityIdentifier("git.openTokenPage")
 
-            HStack(spacing: DSHTheme.Spacing.small) {
-                Group {
-                    if revealed {
-                        TextField("粘贴 Token", text: $tokenInput)
-                    } else {
-                        SecureField("粘贴 Token", text: $tokenInput)
+            LabeledContent("Token") {
+                HStack(spacing: DSHTheme.Spacing.small) {
+                    Group {
+                        if revealed {
+                            TextField("粘贴 Token", text: $tokenInput)
+                        } else {
+                            SecureField("粘贴 Token", text: $tokenInput)
+                        }
                     }
-                }
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .font(.system(size: 14, design: .monospaced))
-                .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.trailing)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .font(.system(size: 14, design: .monospaced))
 
-                Button {
-                    revealed.toggle()
-                } label: {
-                    Image(systemName: revealed ? "eye.slash" : "eye")
-                        .foregroundStyle(.secondary)
-                        .frame(width: 26, height: 26)
-                        .contentShape(Rectangle())
+                    Button {
+                        revealed.toggle()
+                    } label: {
+                        Image(systemName: revealed ? "eye.slash" : "eye")
+                            .foregroundStyle(.secondary)
+                            .frame(width: 22, height: 22)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(revealed ? "隐藏 Token" : "显示 Token")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(revealed ? "隐藏 Token" : "显示 Token")
+                .accessibilityIdentifier("git.token")
             }
-            .accessibilityIdentifier("git.token")
 
             Button {
                 connect()
