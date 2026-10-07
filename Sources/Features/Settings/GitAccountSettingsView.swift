@@ -47,6 +47,10 @@ struct GitAccountSettingsView: View {
             capabilitiesSection
         }
         .listStyle(.insetGrouped)
+        // 登录状态切换会整段替换登录/账号区块，SwiftUI 增量更新时有概率漏画分隔线（退出登录上方那条）。
+        // 用 id 让列表在状态变化时整体重建，分隔线一定重新绘制。
+        .id(isConnected)
+        .listRowSeparator(.visible)
         .navigationTitle(provider.displayName)
         .navigationBarTitleDisplayMode(.inline)
         .tint(DSHTheme.brand)
@@ -101,7 +105,9 @@ struct GitAccountSettingsView: View {
     private var connectedSection: some View {
         Section {
             LabeledContent("账号", value: gitStore.account(for: provider) ?? "已登录")
+                .listRowSeparator(.visible)
             LabeledContent("Token", value: "已保存在本机钥匙串")
+                .listRowSeparator(.visible)
             Button(role: .destructive) {
                 showSignOutConfirm = true
             } label: {
@@ -176,13 +182,13 @@ struct GitAccountSettingsView: View {
                 statusView(deviceMessage, ok: deviceSucceeded, identifier: "git.device.result")
             }
         } header: {
-            Text("登录")
+            Text("一键登录")
         } footer: {
-            Text("点击后会打开 GitHub 授权页（设备码自动复制），确认后 App 会自己完成登录，无需手动创建 Token。若网络连不上 GitHub，可用下方「Token 登录（备用）」。")
+            Text("点击后会打开 GitHub 授权页（设备码自动复制），确认后 App 会自己完成登录，无需手动创建 Token。若网络连不上 GitHub，可用下方「Token 登录」。")
         }
     }
 
-    /// 手动填写 Token：Gitee 唯一可用的登录方式，也是 GitHub 网络不通时的兜底
+    /// Token 直接登录：Gitee 唯一的登录方式，GitHub 与设备码一键登录并存
     private var manualTokenSection: some View {
         Section {
             HStack(spacing: DSHTheme.Spacing.small) {
@@ -238,7 +244,8 @@ struct GitAccountSettingsView: View {
                 statusView(message, ok: succeeded, identifier: "git.login.result")
             }
         } header: {
-            Text(supportsDeviceFlow ? "Token 登录（备用）" : "登录")
+            // GitHub 与 Gitee 都提供 Token 直接登录，Gitee 只有这一种方式
+            Text("Token 登录")
         } footer: {
             Text("\(provider.scopeHint)登录时会用 Token 拉取一次账号信息做校验，失败会说明具体原因；Token 只保存在本机钥匙串。")
         }
