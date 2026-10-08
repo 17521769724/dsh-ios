@@ -230,7 +230,10 @@ final class WorkspaceStore: ObservableObject {
             return "\(display(path)) 下共有 \(lines.count) 项：\n" + lines.joined(separator: "\n")
 
         case "read":
-            guard let url = Self.resolve(path: path, root: root), fileManager.fileExists(atPath: url.path) else {
+            guard let url = Self.resolve(path: path, root: root) else {
+                return "路径不合法：\(path)"
+            }
+            guard fileManager.fileExists(atPath: url.path) else {
                 return "文件不存在：\(display(path))"
             }
             guard let text = read(url) else {
@@ -270,7 +273,10 @@ final class WorkspaceStore: ObservableObject {
             }
 
         case "delete":
-            guard let url = Self.resolve(path: path, root: root), fileManager.fileExists(atPath: url.path) else {
+            guard let url = Self.resolve(path: path, root: root) else {
+                return "路径不合法：\(path)"
+            }
+            guard fileManager.fileExists(atPath: url.path) else {
                 return "路径不存在：\(display(path))"
             }
             guard url.path != root.path else { return "不能删除工作区根目录。" }

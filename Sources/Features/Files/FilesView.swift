@@ -242,9 +242,11 @@ struct FilesView: View {
     }
 
     private func createFile() {
-        // 新建成功直接进入编辑器，符合「建完就写」的使用直觉
+        // 新建成功直接进入编辑器；等弹窗收起动画结束再推入，避免推入被弹窗动画吞掉
         if let url = workspace.createFile(named: newFileName) {
-            pendingEditorURL = url
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                pendingEditorURL = url
+            }
         }
     }
 

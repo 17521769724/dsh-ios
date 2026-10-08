@@ -762,7 +762,7 @@ final class DSHiOSUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["已保存"].waitForExistence(timeout: 5), "保存后状态栏未显示已保存")
 
         // 返回文件列表，应看到新建的文件
-        app.navigationBars.buttons.firstMatch.tap()
+        tapEditorBack()
         let row = app.staticTexts["hello.swift"]
         XCTAssertTrue(row.waitForExistence(timeout: 5), "文件列表未出现新建的文件")
         capture("23-files-list")
@@ -775,9 +775,20 @@ final class DSHiOSUITests: XCTestCase {
         XCTAssertTrue(text.contains("let answer = 42"), "重新打开后代码内容丢失：\(text)")
         capture("24-ide-reopened")
 
-        app.navigationBars.buttons.firstMatch.tap()
-        app.buttons["完成"].firstMatch.tap()
+        tapEditorBack()
+        app.navigationBars["文件"].buttons["完成"].firstMatch.tap()
         XCTAssertTrue(element("composer.input").waitForExistence(timeout: 5), "关闭文件页后未回到主页")
+    }
+
+    /// 点编辑器页自己的返回按钮（上一页标题是「文件」），
+    /// 不要用 firstMatch：编辑器导航栏里还有一个「保存」，根导航栏里还有「完成」，容易串位
+    private func tapEditorBack() {
+        let back = app.navigationBars.buttons
+            .matching(NSPredicate(format: "label IN %@", ["文件", "Back", "返回"]))
+            .firstMatch
+        XCTAssertTrue(back.waitForExistence(timeout: 5), "编辑器缺少返回按钮")
+        back.tap()
+        XCTAssertTrue(app.navigationBars["文件"].waitForExistence(timeout: 5), "未回到文件列表")
     }
 
     // MARK: - 冷启动顶栏（真机问题回归：图标跳动）

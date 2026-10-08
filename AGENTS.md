@@ -87,7 +87,7 @@ xcodebuild test -project DSHiOS.xcodeproj -scheme DSHiOS -destination "platform=
 
 ## 当前状态
 
-- 版本：**1.3.0（build 78）**，已发布的未签名 IPA 见 Releases。
+- 版本：**1.3.0（build 80）**，已发布的未签名 IPA 见 Releases。
 - 1.3.0 交付：
   - 冷启动顶栏稳定：启动首帧前不播放隐式动画，抽屉宽度与位置固定，关闭时不再闪现；
   - 消息长按的抬起预览与侧栏一致按圆角绘制（不再出现直角背景）；
