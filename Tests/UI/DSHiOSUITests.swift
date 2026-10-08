@@ -696,7 +696,7 @@ final class DSHiOSUITests: XCTestCase {
 
         let contentField = element("skills.editor.content")
         contentField.tap()
-        contentField.typeText("Step 1: check\nStep 2: report")
+        contentField.typeText("Step 1: check, Step 2: report")
 
         element("skills.editor.save").tap()
 
