@@ -143,9 +143,7 @@ struct SidebarView: View {
     private var list: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 2) {
-                // 对话记录小标题：下方展示分组后的会话记录
-                sectionLabel("对话记录")
-
+                // 直接展示分组后的会话记录，不再单独加「对话记录」总标题
                 if !pinned.isEmpty {
                     sectionLabel("置顶")
                     ForEach(pinned) { row($0) }
