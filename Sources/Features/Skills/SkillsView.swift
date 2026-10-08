@@ -13,6 +13,11 @@ struct SkillsView: View {
         skillStore.skills.sorted { $0.updatedAt > $1.updatedAt }
     }
 
+    /// 正在编辑的技能：点卡片后推入编辑页。
+    /// 卡片上还挂着左滑手势，若用 NavigationLink（本质是 Button）会互相抢手势、左滑失效，
+    /// 因此改为「普通视图 + onTapGesture + navigationDestination」。
+    @State private var editingSkill: Skill?
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DSHTheme.Spacing.medium) {
@@ -42,6 +47,11 @@ struct SkillsView: View {
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("技能")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(isPresented: editingPresented) {
+            if let skill = editingSkill {
+                SkillEditorPage(original: skill)
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 NavigationLink {
@@ -79,25 +89,30 @@ struct SkillsView: View {
     // MARK: - 技能行
 
     private func skillCard(_ skill: Skill) -> some View {
-        SwipeToDeleteRow(onDelete: { skillStore.delete(id: skill.id) }) {
-            NavigationLink {
-                SkillEditorPage(original: skill)
-            } label: {
-                HStack(spacing: DSHTheme.Spacing.small) {
-                    rowLabel(skill)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(DSHTheme.tertiaryText)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(DSHTheme.page)
-                .contentShape(Rectangle())
+        SwipeToDeleteRow(
+            onDelete: { skillStore.delete(id: skill.id) },
+            onTap: { editingSkill = skill }
+        ) {
+            HStack(spacing: DSHTheme.Spacing.small) {
+                rowLabel(skill)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(DSHTheme.tertiaryText)
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("skills.row")
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(DSHTheme.page)
+            .contentShape(Rectangle())
         }
+        .accessibilityIdentifier("skills.row")
+    }
+
+    private var editingPresented: Binding<Bool> {
+        Binding(
+            get: { editingSkill != nil },
+            set: { if !$0 { editingSkill = nil } }
+        )
     }
 
     private func rowLabel(_ skill: Skill) -> some View {
@@ -170,6 +185,8 @@ struct SkillsView: View {
 /// 卡片与删除区共用一个圆角裁剪，滑开时不会露出直角，也不会比卡片高出一截。
 struct SwipeToDeleteRow<Content: View>: View {
     let onDelete: () -> Void
+    /// 点击卡片（未滑开时）：进入编辑页等
+    let onTap: () -> Void
     @ViewBuilder var content: Content
 
     /// 删除按钮展开宽度
@@ -199,9 +216,25 @@ struct SwipeToDeleteRow<Content: View>: View {
 
             content
                 .offset(x: offset)
+                // 滑动与点击都挂在卡片本体上：卡片不是 Button，两者不会互相抢手势
+                .contentShape(Rectangle())
                 .gesture(drag)
+                .onTapGesture {
+                    if opened {
+                        close()
+                    } else {
+                        onTap()
+                    }
+                }
         }
         .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous))
+    }
+
+    private func close() {
+        withAnimation(DSHAnim.list) {
+            opened = false
+            offset = 0
+        }
     }
 
     private var drag: some Gesture {

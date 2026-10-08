@@ -715,6 +715,8 @@ final class DSHiOSUITests: XCTestCase {
 
         // 左滑删除：技能应立即消失并回到空态
         row.swipeLeft()
+        // 留档：确认左滑是否真的把卡片滑开（失败时便于定位是手势没触发还是按钮没匹配上）
+        capture("20b-skill-swiped")
         let deleteButton = app.buttons
             .matching(NSPredicate(format: "label == %@", "删除"))
             .firstMatch
