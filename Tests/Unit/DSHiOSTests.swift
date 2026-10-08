@@ -1131,3 +1131,52 @@ final class ChatProcessTests: XCTestCase {
         XCTAssertTrue(empty.isEmpty, "既无思考也无工具时不应显示折叠行")
     }
 }
+
+// MARK: - 删除消息的连带范围
+
+final class MessageDeletionTests: XCTestCase {
+
+    /// 删除用户消息时，它的回复要一起删掉，下一轮对话不受影响
+    func testDeletingUserMessageAlsoRemovesItsReply() {
+        let user1 = ChatMessage(role: .user, content: "第一个问题")
+        let assistant1 = ChatMessage(role: .assistant, content: "第一个回答")
+        let user2 = ChatMessage(role: .user, content: "第二个问题")
+        let assistant2 = ChatMessage(role: .assistant, content: "第二个回答")
+        let messages = [user1, assistant1, user2, assistant2]
+
+        let removed = ChatEngine.deletionIDs(for: user1, in: messages)
+        XCTAssertEqual(removed, [user1.id, assistant1.id])
+
+        let kept = messages.filter { !removed.contains($0.id) }.map(\.id)
+        XCTAssertEqual(kept, [user2.id, assistant2.id], "后续轮次不应被误删")
+    }
+
+    /// 这一轮里用到的工具结果也一并删除，不留下孤立的 tool 消息
+    func testDeletingUserMessageRemovesToolStepsOfThatTurn() {
+        var assistant = ChatMessage(role: .assistant, content: "先执行命令")
+        assistant.toolCalls = [ToolCall(id: "call_1", name: AgentToolCatalog.sshExecName, arguments: #"{"command":"ls"}"#)]
+        var tool = ChatMessage(role: .tool, content: "文件A")
+        tool.toolCallID = "call_1"
+        let user = ChatMessage(role: .user, content: "看看目录")
+        let tail = ChatMessage(role: .assistant, content: "看完了")
+
+        let messages = [user, assistant, tool, tail]
+        let removed = ChatEngine.deletionIDs(for: user, in: messages)
+        XCTAssertEqual(removed, [user.id, assistant.id, tool.id, tail.id])
+    }
+
+    /// 删除助手回复时，只删这条回复与它的工具结果，提问保留
+    func testDeletingAssistantMessageRemovesItsToolResults() {
+        var assistant = ChatMessage(role: .assistant, content: "先执行命令")
+        assistant.toolCalls = [ToolCall(id: "call_1", name: AgentToolCatalog.sshExecName, arguments: #"{"command":"ls"}"#)]
+        var tool = ChatMessage(role: .tool, content: "文件A")
+        tool.toolCallID = "call_1"
+        var otherTool = ChatMessage(role: .tool, content: "文件B")
+        otherTool.toolCallID = "call_2"
+        let user = ChatMessage(role: .user, content: "看看目录")
+
+        let messages = [user, assistant, tool, otherTool]
+        let removed = ChatEngine.deletionIDs(for: assistant, in: messages)
+        XCTAssertEqual(removed, [assistant.id, tool.id], "只删本轮的 tool 结果")
+    }
+}
