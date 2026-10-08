@@ -8,6 +8,7 @@ struct SettingsView: View {
     @EnvironmentObject private var plugins: PluginManager
     @EnvironmentObject private var sshStore: SSHStore
     @EnvironmentObject private var gitStore: GitAccountStore
+    @EnvironmentObject private var skillStore: SkillStore
     @Environment(\.dismiss) private var dismiss
 
     private var settings: AppSettings { settingsStore.settings }
@@ -22,6 +23,7 @@ struct SettingsView: View {
                 toolsSection
                 gitSection
                 pluginsSection
+                skillsSection
                 dataSection
                 aboutSection
             }
@@ -313,6 +315,37 @@ struct SettingsView: View {
             Text("插件")
         } footer: {
             Text("「回答风格约束」插件需在插件中心开启；开启后这里编辑的强调指令会追加在每条消息末尾发送给模型。")
+        }
+    }
+
+    // MARK: - 技能
+
+    private var skillsSection: some View {
+        Section {
+            Toggle(isOn: $settingsStore.settings.features.skillTool) {
+                SettingsRowLabel(symbol: "sparkles", color: .orange, title: "技能（智能体可调用）")
+            }
+            .accessibilityIdentifier("feature.skillTool")
+
+            NavigationLink {
+                SkillsView()
+                    .environmentObject(skillStore)
+                    .environmentObject(settingsStore)
+            } label: {
+                SettingsValueRow(
+                    symbol: "text.book.closed.fill",
+                    color: .brown,
+                    title: "技能库",
+                    value: skillStore.skills.isEmpty
+                        ? "未添加"
+                        : "\(skillStore.enabledSkills.count)/\(skillStore.skills.count) 个已启用"
+                )
+            }
+            .accessibilityIdentifier("settings.skills")
+        } header: {
+            Text("技能")
+        } footer: {
+            Text("技能与工具不重合：工具负责执行操作（执行命令、打开网页、读写仓库），技能负责规定做法（步骤、规范、检查清单）。启用后模型会在需要时调用 skill 工具读取技能全文并照着完成。")
         }
     }
 
