@@ -13,6 +13,8 @@ final class ChatEngine: ObservableObject {
     let pluginManager: PluginManager
     let sshStore: SSHStore
     let gitStore: GitAccountStore
+    /// 用户自定义技能库：技能规定做法（与执行操作的工具互补）
+    let skillStore: SkillStore
 
     // MARK: - 界面状态
 
@@ -50,13 +52,15 @@ final class ChatEngine: ObservableObject {
         conversationStore: ConversationStore,
         pluginManager: PluginManager,
         sshStore: SSHStore,
-        gitStore: GitAccountStore
+        gitStore: GitAccountStore,
+        skillStore: SkillStore
     ) {
         self.settingsStore = settingsStore
         self.conversationStore = conversationStore
         self.pluginManager = pluginManager
         self.sshStore = sshStore
         self.gitStore = gitStore
+        self.skillStore = skillStore
         self.client = DeepSeekClient(timeout: settingsStore.settings.requestTimeout)
 
         if let latest = conversationStore.sortedConversations.first {
@@ -442,8 +446,18 @@ final class ChatEngine: ObservableObject {
             browserEnabled: features.browserTool,
             browserReadEnabled: features.browserTool && browser.allowAgentRead,
             githubEnabled: features.githubTool && gitStore.isConnected(.github),
-            giteeEnabled: features.giteeTool && gitStore.isConnected(.gitee)
+            giteeEnabled: features.giteeTool && gitStore.isConnected(.gitee),
+            skillNames: activeSkillNames
         )
+    }
+
+    /// 下发给模型的技能名：开关关闭或没有启用技能时为空（此时不下发 skill 工具）
+    private var activeSkills: [Skill] {
+        settingsStore.settings.features.skillTool ? skillStore.enabledSkills : []
+    }
+
+    private var activeSkillNames: [String] {
+        activeSkills.map(\.name)
     }
 
     private func attachToolCalls(_ calls: [ToolCall], assistantID: UUID) {
@@ -551,17 +565,44 @@ final class ChatEngine: ObservableObject {
                 return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }
 
+        case AgentToolCatalog.skillName:
+            guard let name = ToolArguments.string("name", in: call.arguments) else {
+                return "工具参数错误：缺少 name"
+            }
+            guard let skill = skillStore.skill(named: name) else {
+                let available = activeSkillNames
+                return "没有找到技能「\(name)」。当前可用技能：\(available.isEmpty ? "无" : available.joined(separator: "、"))"
+            }
+            return "技能「\(skill.name)」的完整说明如下，请严格按它的步骤与要求完成用户的请求：\n\n\(skill.content)"
+
         default:
             return "未知工具：\(call.name)"
         }
+    }
+
+    /// 把「可用技能」清单并入系统提示：技能规定做法，工具负责执行，两者互补。
+    /// 清单只给名字与摘要，全文由模型调用 skill 工具按需取回，避免每条请求都塞满上下文。
+    static func systemPrompt(base: String, skills: [Skill]) -> String {
+        guard !skills.isEmpty else { return base }
+        let list = skills
+            .map { "- \($0.name)：\($0.summary.isEmpty ? "（未写摘要）" : $0.summary)" }
+            .joined(separator: "\n")
+        let block = """
+        可用技能（用户自己写的做事方法与规范）：
+        \(list)
+        技能与工具的分工：工具用来执行操作（执行命令、打开网页、读写仓库），技能用来说明「该怎么做」。\
+        当前请求与某个技能相关时，先用 skill 工具取回该技能的完整说明，再按它的步骤与要求完成。
+        """
+        return base.isEmpty ? block : base + "\n\n" + block
     }
 
     private func buildAPIMessages(conversationID: UUID, latestUserText: String) -> [APIMessage] {
         guard let conversation = currentConversation else { return [] }
         var result: [APIMessage] = []
 
-        if !settingsStore.settings.systemPrompt.isEmpty {
-            result.append(APIMessage(role: "system", content: settingsStore.settings.systemPrompt))
+        let systemPrompt = Self.systemPrompt(base: settingsStore.settings.systemPrompt, skills: activeSkills)
+        if !systemPrompt.isEmpty {
+            result.append(APIMessage(role: "system", content: systemPrompt))
         }
 
         for message in conversation.messages where message.id != lastStreamingAssistantID(in: conversation) {

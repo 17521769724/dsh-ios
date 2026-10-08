@@ -7,6 +7,7 @@ struct RootView: View {
     @EnvironmentObject private var engine: ChatEngine
     @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var plugins: PluginManager
+    @EnvironmentObject private var skillStore: SkillStore
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     @State private var drawerOpen = false
@@ -15,6 +16,7 @@ struct RootView: View {
     @State private var isHorizontalDrag = false
     @State private var showSettings = false
     @State private var showPlugins = false
+    @State private var showSkills = false
     @State private var showSessionLog = false
 
     private var settings: AppSettings { settingsStore.settings }
@@ -43,13 +45,14 @@ struct RootView: View {
             guard requested else { return }
             settingsStore.onboardingRequested = false
             showPlugins = false
+            showSkills = false
             showSessionLog = false
             showSettings = false
         }
     }
 
     private var isAnyOverlayPresented: Bool {
-        showSettings || showPlugins || showSessionLog
+        showSettings || showPlugins || showSkills || showSessionLog
     }
 
     // MARK: - 主界面
@@ -90,6 +93,7 @@ struct RootView: View {
                 .environmentObject(engine.sshStore)
                 .environmentObject(engine.gitStore)
                 .environmentObject(plugins)
+                .environmentObject(skillStore)
         }
         // 内置浏览器：模型工具调用或手动入口触发
         .sheet(item: $engine.browserRequest) { request in
@@ -104,6 +108,19 @@ struct RootView: View {
                     .toolbar {
                         ToolbarItem(placement: .navigationBarLeading) {
                             Button("关闭") { showPlugins = false }
+                        }
+                    }
+            }
+            .dshAppearance(settings.appTheme)
+        }
+        .sheet(isPresented: $showSkills) {
+            NavigationStack {
+                SkillsView()
+                    .environmentObject(skillStore)
+                    .environmentObject(settingsStore)
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarLeading) {
+                            Button("关闭") { showSkills = false }
                         }
                     }
             }
@@ -229,7 +246,8 @@ struct RootView: View {
         SidebarView(
             close: { if !embedded { closeDrawer() } },
             openSettings: { presentOverlay { showSettings = true } },
-            openPlugins: { presentOverlay { showPlugins = true } }
+            openPlugins: { presentOverlay { showPlugins = true } },
+            openSkills: { presentOverlay { showSkills = true } }
         )
         // 搜索框聚焦弹出键盘时，抽屉底部的「插件中心 / 设置」保持固定在屏幕底部，
         // 不随键盘上移（被键盘遮挡也保持原位置）。

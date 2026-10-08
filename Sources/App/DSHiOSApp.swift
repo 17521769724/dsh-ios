@@ -6,6 +6,7 @@ struct DSHiOSApp: App {
     @StateObject private var settingsStore: SettingsStore
     @StateObject private var conversationStore: ConversationStore
     @StateObject private var pluginManager: PluginManager
+    @StateObject private var skillStore: SkillStore
     @StateObject private var sshStore: SSHStore
     @StateObject private var gitStore: GitAccountStore
     @StateObject private var engine: ChatEngine
@@ -14,6 +15,7 @@ struct DSHiOSApp: App {
         let settings = SettingsStore()
         let conversations = ConversationStore()
         let pluginManager = PluginManager()
+        let skillStore = SkillStore()
         let sshStore = SSHStore()
         let gitStore = GitAccountStore()
         let arguments = ProcessInfo.processInfo.arguments
@@ -22,6 +24,7 @@ struct DSHiOSApp: App {
         // -uitest-apikey 预置 Key 以便跳过引导页
         if arguments.contains("-uitest-reset") {
             conversations.deleteAll()
+            skillStore.deleteAll()
             // Keychain 在模拟器上不会随 App 卸载而清空，需显式清掉 Key，
             // 否则引导页门禁测试会因残留 Key 直接进入主页。
             settings.apiKey = ""
@@ -38,7 +41,8 @@ struct DSHiOSApp: App {
             conversationStore: conversations,
             pluginManager: pluginManager,
             sshStore: sshStore,
-            gitStore: gitStore
+            gitStore: gitStore,
+            skillStore: skillStore
         )
         // 让插件（如「回答风格约束」）能读到设置里编辑的内容
         pluginManager.configure(settingsStore: settings)
@@ -54,6 +58,7 @@ struct DSHiOSApp: App {
         _settingsStore = StateObject(wrappedValue: settings)
         _conversationStore = StateObject(wrappedValue: conversations)
         _pluginManager = StateObject(wrappedValue: pluginManager)
+        _skillStore = StateObject(wrappedValue: skillStore)
         _sshStore = StateObject(wrappedValue: sshStore)
         _gitStore = StateObject(wrappedValue: gitStore)
         _engine = StateObject(wrappedValue: engine)
@@ -66,6 +71,7 @@ struct DSHiOSApp: App {
                 .environmentObject(settingsStore)
                 .environmentObject(conversationStore)
                 .environmentObject(pluginManager)
+                .environmentObject(skillStore)
                 .environmentObject(sshStore)
                 .environmentObject(gitStore)
                 .tint(DSHTheme.brand)
