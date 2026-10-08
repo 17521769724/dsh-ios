@@ -25,6 +25,9 @@ enum DSHTheme {
     static let assistantText = dynamic(light: 0x1A1A1A, dark: 0xEDEDED)
     /// 输入卡片底色
     static let composerCard = dynamic(light: 0xF5F6F8, dark: 0x26272B)
+    /// 选中会话行底色：不透明（长按预览时不会透出下方内容），
+    /// 视觉上等价于品牌色 12% 叠在输入卡片底色上
+    static let rowSelected = dynamic(light: 0xE1E5F9, dark: 0x2B2F44)
     /// 未激活胶囊底色（比输入卡片底色深一档，保证胶囊可辨识）
     static let chipFill = dynamic(light: 0xE7EAEF, dark: 0x35363D)
     static let reasoningBackground = dynamic(light: 0xF5F6F8, dark: 0x26272B)
