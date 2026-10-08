@@ -74,8 +74,14 @@ jobs:
           rm -rf Payload
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
-          zip -qry DSH-iOS-unsigned.ipa Payload
-          ls -lh DSH-iOS-unsigned.ipa
+          # 资产文件名带上版本与构建号：每次下载的文件名都不同，
+          # 不会再出现「每次都是 DSH-iOS-unsigned.ipa」而装到旧包的情况
+          APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Payload/*.app/Info.plist)"
+          IPA_NAME="DSH-iOS-${APP_VERSION}-build${GITHUB_RUN_NUMBER}.ipa"
+          echo "APP_VERSION=$APP_VERSION" >> "$GITHUB_ENV"
+          echo "IPA_NAME=$IPA_NAME" >> "$GITHUB_ENV"
+          zip -qry "$IPA_NAME" Payload
+          ls -lh "$IPA_NAME"
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' Payload/*.app/Info.plist || true
           /usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' Payload/*.app/Info.plist || true
 
@@ -83,7 +89,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: DSH-iOS-ipa
-          path: DSH-iOS-unsigned.ipa
+          path: DSH-iOS-*.ipa
           if-no-files-found: error
 
       - name: Publish release asset
@@ -93,10 +99,10 @@ jobs:
         run: |
           set -euo pipefail
           TAG="build-${GITHUB_RUN_NUMBER}"
-          gh release create "$TAG" DSH-iOS-unsigned.ipa \
-            --title "DSH iOS unsigned build ${GITHUB_RUN_NUMBER}" \
-            --notes "Automatic unsigned IPA build. Commit: ${GITHUB_SHA}" \
-            || gh release upload "$TAG" DSH-iOS-unsigned.ipa --clobber
+          gh release create "$TAG" "$IPA_NAME" \
+            --title "DSH iOS ${APP_VERSION} (build ${GITHUB_RUN_NUMBER})" \
+            --notes "Unsigned IPA. Version: ${APP_VERSION} (build ${GITHUB_RUN_NUMBER}). Commit: ${GITHUB_SHA}" \
+            || gh release upload "$TAG" "$IPA_NAME" --clobber
 
   test:
     name: Functional tests (simulator)
