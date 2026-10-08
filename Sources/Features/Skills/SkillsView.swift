@@ -6,10 +6,6 @@ struct SkillsView: View {
     @EnvironmentObject private var skillStore: SkillStore
     @EnvironmentObject private var settingsStore: SettingsStore
 
-    /// 正在编辑的技能；新增时为 nil 但仍需要弹出编辑页，故用单独的开关
-    @State private var editingSkill: Skill?
-    @State private var isCreating = false
-
     private var listSkills: [Skill] {
         skillStore.skills.sorted { $0.updatedAt > $1.updatedAt }
     }
@@ -18,7 +14,19 @@ struct SkillsView: View {
         List {
             Section {
                 ForEach(listSkills) { skill in
-                    row(skill)
+                    NavigationLink {
+                        SkillEditorPage(original: skill)
+                    } label: {
+                        rowLabel(skill)
+                    }
+                    .accessibilityIdentifier("skills.row")
+                    .swipeActions(edge: .trailing) {
+                        Button(role: .destructive) {
+                            skillStore.delete(id: skill.id)
+                        } label: {
+                            Label("删除", systemImage: "trash")
+                        }
+                    }
                 }
                 if listSkills.isEmpty {
                     Text("还没有技能，点右上角「+」添加")
@@ -51,8 +59,8 @@ struct SkillsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    isCreating = true
+                NavigationLink {
+                    SkillEditorPage(original: nil)
                 } label: {
                     Image(systemName: "plus")
                 }
@@ -60,63 +68,30 @@ struct SkillsView: View {
                 .accessibilityLabel("添加技能")
             }
         }
-        .sheet(isPresented: $isCreating) {
-            SkillEditorSheet(original: nil)
-                .environmentObject(skillStore)
-        }
-        .sheet(item: $editingSkill) { skill in
-            SkillEditorSheet(original: skill)
-                .environmentObject(skillStore)
-        }
         .tint(DSHTheme.brand)
     }
 
-    // MARK: - 行
-
-    private func row(_ skill: Skill) -> some View {
-        Button {
-            editingSkill = skill
-        } label: {
-            HStack(spacing: DSHTheme.Spacing.medium) {
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text(skill.name)
-                            .font(.system(size: 16))
-                            .foregroundStyle(DSHTheme.assistantText)
-                        if !skill.isEnabled {
-                            Text("已关闭")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(DSHTheme.tertiaryText)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 1)
-                                .background(DSHTheme.chipFill)
-                                .clipShape(Capsule())
-                        }
-                    }
-                    if !skill.summary.isEmpty {
-                        Text(skill.summary)
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                    }
+    private func rowLabel(_ skill: Skill) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Text(skill.name)
+                    .font(.system(size: 16))
+                    .foregroundStyle(DSHTheme.assistantText)
+                if !skill.isEnabled {
+                    Text("已关闭")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(DSHTheme.tertiaryText)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(DSHTheme.chipFill)
+                        .clipShape(Capsule())
                 }
-                Spacer(minLength: 0)
-                Toggle("", isOn: Binding(
-                    get: { skill.isEnabled },
-                    set: { _ in skillStore.toggle(id: skill.id) }
-                ))
-                .labelsHidden()
-                .accessibilityIdentifier("skills.toggle")
             }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("skills.row")
-        .swipeActions(edge: .trailing) {
-            Button(role: .destructive) {
-                skillStore.delete(id: skill.id)
-            } label: {
-                Label("删除", systemImage: "trash")
+            if !skill.summary.isEmpty {
+                Text(skill.summary)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
             }
         }
     }
@@ -124,8 +99,10 @@ struct SkillsView: View {
 
 // MARK: - 编辑页
 
-/// 新增 / 编辑技能。名称与正文必填，保存后立即生效。
-private struct SkillEditorSheet: View {
+/// 新增 / 编辑技能：名称与正文必填，保存后立即生效。
+/// 用页内推入而不是弹窗：技能页本身已经是一个 sheet，
+/// 再叠一层带键盘的编辑弹窗在测试机上出现过进程异常退出。
+private struct SkillEditorPage: View {
     @EnvironmentObject private var skillStore: SkillStore
     @Environment(\.dismiss) private var dismiss
 
@@ -135,6 +112,7 @@ private struct SkillEditorSheet: View {
     @State private var name = ""
     @State private var summary = ""
     @State private var content = ""
+    @State private var isEnabled = true
     @State private var invalidMessage: String?
 
     private var canSave: Bool {
@@ -143,70 +121,69 @@ private struct SkillEditorSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section("名称") {
-                    TextField("例如：周报整理", text: $name)
-                        .accessibilityIdentifier("skills.editor.name")
-                }
-
-                Section {
-                    TextField("一句话说明什么时候该用它", text: $summary, axis: .vertical)
-                        .lineLimit(2...4)
-                        .accessibilityIdentifier("skills.editor.summary")
-                } header: {
-                    Text("摘要")
-                } footer: {
-                    Text("摘要会出现在系统提示的可用技能清单里，写清楚能提高被正确调用的概率。")
-                }
-
-                Section {
-                    ZStack(alignment: .topLeading) {
-                        if content.isEmpty {
-                            Text("写清步骤与要求，例如：\n1. 先确认数据范围\n2. 按「本周完成 / 下周计划 / 风险」三段输出\n3. 每段不超过 5 条")
-                                .font(.system(size: 14))
-                                .foregroundStyle(DSHTheme.tertiaryText)
-                                .padding(.top, 8)
-                                .padding(.leading, 5)
-                                .allowsHitTesting(false)
-                        }
-                        TextEditor(text: $content)
-                            .font(.system(size: 14))
-                            .frame(minHeight: 200)
-                            .accessibilityIdentifier("skills.editor.content")
-                    }
-                } header: {
-                    Text("技能说明")
-                } footer: {
-                    Text("模型调用该技能时会读到这里的全文。")
-                }
-
-                if let invalidMessage {
-                    Section {
-                        Text(invalidMessage)
-                            .font(.system(size: 13))
-                            .foregroundStyle(DSHTheme.danger)
-                    }
-                }
+        Form {
+            Section("名称") {
+                TextField("例如：周报整理", text: $name)
+                    .accessibilityIdentifier("skills.editor.name")
             }
-            .navigationTitle(original == nil ? "新建技能" : "编辑技能")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button("取消") { dismiss() }
+
+            Section {
+                TextField("一句话说明什么时候该用它", text: $summary, axis: .vertical)
+                    .lineLimit(2...4)
+                    .accessibilityIdentifier("skills.editor.summary")
+            } header: {
+                Text("摘要")
+            } footer: {
+                Text("摘要会出现在系统提示的可用技能清单里，写清楚能提高被正确调用的概率。")
+            }
+
+            Section {
+                TextField(
+                    "写清步骤与要求，例如：\n1. 先确认数据范围\n2. 按「本周完成 / 下周计划 / 风险」三段输出",
+                    text: $content,
+                    axis: .vertical
+                )
+                .font(.system(size: 14))
+                .lineLimit(6...14)
+                .accessibilityIdentifier("skills.editor.content")
+            } header: {
+                Text("技能说明")
+            } footer: {
+                Text("模型调用该技能时会读到这里的全文。")
+            }
+
+            Section {
+                Toggle(isOn: $isEnabled) {
+                    Text("启用该技能")
                 }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("保存") { save() }
-                        .disabled(!canSave)
-                        .accessibilityIdentifier("skills.editor.save")
+                .accessibilityIdentifier("skills.toggle")
+            } footer: {
+                Text("关闭后技能仍保留在本地，但不会出现在对话里。")
+            }
+
+            if let invalidMessage {
+                Section {
+                    Text(invalidMessage)
+                        .font(.system(size: 13))
+                        .foregroundStyle(DSHTheme.danger)
                 }
             }
         }
+        .navigationTitle(original == nil ? "新建技能" : "编辑技能")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button("保存") { save() }
+                    .disabled(!canSave)
+                    .accessibilityIdentifier("skills.editor.save")
+            }
+        }
         .onAppear {
-            guard let original else { return }
+            guard let original, name.isEmpty, content.isEmpty else { return }
             name = original.name
             summary = original.summary
             content = original.content
+            isEnabled = original.isEnabled
         }
     }
 
@@ -216,6 +193,7 @@ private struct SkillEditorSheet: View {
             edited.name = name
             edited.summary = summary
             edited.content = content
+            edited.isEnabled = isEnabled
             guard skillStore.update(edited) else {
                 invalidMessage = "名称与技能说明不能为空"
                 return
