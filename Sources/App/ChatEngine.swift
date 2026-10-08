@@ -17,6 +17,8 @@ final class ChatEngine: ObservableObject {
     let skillStore: SkillStore
     /// 工作区文件：内置文件管理器与 IDE 和智能体工具共用同一批文件
     let workspaceStore: WorkspaceStore
+    /// MCP 服务器：把远程服务器的工具下发给模型
+    let mcpStore: MCPStore
 
     // MARK: - 界面状态
 
@@ -56,7 +58,8 @@ final class ChatEngine: ObservableObject {
         sshStore: SSHStore,
         gitStore: GitAccountStore,
         skillStore: SkillStore,
-        workspaceStore: WorkspaceStore = WorkspaceStore()
+        workspaceStore: WorkspaceStore = WorkspaceStore(),
+        mcpStore: MCPStore = MCPStore()
     ) {
         self.settingsStore = settingsStore
         self.conversationStore = conversationStore
@@ -65,6 +68,7 @@ final class ChatEngine: ObservableObject {
         self.gitStore = gitStore
         self.skillStore = skillStore
         self.workspaceStore = workspaceStore
+        self.mcpStore = mcpStore
         self.client = DeepSeekClient(timeout: settingsStore.settings.requestTimeout)
 
         if let latest = conversationStore.sortedConversations.first {
@@ -453,6 +457,7 @@ final class ChatEngine: ObservableObject {
             giteeEnabled: features.giteeTool && gitStore.isConnected(.gitee),
             visionEnabled: features.visionTool,
             fileEnabled: features.fileTool,
+            mcpTools: features.mcpTool ? mcpStore.availableTools() : [],
             skillNames: activeSkillNames
         )
     }
@@ -594,6 +599,10 @@ final class ChatEngine: ObservableObject {
             return workspaceStore.perform(action: action, path: path, content: content)
 
         default:
+            // MCP 服务器提供的工具：转发给对应服务器执行
+            if AgentToolCatalog.isMCPTool(call.name) {
+                return await mcpStore.callTool(modelToolName: call.name, argumentsJSON: call.arguments)
+            }
             return "未知工具：\(call.name)"
         }
     }

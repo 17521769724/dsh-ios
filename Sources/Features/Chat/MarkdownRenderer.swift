@@ -196,7 +196,8 @@ struct TextChunkView: View, Equatable {
         .font(font)
         .foregroundStyle(color)
         .lineSpacing(lineSpacing)
-        .textSelection(.enabled)
+        // 逐块开启文本选择既选不跨块，又会给每个块挂上选择交互、拖慢长回复的滚动，故不开启；
+        // 需要整段复制时用消息下方的「复制」（代码块也有自己的复制按钮）
         .fixedSize(horizontal: false, vertical: true)
     }
 }

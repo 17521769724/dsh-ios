@@ -34,6 +34,9 @@ struct ChatView: View {
         // 而且不会让 ChatView 整体重算（onReceive 不触发 body）
         let streamRevision = engine.streaming?.$revision.eraseToAnyPublisher()
             ?? Empty<Int, Never>().eraseToAnyPublisher()
+        // 只有最近 6 秒内新增的消息才播放入场动画：
+        // 滚动时 LazyVStack 会回收并重建行，若每次都重播动画，滑动就会反复闪动、看起来像掉帧
+        let freshAfter = Date().addingTimeInterval(-6)
 
         return ScrollViewReader { proxy in
             ScrollView {
@@ -58,7 +61,7 @@ struct ChatView: View {
                         // 内容没变就不重绘：生成过程中只有正在输出的那条消息刷新
                         .equatable()
                         .id(message.id)
-                        .modifier(AppearFade())
+                        .modifier(AppearFade(enabled: message.createdAt > freshAfter))
                     }
 
                     if isConversationEmpty {
@@ -134,15 +137,20 @@ struct ChatView: View {
     }
 }
 
-/// 消息出现动效：轻微上移 + 淡入，与官方一致（只在首次出现时播放）。
+/// 消息出现动效：轻微上移 + 淡入，只在消息刚生成时播放一次。
+/// 滚动时 LazyVStack 会回收重建行视图，若每次重建都重播动画，滑动就会反复闪动、像掉帧，
+/// 因此由外部按「消息是否刚生成」决定是否启用。
 private struct AppearFade: ViewModifier {
+    let enabled: Bool
+
     @State private var appeared = false
 
     func body(content: Content) -> some View {
         content
-            .opacity(appeared ? 1 : 0)
-            .offset(y: appeared ? 0 : 6)
+            .opacity(appeared || !enabled ? 1 : 0)
+            .offset(y: appeared || !enabled ? 0 : 6)
             .onAppear {
+                guard enabled, !appeared else { return }
                 withAnimation(DSHAnim.list) { appeared = true }
             }
     }

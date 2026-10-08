@@ -18,6 +18,9 @@ struct SidebarView: View {
     @State private var query = ""
     @State private var renameTarget: Conversation?
     @State private var renameText = ""
+    /// 空状态是否可见：删除最后一条记录时延后一点再出现，
+    /// 否则被删的记录（与长按菜单的收起动画）还没消失，标题和图标的空状态就已经叠上来了
+    @State private var showEmptyState = false
 
     private var features: FeatureFlags { settingsStore.settings.features }
 
@@ -157,7 +160,7 @@ struct SidebarView: View {
                         ForEach(group.items) { row($0) }
                     }
                 }
-                if filtered.isEmpty {
+                if filtered.isEmpty, showEmptyState {
                     VStack(spacing: 8) {
                         Image(systemName: "bubble.left.and.bubble.right")
                             .font(.system(size: 24))
@@ -168,15 +171,26 @@ struct SidebarView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 44)
-                    // 空状态只让自己淡入：被删除的行已经立即消失，两者不会重叠
+                    // 被删的行已经立即消失，这里只做淡入，且出现在它消失之后
                     .transition(.opacity)
-                    .animation(DSHAnim.standard, value: filtered.isEmpty)
                 }
             }
             .padding(.horizontal, DSHTheme.Spacing.small)
             .padding(.bottom, DSHTheme.Spacing.small)
             // 不做「列表整体动画」：删除后行必须立即消失，
             // 整段动画会让被删的行淡出与新出现的空状态图标同时存在、互相重合
+        }
+        .onAppear { showEmptyState = filtered.isEmpty }
+        .onChange(of: filtered.isEmpty) { isEmpty in
+            guard isEmpty else {
+                showEmptyState = false
+                return
+            }
+            // 等被删除的行与长按菜单的收起动画走完，再显示空状态
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                guard filtered.isEmpty else { return }
+                withAnimation(DSHAnim.standard) { showEmptyState = true }
+            }
         }
     }
 

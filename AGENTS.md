@@ -21,7 +21,8 @@ UI、交互与动效对齐桌面端 [anywhere-labs/dsh-desktop](https://github.c
 | 发布资产 | `DSH-iOS-<版本>-build<构建号>.ipa`（每次文件名唯一，避免装到旧包） |
 | 应用内验证版本 | 左侧菜单栏底部「设置」一行右侧显示 `V<版本> (<构建号>)` |
 | 测试 | `Tests/Unit`（单元）+ `Tests/UI`（XCUITest 端到端），CI 每次 push 都会跑 |
-| 智能体工具 | SSH / 内置浏览器 / 查看画面（截图 + 本地 OCR）/ 工作区文件 / GitHub / Gitee / 技能，开关都在「设置 → 智能体工具」与技能库页 |
+| 智能体工具 | SSH / 内置浏览器 / 查看画面（截图 + 本地 OCR）/ 工作区文件 / MCP / GitHub / Gitee / 技能，开关都在「设置 → 智能体工具」与技能库页 |
+| MCP 协议 | 客户端实现 `Sources/Core/MCP.swift`：JSON-RPC 2.0 over Streamable HTTP（MCP 2025-03-26），握手 / 会话 / tools / resources / prompts；服务器配置存 `mcp-servers.json`，模型侧工具名前缀 `mcp_<别名>_` |
 | 工作区目录 | `Documents/Workspace`（内置「文件」页与 IDE 的根目录，同时可在系统「文件」App → 我的 iPhone → DSH 里访问） |
 
 ## 目录结构
@@ -31,8 +32,8 @@ Sources/
   App/          ChatEngine（对话引擎：流式/工具/技能调度）、DSHiOSApp、RootView（抽屉布局）
   Core/         数据层：Models、ConversationStore、SettingsStore、Skill（技能库）、
                 AgentTools（模型可调用工具定义）、WorkspaceStore（工作区文件 / 文件管理器与 IDE）、
-                ScreenVision（截图 + 本地 OCR）、AppCache（缓存统计/清理）、
-                SSHStore、GitAccountStore、Keychain
+                ScreenVision（截图 + 本地 OCR）、MCP + MCPStore（MCP 协议客户端与服务器管理）、
+                AppCache（缓存统计/清理）、SSHStore、GitAccountStore、Keychain
   Design/       Theme（配色/间距/圆角/动效）、SecureInputField、TapToDismissKeyboard
   Features/
     Chat/       对话页：ChatView、MessageBubble、StreamingText（增量缓冲）、
@@ -87,14 +88,16 @@ xcodebuild test -project DSHiOS.xcodeproj -scheme DSHiOS -destination "platform=
 
 ## 当前状态
 
-- 版本：**1.3.0（build 80）**，已发布的未签名 IPA 见 Releases。
-- 1.3.0 交付：
-  - 冷启动顶栏稳定：启动首帧前不播放隐式动画，抽屉宽度与位置固定，关闭时不再闪现；
-  - 消息长按的抬起预览与侧栏一致按圆角绘制（不再出现直角背景）；
-  - 技能总开关从设置页移到技能库页顶部（设置页只保留技能库入口）；
-  - 技能列表左滑删除修复：删除按钮背景改为红色，行背景自绘圆角卡片（左滑再右滑不再残留直角）；
-  - 新增智能体「查看画面」工具：截取 App 界面或内置浏览器页面，Vision 本地 OCR 识别文字，
-    截图作为图片发给模型（视觉模型直接看画面，纯文本模型读 OCR），过程弹窗可查看截图；
-  - 新增内置文件管理器与 IDE（`Features/Files`）：浏览/新建/重命名/删除、文本文件代码编辑（等宽字体、自动保存），
-    配套智能体「工作区文件」工具（list / read / write / mkdir / delete），模型写的代码可直接在 IDE 里继续编辑。
+- 版本：**1.4.0（build 81）**，已发布的未签名 IPA 见 Releases。
+- 1.4.0 交付：
+  - 技能页左滑删除改为自绘 `SwipeToDeleteRow`：删除背景与卡片同高同圆角、固定红色（系统 swipeActions 会露出直角且比卡片高）；
+  - 侧栏删除最后一条记录时，空状态延后 0.4s 再淡入，不再与被删记录 / 长按菜单收起动画重叠；
+  - 对话页模型输出对齐参考实现：每条回复带「图标 + DeepSeek」标识行，思考过程 / 过程摘要排在正文之前；
+  - 输出完成后滚动卡顿治理：消息入场动画只在刚生成时播放（滚动回收重建的行不重播），正文分块不再逐块开启文本选择；
+  - 新增 **MCP 协议支持**（`Sources/Core/MCP.swift`）：JSON-RPC 2.0 over Streamable HTTP，
+    覆盖 initialize 握手 / 协议版本协商 / `Mcp-Session-Id` 会话 / `notifications/initialized` /
+    tools(list·call) / resources(list·read) / prompts(list·get)，兼容 JSON 与 SSE 两种响应；
+    设置页可添加多台服务器（名称 / 地址 / 请求头）、连接并刷新、查看工具与提示模板，
+    已连接服务器的工具以 `mcp_<别名>_<工具名>` 下发给模型，调用时由本机代发。
+- 1.3.0 交付：冷启动顶栏稳定、消息长按圆角、技能开关归位、智能体「查看画面」（截图 + OCR）、内置文件管理器与 IDE。
 - 历史需求与逐版交付记录见 [`docs/CONVERSATION_HISTORY.md`](docs/CONVERSATION_HISTORY.md)。

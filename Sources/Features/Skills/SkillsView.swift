@@ -2,6 +2,9 @@ import SwiftUI
 
 /// 技能库：自行添加「做事方法与规范」，交给模型按需取用。
 /// 与插件中心并列，入口在左侧菜单栏底部。
+///
+/// 列表不用 `List` 的 swipeActions：系统会在卡片圆角外露出直角、删除区还比卡片高，
+/// 因此这里用自绘的 `SwipeToDeleteRow`（圆角、尺寸与卡片完全一致，删除背景为红色）。
 struct SkillsView: View {
     @EnvironmentObject private var skillStore: SkillStore
     @EnvironmentObject private var settingsStore: SettingsStore
@@ -11,60 +14,32 @@ struct SkillsView: View {
     }
 
     var body: some View {
-        List {
-            // 总开关放在顶部：技能库整体「能不能被智能体调用」只在这里控制
-            Section {
-                Toggle(isOn: $settingsStore.settings.features.skillTool) {
-                    SettingsRowLabel(symbol: "sparkles", color: .orange, title: "允许智能体调用技能")
-                }
-                .accessibilityIdentifier("skills.agentToggle")
-            } footer: {
-                Text("关闭后技能仍保留在本地，但不会出现在对话中，模型也不会调用。")
-            }
+        ScrollView {
+            VStack(alignment: .leading, spacing: DSHTheme.Spacing.medium) {
+                // 总开关放在顶部：技能库整体「能不能被智能体调用」只在这里控制
+                agentToggleCard
 
-            Section {
-                ForEach(listSkills) { skill in
-                    NavigationLink {
-                        SkillEditorPage(original: skill)
-                    } label: {
-                        rowLabel(skill)
-                    }
-                    .accessibilityIdentifier("skills.row")
-                    // 行背景自绘成圆角卡片：系统默认行背景在「左滑后再右滑」时会残留直角
-                    .listRowBackground(
-                        RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous)
-                            .fill(DSHTheme.page)
-                            .padding(.vertical, 3)
-                    )
-                    .listRowSeparator(.hidden)
-                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                        Button(role: .destructive) {
-                            skillStore.delete(id: skill.id)
-                        } label: {
-                            Label("删除", systemImage: "trash")
-                        }
-                        // 明确指定红色：列表上的品牌色 tint 会把破坏性按钮一起染蓝
-                        .tint(DSHTheme.danger)
-                    }
-                }
+                sectionLabel("技能库（\(skillStore.skills.count)）")
+                    .padding(.top, DSHTheme.Spacing.small)
+
                 if listSkills.isEmpty {
-                    Text("还没有技能，点右上角「+」添加")
-                        .foregroundStyle(.secondary)
-                        .accessibilityIdentifier("skills.empty")
+                    emptyCard
+                } else {
+                    ForEach(listSkills) { skill in
+                        skillCard(skill)
+                    }
                 }
-            } header: {
-                Text("技能库（\(skillStore.skills.count)）")
-            } footer: {
-                Text("技能与工具不重合、可同时使用：工具负责执行操作（执行命令、打开网页、读写仓库），技能负责规定「该怎么做」（步骤、规范、检查清单）。启用后模型会在需要时调用 skill 工具读取技能全文。")
-            }
 
-            Section {
-                Text("编写建议：技能名用「动作 + 对象」的形式，例如「周报整理」「SQL 审核」；摘要写清什么时候该用它；正文写清步骤与要求，可以直接描述输出格式与检查项。")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
+                libraryFooter
+
+                tipsCard
+                    .padding(.top, DSHTheme.Spacing.small)
             }
+            .padding(.horizontal, DSHTheme.Spacing.large)
+            .padding(.top, DSHTheme.Spacing.small)
+            .padding(.bottom, DSHTheme.Spacing.section)
         }
-        .listStyle(.insetGrouped)
+        .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("技能")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -79,6 +54,50 @@ struct SkillsView: View {
             }
         }
         .tint(DSHTheme.brand)
+    }
+
+    // MARK: - 顶部开关
+
+    private var agentToggleCard: some View {
+        VStack(alignment: .leading, spacing: DSHTheme.Spacing.small) {
+            Toggle(isOn: $settingsStore.settings.features.skillTool) {
+                SettingsRowLabel(symbol: "sparkles", color: .orange, title: "允许智能体调用技能")
+            }
+            .accessibilityIdentifier("skills.agentToggle")
+            .padding(.horizontal, DSHTheme.Spacing.medium)
+            .padding(.vertical, 8)
+            .background(DSHTheme.page)
+            .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous))
+
+            Text("关闭后技能仍保留在本地，但不会出现在对话中，模型也不会调用。")
+                .font(.system(size: 12))
+                .foregroundStyle(DSHTheme.secondaryText)
+                .padding(.horizontal, DSHTheme.Spacing.small)
+        }
+    }
+
+    // MARK: - 技能行
+
+    private func skillCard(_ skill: Skill) -> some View {
+        SwipeToDeleteRow(onDelete: { skillStore.delete(id: skill.id) }) {
+            NavigationLink {
+                SkillEditorPage(original: skill)
+            } label: {
+                HStack(spacing: DSHTheme.Spacing.small) {
+                    rowLabel(skill)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(DSHTheme.tertiaryText)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(DSHTheme.page)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("skills.row")
+        }
     }
 
     private func rowLabel(_ skill: Skill) -> some View {
@@ -100,14 +119,108 @@ struct SkillsView: View {
             if !skill.summary.isEmpty {
                 Text(skill.summary)
                     .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DSHTheme.secondaryText)
                     .lineLimit(2)
             }
         }
-        // 行背景是自绘的圆角卡片，这里给内容留出上下内边距
-        .padding(.vertical, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
+    }
+
+    private var emptyCard: some View {
+        Text("还没有技能，点右上角「+」添加")
+            .font(.system(size: 14))
+            .foregroundStyle(DSHTheme.secondaryText)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(DSHTheme.Spacing.medium)
+            .background(DSHTheme.page)
+            .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous))
+            .accessibilityIdentifier("skills.empty")
+    }
+
+    // MARK: - 说明文案
+
+    private var libraryFooter: some View {
+        Text("技能与工具不重合、可同时使用：工具负责执行操作（执行命令、打开网页、读写仓库），技能负责规定「该怎么做」（步骤、规范、检查清单）。启用后模型会在需要时调用 skill 工具读取技能全文。")
+            .font(.system(size: 12))
+            .foregroundStyle(DSHTheme.secondaryText)
+            .padding(.horizontal, DSHTheme.Spacing.small)
+    }
+
+    private var tipsCard: some View {
+        Text("编写建议：技能名用「动作 + 对象」的形式，例如「周报整理」「SQL 审核」；摘要写清什么时候该用它；正文写清步骤与要求，可以直接描述输出格式与检查项。")
+            .font(.system(size: 13))
+            .foregroundStyle(DSHTheme.secondaryText)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(DSHTheme.Spacing.medium)
+            .background(DSHTheme.page)
+            .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.card, style: .continuous))
+    }
+
+    private func sectionLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 13))
+            .foregroundStyle(DSHTheme.secondaryText)
+            .padding(.horizontal, DSHTheme.Spacing.small)
+    }
+}
+
+// MARK: - 左滑删除行
+
+/// 自绘的左滑删除行：删除背景与卡片同高、同圆角，颜色固定为红色。
+/// 卡片与删除区共用一个圆角裁剪，滑开时不会露出直角，也不会比卡片高出一截。
+struct SwipeToDeleteRow<Content: View>: View {
+    let onDelete: () -> Void
+    @ViewBuilder var content: Content
+
+    /// 删除按钮展开宽度
+    private let actionWidth: CGFloat = 84
+
+    @State private var offset: CGFloat = 0
+    @State private var opened = false
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            Button {
+                // 记录先删掉，不做多余动画：点了删除应立即消失
+                opened = false
+                offset = 0
+                onDelete()
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: actionWidth)
+                    .frame(maxHeight: .infinity)
+                    .background(DSHTheme.danger)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("删除")
+
+            content
+                .offset(x: offset)
+                .gesture(drag)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous))
+    }
+
+    private var drag: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { value in
+                // 纵向滑动交给外层滚动，避免抢手势
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                let base = opened ? -actionWidth : 0
+                offset = min(0, max(-actionWidth, base + value.translation.width))
+            }
+            .onEnded { value in
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                let dx = value.translation.width
+                let shouldOpen = opened ? !(dx > actionWidth * 0.4) : (dx < -actionWidth * 0.4)
+                withAnimation(DSHAnim.list) {
+                    opened = shouldOpen
+                    offset = shouldOpen ? -actionWidth : 0
+                }
+            }
     }
 }
 

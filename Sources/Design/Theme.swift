@@ -122,6 +122,19 @@ struct DSHWhaleMark: View {
     }
 }
 
+/// 助手标识：深色圆角方块 + 鲸鱼，用在对话页每条模型回复的头部
+struct DSHAssistantAvatar: View {
+    var size: CGFloat = 22
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
+            .fill(DSHTheme.assistantText)
+            .frame(width: size, height: size)
+            .overlay(DSHWhaleMark(size: size * 0.62, color: DSHTheme.page))
+            .accessibilityHidden(true)
+    }
+}
+
 /// 顶栏右侧的菜单图标：三条横线，右对齐、自上而下依次变短，
 /// 体量与左侧栏图标一致（横向 18pt，线条 2pt 左右）。
 struct DSHMenuGlyph: View {

@@ -108,9 +108,19 @@ struct MessageBubble: View, Equatable {
 
     private var assistantRow: some View {
         VStack(alignment: .leading, spacing: DSHTheme.Spacing.medium) {
+            // 助手标识行：图标 + 名称，与参考实现一致（每条回复都有）
+            HStack(spacing: DSHTheme.Spacing.small) {
+                DSHAssistantAvatar(size: 22)
+                Text(MessageRole.assistant.displayName)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(DSHTheme.assistantText)
+                Spacer(minLength: 0)
+            }
+
             if let buffer = liveBuffer {
                 StreamingAssistantBody(buffer: buffer, onOpenProcess: { showProcess = true })
             } else {
+                // 过程行放在正文之前：先「怎么想的 / 做了什么」，再给结果
                 if process?.hasReasoning == true {
                     ProcessRowButton(
                         icon: "brain.head.profile",
@@ -119,16 +129,16 @@ struct MessageBubble: View, Equatable {
                     ) { showProcess = true }
                 }
 
-                if !message.content.isEmpty {
-                    MarkdownContentView(content: message.content)
-                }
-
                 if let process, process.hasSteps {
                     ProcessRowButton(
                         icon: "wrench.and.screwdriver",
                         text: process.summary,
                         identifier: "message.process"
                     ) { showProcess = true }
+                }
+
+                if !message.content.isEmpty {
+                    MarkdownContentView(content: message.content)
                 }
 
                 if let error = message.errorText {

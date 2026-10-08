@@ -106,6 +106,9 @@ struct ChatProcess: Equatable {
                 return Form(key: "vision", title: "查看画面", icon: "eye", verb: "查看", unit: "次画面")
             case AgentToolCatalog.workspaceName:
                 return Form(key: "workspace", title: "文件操作", icon: "folder", verb: "操作", unit: "次文件")
+            case let name where AgentToolCatalog.isMCPTool(name):
+                // MCP 工具按服务器提供的名字展示，摘要里合并计数
+                return Form(key: "mcp", title: "MCP 工具", icon: "puzzlepiece.extension", verb: "调用", unit: "次 MCP 工具")
             default:
                 return Form(key: toolName, title: "工具调用", icon: "wrench.and.screwdriver", verb: "调用", unit: "次工具")
             }
@@ -137,6 +140,10 @@ struct ChatProcess: Equatable {
             }
             return action
         default:
+            // MCP 工具的参数是服务器自定义的，直接展示第一个字符串参数
+            if AgentToolCatalog.isMCPTool(call.name) {
+                return call.argumentPreview
+            }
             return call.arguments
         }
     }

@@ -14,6 +14,13 @@ enum AgentToolCatalog {
     static let screenshotName = "screenshot"
     /// 工作区文件：读写内置文件管理器与 IDE 所在的文件夹
     static let workspaceName = "workspace"
+    /// MCP 工具名前缀（模型侧形如 mcp_<服务器别名>_<工具名>）
+    static let mcpToolPrefix = "mcp_"
+
+    /// 是否为 MCP 服务器提供的工具
+    static func isMCPTool(_ name: String) -> Bool {
+        name.hasPrefix(mcpToolPrefix)
+    }
 
     /// 当前可用的工具：只有开启且可用的工具才下发给模型，
     /// 避免模型调用必然失败的工具（SSH 未配置、浏览器功能关闭等）。
@@ -25,6 +32,7 @@ enum AgentToolCatalog {
         giteeEnabled: Bool = false,
         visionEnabled: Bool = false,
         fileEnabled: Bool = false,
+        mcpTools: [APITool] = [],
         skillNames: [String] = []
     ) -> [APITool] {
         var tools: [APITool] = []
@@ -43,6 +51,8 @@ enum AgentToolCatalog {
         if fileEnabled {
             tools.append(workspace)
         }
+        // MCP 服务器提供的工具由各自的服务器描述，这里原样追加
+        tools.append(contentsOf: mcpTools)
         if githubEnabled {
             tools.append(github)
         }

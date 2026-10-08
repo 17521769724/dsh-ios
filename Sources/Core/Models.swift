@@ -324,6 +324,8 @@ struct FeatureFlags: Codable, Equatable {
     var visionTool: Bool = true
     /// 工作区文件（智能体可读写「文件」页里的代码文件）
     var fileTool: Bool = true
+    /// MCP 服务器（把远程 MCP 服务器的工具下发给模型）
+    var mcpTool: Bool = true
 
     init() {}
 
@@ -353,6 +355,7 @@ struct FeatureFlags: Codable, Equatable {
         self.skillTool = try container.decodeIfPresent(Bool.self, forKey: .skillTool) ?? fallback.skillTool
         self.visionTool = try container.decodeIfPresent(Bool.self, forKey: .visionTool) ?? fallback.visionTool
         self.fileTool = try container.decodeIfPresent(Bool.self, forKey: .fileTool) ?? fallback.fileTool
+        self.mcpTool = try container.decodeIfPresent(Bool.self, forKey: .mcpTool) ?? fallback.mcpTool
     }
 
     init(
@@ -368,7 +371,8 @@ struct FeatureFlags: Codable, Equatable {
         giteeTool: Bool = false,
         skillTool: Bool = true,
         visionTool: Bool = true,
-        fileTool: Bool = true
+        fileTool: Bool = true,
+        mcpTool: Bool = true
     ) {
         self.sessionLog = sessionLog
         self.pluginCommands = pluginCommands
@@ -383,6 +387,7 @@ struct FeatureFlags: Codable, Equatable {
         self.skillTool = skillTool
         self.visionTool = visionTool
         self.fileTool = fileTool
+        self.mcpTool = mcpTool
     }
 
     static let allOn = FeatureFlags(
@@ -398,7 +403,8 @@ struct FeatureFlags: Codable, Equatable {
         giteeTool: true,
         skillTool: true,
         visionTool: true,
-        fileTool: true
+        fileTool: true,
+        mcpTool: true
     )
 }
 

@@ -115,6 +115,7 @@ struct RootView: View {
                 .environmentObject(engine.gitStore)
                 .environmentObject(plugins)
                 .environmentObject(skillStore)
+                .environmentObject(engine.mcpStore)
         }
         // 内置浏览器：模型工具调用或手动入口触发
         .sheet(item: $engine.browserRequest) { request in

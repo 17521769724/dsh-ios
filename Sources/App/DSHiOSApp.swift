@@ -10,6 +10,7 @@ struct DSHiOSApp: App {
     @StateObject private var sshStore: SSHStore
     @StateObject private var gitStore: GitAccountStore
     @StateObject private var workspaceStore: WorkspaceStore
+    @StateObject private var mcpStore: MCPStore
     @StateObject private var engine: ChatEngine
 
     init() {
@@ -41,6 +42,7 @@ struct DSHiOSApp: App {
 
         // 上面可能删除了工作区目录，这里再建实例，保证根目录存在
         let workspaceStore = WorkspaceStore()
+        let mcpStore = MCPStore()
 
         let engine = ChatEngine(
             settingsStore: settings,
@@ -49,7 +51,8 @@ struct DSHiOSApp: App {
             sshStore: sshStore,
             gitStore: gitStore,
             skillStore: skillStore,
-            workspaceStore: workspaceStore
+            workspaceStore: workspaceStore,
+            mcpStore: mcpStore
         )
         // 让插件（如「回答风格约束」）能读到设置里编辑的内容
         pluginManager.configure(settingsStore: settings)
@@ -69,6 +72,7 @@ struct DSHiOSApp: App {
         _sshStore = StateObject(wrappedValue: sshStore)
         _gitStore = StateObject(wrappedValue: gitStore)
         _workspaceStore = StateObject(wrappedValue: workspaceStore)
+        _mcpStore = StateObject(wrappedValue: mcpStore)
         _engine = StateObject(wrappedValue: engine)
     }
 
@@ -83,6 +87,7 @@ struct DSHiOSApp: App {
                 .environmentObject(sshStore)
                 .environmentObject(gitStore)
                 .environmentObject(workspaceStore)
+                .environmentObject(mcpStore)
                 .tint(DSHTheme.brand)
         }
     }

@@ -9,6 +9,7 @@ struct SettingsView: View {
     @EnvironmentObject private var sshStore: SSHStore
     @EnvironmentObject private var gitStore: GitAccountStore
     @EnvironmentObject private var skillStore: SkillStore
+    @EnvironmentObject private var mcpStore: MCPStore
     @Environment(\.dismiss) private var dismiss
 
     private var settings: AppSettings { settingsStore.settings }
@@ -137,10 +138,30 @@ struct SettingsView: View {
                 SettingsRowLabel(symbol: "folder.fill", color: .brown, title: "智能体读写工作区文件")
             }
             .accessibilityIdentifier("feature.fileTool")
+
+            Toggle(isOn: $settingsStore.settings.features.mcpTool) {
+                SettingsRowLabel(symbol: "puzzlepiece.extension", color: .green, title: "MCP 工具")
+            }
+            .accessibilityIdentifier("feature.mcpTool")
+
+            NavigationLink {
+                MCPSettingsView()
+                    .environmentObject(mcpStore)
+            } label: {
+                SettingsValueRow(
+                    symbol: "server.rack",
+                    color: .green,
+                    title: "MCP 服务器",
+                    value: mcpStore.servers.isEmpty
+                        ? "未添加"
+                        : "\(mcpStore.readyCount)/\(mcpStore.servers.count) 台已就绪"
+                )
+            }
+            .accessibilityIdentifier("settings.mcp")
         } header: {
             Text("智能体工具")
         } footer: {
-            Text("各开关彼此独立：SSH 控制能否在服务器执行命令（需先配置服务器）、浏览器控制能否打开或读取网页、查看画面允许智能体截图并用本地 OCR 识别内容、工作区文件允许智能体读写「文件」页里的代码文件；关闭后模型不会再调用对应工具。")
+            Text("各开关彼此独立：SSH 控制能否在服务器执行命令（需先配置服务器）、浏览器控制能否打开或读取网页、查看画面允许智能体截图并用本地 OCR 识别内容、工作区文件允许智能体读写「文件」页里的代码文件、MCP 控制远程 MCP 服务器的工具是否下发给模型；关闭后模型不会再调用对应工具。")
         }
     }
 

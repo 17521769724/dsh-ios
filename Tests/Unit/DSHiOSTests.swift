@@ -1484,6 +1484,329 @@ final class FeatureFlagCompatibilityTests: XCTestCase {
         XCTAssertTrue(decoded.sessionLog)
         XCTAssertTrue(decoded.visionTool)
         XCTAssertTrue(decoded.fileTool)
+        XCTAssertTrue(decoded.mcpTool)
         XCTAssertTrue(decoded.skillTool)
+    }
+
+    func testMCPToolDefaultsOn() {
+        XCTAssertTrue(FeatureFlags().mcpTool)
+        XCTAssertTrue(FeatureFlags.allOn.mcpTool)
+    }
+}
+
+// MARK: - MCP 客户端（JSON-RPC over Streamable HTTP）
+
+final class MCPClientTests: XCTestCase {
+
+    private func makeClient(_ url: String = "https://mcp.example.com/mcp") throws -> MCPClient {
+        var config = MCPServerConfig(name: "示例", urlString: url)
+        config.headerLines = "Authorization: Bearer token-1"
+        return try MCPClient(config: config, session: URLSession(configuration: MockURLProtocol.configuration))
+    }
+
+    /// 握手：initialize 请求格式正确、解析 SSE 结果、记住会话 id 并在后续请求里带上
+    func testInitializeHandshakeAndSessionHeader() async throws {
+        var requests: [String] = []
+        MockURLProtocol.handler = { request in
+            let body = MockURLProtocol.body(of: request) ?? Data()
+            if let object = try? JSONSerialization.jsonObject(with: body) as? [String: Any] {
+                requests.append(object["method"] as? String ?? "")
+            }
+            let headers = [
+                "Content-Type": "text/event-stream",
+                "Mcp-Session-Id": "session-42"
+            ]
+            let payload: String
+            if requests.last == "initialize" {
+                payload = """
+                {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-03-26","capabilities":{"tools":{},"prompts":{"listChanged":true}},"serverInfo":{"name":"Demo","version":"1.2"},"instructions":"示例服务"}}
+                """
+            } else {
+                payload = #"{"jsonrpc":"2.0","id":2,"result":{"tools":[]}}"#
+            }
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: "HTTP/1.1",
+                headerFields: headers
+            )!
+            return (response, Data("event: message\ndata: \(payload)\n\n".utf8))
+        }
+
+        let client = try makeClient()
+        try await client.connect()
+        XCTAssertEqual(client.negotiatedVersion, "2025-03-26")
+        XCTAssertEqual(client.serverName, "Demo")
+        XCTAssertEqual(client.instructions, "示例服务")
+        XCTAssertTrue(client.supports("prompts"))
+        XCTAssertTrue(client.isConnected)
+        XCTAssertEqual(requests.first, "initialize")
+
+        // 握手后应自动发送 initialized 通知（无 id）
+        XCTAssertTrue(requests.contains("notifications/initialized"))
+        // 通知与后续请求都要带上会话头
+        _ = try await client.listTools()
+        XCTAssertTrue(requests.contains("tools/list"))
+    }
+
+    /// 通知请求不应携带 id（JSON-RPC 通知）
+    func testInitializedNotificationHasNoID() async throws {
+        var notificationBody: [String: Any] = [:]
+        MockURLProtocol.handler = { request in
+            let body = MockURLProtocol.body(of: request) ?? Data()
+            let object = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
+            if object["method"] as? String == "notifications/initialized" {
+                notificationBody = object
+            }
+            let payload = #"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-03-26","capabilities":{},"serverInfo":{"name":"Demo","version":"1"}}}"#
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "text/event-stream"])!
+            return (response, Data("data: \(payload)\n\n".utf8))
+        }
+
+        let client = try makeClient()
+        try await client.connect()
+        XCTAssertEqual(notificationBody["method"] as? String, "notifications/initialized")
+        XCTAssertNil(notificationBody["id"], "通知不应带 id")
+    }
+
+    /// tools/list：解析名称、说明与 inputSchema
+    func testListToolsParsesSchema() async throws {
+        MockURLProtocol.handler = { request in
+            let payload = """
+            {"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"search","description":"搜索资料","inputSchema":{"type":"object","properties":{"q":{"type":"string"}},"required":["q"]}}]}}
+            """
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "text/event-stream"])!
+            return (response, Data("event: message\ndata: \(payload)\n\n".utf8))
+        }
+
+        let client = try makeClient()
+        let tools = try await client.listTools()
+        XCTAssertEqual(tools.count, 1)
+        XCTAssertEqual(tools[0].name, "search")
+        XCTAssertEqual(tools[0].description, "搜索资料")
+        let properties = tools[0].parameters["properties"] as? [String: Any]
+        XCTAssertNotNil(properties?["q"])
+    }
+
+    /// tools/call：文本内容拼接返回，图片等非文本内容转成说明
+    func testCallToolFlattensContent() async throws {
+        try await callToolAndAssert(
+            content: #"[{"type":"text","text":"第一段"},{"type":"text","text":"第二段"},{"type":"image","mimeType":"image/png","data":"aGk="}]"#,
+            expecting: ["第一段", "第二段", "图片"]
+        )
+    }
+
+    /// 服务端把执行失败放在 result.isError 里时，也要明确告诉模型
+    func testCallToolErrorFlag() async throws {
+        try await callToolAndAssert(
+            content: #"[{"type":"text","text":"参数不合法"}]"#,
+            isError: true,
+            expecting: ["工具执行出错", "参数不合法"]
+        )
+    }
+
+    private func callToolAndAssert(content: String, isError: Bool = false, expecting fragments: [String]) async throws {
+        MockURLProtocol.handler = { request in
+            let body = MockURLProtocol.body(of: request) ?? Data()
+            let object = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
+            XCTAssertEqual(object["method"] as? String, "tools/call")
+            let params = object["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["name"] as? String, "search")
+            let payload = #"{"jsonrpc":"2.0","id":\#(object["id"] ?? 1),"result":{"content":\#(content),"isError":\#(isError ? "true" : "false")}}"#
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+            return (response, Data(payload.utf8))
+        }
+
+        let client = try makeClient()
+        let output = try await client.callTool(name: "search", argumentsJSON: #"{"q":"天气"}"#)
+        for fragment in fragments {
+            XCTAssertTrue(output.contains(fragment), "结果应包含「\(fragment)」：\(output)")
+        }
+    }
+
+    /// JSON-RPC 错误应带出 code 与 message
+    func testRPCErrorSurfaces() async throws {
+        MockURLProtocol.handler = { request in
+            let payload = #"{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"Invalid request parameters"}}"#
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "text/event-stream"])!
+            return (response, Data("data: \(payload)\n\n".utf8))
+        }
+
+        let client = try makeClient()
+        do {
+            _ = try await client.listTools()
+            XCTFail("应抛出 MCP 错误")
+        } catch {
+            let message = (error as? LocalizedError)?.errorDescription ?? ""
+            XCTAssertTrue(message.contains("-32602"), message)
+            XCTAssertTrue(message.contains("Invalid request parameters"), message)
+        }
+    }
+
+    /// HTTP 层错误（例如 401）应给出带状态码的说明
+    func testHTTPErrorSurfaces() async throws {
+        MockURLProtocol.handler = { request in
+            let response = HTTPURLResponse(url: request.url!, statusCode: 401, httpVersion: nil, headerFields: nil)!
+            return (response, Data("unauthorized".utf8))
+        }
+
+        let client = try makeClient()
+        do {
+            try await client.connect()
+            XCTFail("应抛出 HTTP 错误")
+        } catch {
+            let message = (error as? LocalizedError)?.errorDescription ?? ""
+            XCTAssertTrue(message.contains("401"), message)
+        }
+    }
+
+    /// 非 http(s) 地址直接拒绝
+    func testInvalidURLIsRejected() {
+        var config = MCPServerConfig(name: "坏地址", urlString: "ftp://example.com")
+        config.headerLines = ""
+        XCTAssertThrowsError(try MCPClient(config: config))
+    }
+}
+
+// MARK: - MCP 服务器管理
+
+final class MCPStoreTests: XCTestCase {
+
+    private func makeStore() -> MCPStore {
+        MCPStore(fileName: "mcp-test-\(UUID().uuidString).json")
+    }
+
+    func testAddValidatesAndPersists() {
+        let store = makeStore()
+        XCTAssertNil(store.add(name: "", urlString: "https://a.com/mcp"), "名称为空应拒绝")
+        XCTAssertNil(store.add(name: "A", urlString: "ftp://a.com"), "非 http(s) 地址应拒绝")
+
+        let server = store.add(name: "DeepWiki 文档", urlString: "https://mcp.deepwiki.com/mcp")
+        XCTAssertNotNil(server)
+        XCTAssertEqual(store.servers.count, 1)
+        XCTAssertEqual(server?.alias, "deepwiki")   // 中文与空格被清洗掉，保留 ASCII 部分
+    }
+
+    /// 别名要互不重复：同名服务器自动加序号
+    func testAliasUniqueness() {
+        let store = makeStore()
+        store.add(name: "demo", urlString: "https://a.example.com/mcp")
+        store.add(name: "demo", urlString: "https://b.example.com/mcp")
+        XCTAssertEqual(store.servers.map(\.alias), ["demo", "demo2"])
+    }
+
+    /// 换取请求头：多行 "Key: Value"
+    func testHeaderParsing() {
+        let config = MCPServerConfig(
+            name: "带鉴权",
+            urlString: "https://a.example.com/mcp",
+            headerLines: "Authorization: Bearer abc\n\nX-Trace: 1\n错误行没有冒号"
+        )
+        let headers = config.headers
+        XCTAssertEqual(headers["Authorization"], "Bearer abc")
+        XCTAssertEqual(headers["X-Trace"], "1")
+        XCTAssertEqual(headers.count, 2)
+    }
+
+    /// 模型侧工具名清洗与长度限制
+    func testModelToolNaming() {
+        XCTAssertEqual(
+            MCPStore.modelToolName(alias: "deepwiki", tool: "read-wiki"),
+            "mcp_deepwiki_read_wiki"
+        )
+        let long = MCPStore.modelToolName(alias: "server", tool: String(repeating: "x", count: 120))
+        XCTAssertLessThanOrEqual(long.count, 64)
+    }
+
+    /// 工具名里的连字符会被清洗成下划线，路由必须仍能还原成服务端的原始工具名
+    func testRouteRestoresOriginalToolName() throws {
+        let store = makeStore()
+        let server = try XCTUnwrap(store.add(name: "DeepWiki", urlString: "https://mcp.deepwiki.com/mcp"))
+        store.update(id: server.id) { config in
+            config.tools = [MCPToolInfo(name: "read-wiki-structure", description: "结构", schemaJSON: "{}")]
+        }
+        let route = try XCTUnwrap(store.route(forModelToolName: "mcp_deepwiki_read_wiki_structure"))
+        XCTAssertEqual(route.tool, "read-wiki-structure")
+        XCTAssertEqual(route.server.id, server.id)
+        XCTAssertNil(store.route(forModelToolName: "mcp_unknown_tool"))
+    }
+
+    /// 下发给模型的工具：名称带前缀、说明带服务器名、参数来自 inputSchema
+    func testAvailableToolsMapping() throws {
+        let store = makeStore()
+        let server = try XCTUnwrap(store.add(name: "DeepWiki", urlString: "https://mcp.deepwiki.com/mcp"))
+        store.update(id: server.id) { config in
+            config.tools = [
+                MCPToolInfo(
+                    name: "ask",
+                    description: "提问",
+                    schemaJSON: #"{"type":"object","properties":{"q":{"type":"string"}}}"#
+                )
+            ]
+        }
+
+        let tools = store.availableTools()
+        XCTAssertEqual(tools.count, 1)
+        XCTAssertEqual(tools[0].name, "mcp_deepwiki_ask")
+        XCTAssertTrue(tools[0].description.contains("DeepWiki"))
+        XCTAssertTrue(tools[0].description.contains("提问"))
+        XCTAssertNotNil(tools[0].parameters["properties"])
+
+        // 关闭服务器后不再下发
+        store.setEnabled(false, id: server.id)
+        XCTAssertTrue(store.availableTools().isEmpty)
+    }
+
+    /// 落盘后重新读取应一致（含工具缓存）
+    func testPersistenceRoundTrip() throws {
+        let name = "mcp-test-\(UUID().uuidString).json"
+        let store = MCPStore(fileName: name)
+        let server = try XCTUnwrap(store.add(name: "Demo", urlString: "https://a.example.com/mcp", headerLines: "X-A: 1"))
+        store.update(id: server.id) { config in
+            config.tools = [MCPToolInfo(name: "ping", description: "心跳", schemaJSON: "{}")]
+            config.lastConnectedAt = Date()
+        }
+
+        let reloaded = MCPStore(fileName: name)
+        XCTAssertEqual(reloaded.servers.count, 1)
+        XCTAssertEqual(reloaded.servers[0].name, "Demo")
+        XCTAssertEqual(reloaded.servers[0].tools.map(\.name), ["ping"])
+        XCTAssertEqual(reloaded.servers[0].headers["X-A"], "1")
+        XCTAssertNotNil(reloaded.servers[0].lastConnectedAt)
+
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent(name)
+        try? FileManager.default.removeItem(at: url)
+    }
+}
+
+// MARK: - MCP 工具接入智能体
+
+final class MCPAgentIntegrationTests: XCTestCase {
+
+    /// MCP 工具按顺序追加在其它工具之后，前缀识别用于路由
+    func testMCPToolsAreAppendedAfterBuiltins() {
+        let tool = APITool(name: "mcp_demo_search", description: "[MCP · Demo] 搜索", parameters: [:])
+        let list = AgentToolCatalog.tools(
+            sshEnabled: true,
+            browserEnabled: false,
+            browserReadEnabled: false,
+            mcpTools: [tool],
+            skillNames: ["周报整理"]
+        )
+        XCTAssertEqual(list.map(\.name), ["ssh_exec", "mcp_demo_search", AgentToolCatalog.skillName])
+        XCTAssertTrue(AgentToolCatalog.isMCPTool("mcp_demo_search"))
+        XCTAssertFalse(AgentToolCatalog.isMCPTool("ssh_exec"))
+    }
+
+    /// 过程面板把 MCP 调用合并为「调用 N 次 MCP 工具」
+    func testProcessSummaryCountsMCPCalls() {
+        var message = ChatMessage(role: .assistant, content: "好了")
+        message.toolCalls = [
+            ToolCall(id: "1", name: "mcp_demo_search", arguments: #"{"q":"天气"}"#),
+            ToolCall(id: "2", name: "mcp_demo_search", arguments: #"{"q":"新闻"}"#)
+        ]
+        let process = ChatProcess(message: message, toolMessages: [])
+        XCTAssertEqual(process.summary, "已调用 2 次 MCP 工具")
+        XCTAssertEqual(process.steps.first?.title, "MCP 工具")
     }
 }
