@@ -1180,3 +1180,129 @@ final class MessageDeletionTests: XCTestCase {
         XCTAssertEqual(removed, [assistant.id, tool.id], "只删本轮的 tool 结果")
     }
 }
+
+// MARK: - 技能
+
+final class SkillStoreTests: XCTestCase {
+
+    private func makeFileName() -> String { "skills-test-\(UUID().uuidString).json" }
+
+    private func removeFile(_ name: String) {
+        let url = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent(name)
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    func testAddEditDeleteAndPersist() {
+        let name = makeFileName()
+        defer { removeFile(name) }
+
+        let store = SkillStore(fileName: name)
+        XCTAssertTrue(store.skills.isEmpty)
+
+        let added = store.add(name: " 周报整理 ", summary: " 每周五整理 ", content: " 1. 汇总本周提交 ")
+        XCTAssertNotNil(added)
+        XCTAssertEqual(store.skills.count, 1)
+        XCTAssertEqual(store.skills[0].name, "周报整理", "名称首尾空白应去掉")
+        XCTAssertEqual(store.skills[0].summary, "每周五整理")
+        XCTAssertEqual(store.skills[0].content, "1. 汇总本周提交")
+
+        // 同名技能覆盖，不新增第二条（否则模型会拿到两份冲突说明）
+        store.add(name: "周报整理", summary: "改写摘要", content: "新步骤")
+        XCTAssertEqual(store.skills.count, 1)
+        XCTAssertEqual(store.skills[0].content, "新步骤")
+
+        // 落盘后重新打开应一致
+        let reloaded = SkillStore(fileName: name)
+        XCTAssertEqual(reloaded.skills, store.skills)
+
+        reloaded.delete(id: store.skills[0].id)
+        XCTAssertTrue(reloaded.skills.isEmpty)
+        XCTAssertTrue(SkillStore(fileName: name).skills.isEmpty)
+    }
+
+    func testEmptyNameOrContentIsRejected() {
+        let name = makeFileName()
+        defer { removeFile(name) }
+
+        let store = SkillStore(fileName: name)
+        XCTAssertNil(store.add(name: "   ", summary: "摘要", content: "步骤"))
+        XCTAssertNil(store.add(name: "技能", summary: "摘要", content: "  "))
+        XCTAssertTrue(store.skills.isEmpty)
+    }
+
+    func testDisabledSkillIsNotOfferedToAgent() {
+        let name = makeFileName()
+        defer { removeFile(name) }
+
+        let store = SkillStore(fileName: name)
+        let skill = store.add(name: "SQL 审核", summary: "审核 SQL", content: "检查索引")
+        XCTAssertEqual(store.enabledSkills.count, 1)
+
+        store.toggle(id: skill?.id ?? UUID())
+        XCTAssertTrue(store.enabledSkills.isEmpty)
+        XCTAssertEqual(store.skills.count, 1, "关闭只是不启用，技能仍保留在本地")
+    }
+
+    /// 模型可能带上大小写或前后空白，取用时放宽匹配
+    func testSkillLookupIsForgiving() {
+        let name = makeFileName()
+        defer { removeFile(name) }
+
+        let store = SkillStore(fileName: name)
+        store.add(name: "SQL 审核", summary: "审核 SQL", content: "内容")
+        XCTAssertNotNil(store.skill(named: " sql 审核 "))
+        XCTAssertNil(store.skill(named: "不存在的技能"))
+    }
+}
+
+/// 技能与工具的分工：工具执行操作，技能规定做法；技能清单进系统提示，全文由 skill 工具取回
+final class SkillAgentTests: XCTestCase {
+
+    func testSystemPromptIncludesSkillCatalog() {
+        let skills = [
+            Skill(name: "周报整理", summary: "每周五整理", content: "步骤"),
+            Skill(name: "SQL 审核", content: "检查索引")
+        ]
+        let prompt = ChatEngine.systemPrompt(base: "你是助手", skills: skills)
+        XCTAssertTrue(prompt.hasPrefix("你是助手"), "不应覆盖用户自己的系统提示")
+        XCTAssertTrue(prompt.contains("周报整理：每周五整理"))
+        XCTAssertTrue(prompt.contains("SQL 审核：（未写摘要）"))
+        XCTAssertTrue(prompt.contains("skill 工具"), "应告诉模型用 skill 工具取全文")
+
+        XCTAssertEqual(ChatEngine.systemPrompt(base: "你是助手", skills: []), "你是助手")
+        XCTAssertTrue(ChatEngine.systemPrompt(base: "", skills: skills).contains("周报整理"))
+    }
+
+    /// 只有存在已启用技能时才下发 skill 工具，且技能名进 enum（模型只能选真实存在的技能）
+    func testSkillToolIsOfferedOnlyWhenSkillsExist() throws {
+        let plain = AgentToolCatalog.tools(sshEnabled: false, browserEnabled: false, browserReadEnabled: false)
+        XCTAssertTrue(plain.isEmpty, "没有技能时不应出现任何工具")
+
+        let tools = AgentToolCatalog.tools(
+            sshEnabled: false,
+            browserEnabled: false,
+            browserReadEnabled: false,
+            skillNames: ["周报整理", "SQL 审核"]
+        )
+        XCTAssertEqual(tools.map(\.name), [AgentToolCatalog.skillName])
+
+        let properties = try XCTUnwrap(tools[0].parameters["properties"] as? [String: Any])
+        let nameField = try XCTUnwrap(properties["name"] as? [String: Any])
+        XCTAssertEqual(nameField["enum"] as? [String], ["周报整理", "SQL 审核"])
+    }
+
+    /// 技能与工具同时开启时一并下发，二者互不影响
+    func testSkillToolCoexistsWithOtherTools() {
+        let tools = AgentToolCatalog.tools(
+            sshEnabled: true,
+            browserEnabled: true,
+            browserReadEnabled: true,
+            skillNames: ["周报整理"]
+        )
+        XCTAssertEqual(
+            tools.map(\.name),
+            ["ssh_exec", "browser_open", "browser_read", AgentToolCatalog.skillName]
+        )
+    }
+}
