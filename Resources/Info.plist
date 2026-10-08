@@ -62,5 +62,13 @@
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
+	<key>NSRemindersUsageDescription</key>
+	<string>用于让智能体查看与新建你的提醒事项，例如「明天九点提醒我交周报」。</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>用于让智能体查看与新建你的提醒事项，例如「明天九点提醒我交周报」。</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>用于让智能体查看与新建日程，例如「周五下午三点加一个评审会」。</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>用于让智能体查看与新建日程，例如「周五下午三点加一个评审会」。</string>
 </dict>
 </plist>

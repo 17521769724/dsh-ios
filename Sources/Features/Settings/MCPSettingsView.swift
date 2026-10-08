@@ -4,11 +4,49 @@ import SwiftUI
 /// 连接成功后，它的工具会下发给智能体（工具名前缀 `mcp_<服务器别名>_`）。
 struct MCPSettingsView: View {
     @EnvironmentObject private var mcpStore: MCPStore
+    @EnvironmentObject private var gitStore: GitAccountStore
+    @EnvironmentObject private var engine: ChatEngine
 
     @State private var refreshingAll = false
 
     var body: some View {
         List {
+            Section {
+                ForEach(Self.presets) { preset in
+                    Button {
+                        add(preset)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 6) {
+                                Text(preset.name)
+                                    .font(.system(size: 15))
+                                    .foregroundStyle(DSHTheme.assistantText)
+                                if preset.needsToken, !hasGitHubToken {
+                                    Text("需先登录 GitHub")
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundStyle(DSHTheme.tertiaryText)
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 1)
+                                        .background(DSHTheme.chipFill)
+                                        .clipShape(Capsule())
+                                }
+                            }
+                            Text(preset.detail)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("mcp.preset")
+                }
+            } header: {
+                Text("推荐服务器（点一下即添加）")
+            } footer: {
+                Text("都是官方提供的远程 MCP 服务器，无需本地安装：GitHub 官方 MCP 会用你在「代码托管」里登录的 Token 自动鉴权；DeepWiki 与 Context7 免鉴权，可直接用。")
+            }
+
             Section {
                 if mcpStore.servers.isEmpty {
                     Text("还没有 MCP 服务器，点右上角「+」添加")
@@ -98,6 +136,58 @@ struct MCPSettingsView: View {
         var text = "\(server.displayHost) · \(server.tools.count) 个工具"
         if let version = server.protocolVersion { text += " · MCP \(version)" }
         return text
+    }
+
+    // MARK: - 推荐服务器
+
+    /// 预设的远程 MCP 服务器（官方托管，无需本地安装）
+    private struct Preset: Identifiable {
+        let name: String
+        let urlString: String
+        let detail: String
+        /// 是否需要用 GitHub Token 鉴权
+        let needsToken: Bool
+
+        var id: String { name }
+    }
+
+    private static let presets: [Preset] = [
+        Preset(
+            name: "GitHub 官方 MCP",
+            urlString: "https://api.githubcopilot.com/mcp/",
+            detail: "仓库、Issue、PR、Actions 等操作；用「代码托管」里登录的 GitHub Token 自动鉴权",
+            needsToken: true
+        ),
+        Preset(
+            name: "DeepWiki",
+            urlString: "https://mcp.deepwiki.com/mcp",
+            detail: "查询任意 GitHub 仓库的文档结构与代码问答，免鉴权",
+            needsToken: false
+        ),
+        Preset(
+            name: "Context7",
+            urlString: "https://mcp.context7.com/mcp",
+            detail: "按库名取回最新版本文档与示例，写代码时避免用过时 API，免鉴权",
+            needsToken: false
+        )
+    ]
+
+    private var hasGitHubToken: Bool { gitStore.isConnected(.github) }
+
+    /// 添加预设：重复地址会跳过；GitHub 预设自动带上本机已登录的 Token
+    private func add(_ preset: Preset) {
+        guard !mcpStore.servers.contains(where: { $0.urlString == preset.urlString }) else {
+            engine.showToast("这台服务器已经添加过了")
+            return
+        }
+        let token = gitStore.token(for: .github)
+        let headers = (preset.needsToken && !token.isEmpty) ? "Authorization: Bearer \(token)" : ""
+        guard let server = mcpStore.add(name: preset.name, urlString: preset.urlString, headerLines: headers) else {
+            engine.showToast("添加失败：地址不合法")
+            return
+        }
+        engine.showToast(preset.needsToken && token.isEmpty ? "已添加，登录 GitHub 后请到详情页补鉴权头" : "已添加，正在连接…")
+        Task { await mcpStore.refresh(id: server.id) }
     }
 }
 

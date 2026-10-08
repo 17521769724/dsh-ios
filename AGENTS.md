@@ -21,7 +21,7 @@ UI、交互与动效对齐桌面端 [anywhere-labs/dsh-desktop](https://github.c
 | 发布资产 | `DSH-iOS-<版本>-build<构建号>.ipa`（每次文件名唯一，避免装到旧包） |
 | 应用内验证版本 | 左侧菜单栏底部「设置」一行右侧显示 `V<版本> (<构建号>)` |
 | 测试 | `Tests/Unit`（单元）+ `Tests/UI`（XCUITest 端到端），CI 每次 push 都会跑 |
-| 智能体工具 | SSH / 内置浏览器 / 查看画面（截图 + 本地 OCR）/ 工作区文件 / MCP / GitHub / Gitee / 技能，开关都在「设置 → 智能体工具」与技能库页 |
+| 智能体工具 | SSH / 内置浏览器 / 查看画面（截图 + 本地 OCR）/ 工作区文件 / 剪贴板 / 提醒事项与日历 / MCP / GitHub / Gitee / 技能，开关都在「设置 → 智能体工具」与技能库页 |
 | MCP 协议 | 客户端实现 `Sources/Core/MCP.swift`：JSON-RPC 2.0 over Streamable HTTP（MCP 2025-03-26），握手 / 会话 / tools / resources / prompts；服务器配置存 `mcp-servers.json`，模型侧工具名前缀 `mcp_<别名>_` |
 | 工作区目录 | `Documents/Workspace`（内置「文件」页与 IDE 的根目录，同时可在系统「文件」App → 我的 iPhone → DSH 里访问） |
 
@@ -33,6 +33,7 @@ Sources/
   Core/         数据层：Models、ConversationStore、SettingsStore、Skill（技能库）、
                 AgentTools（模型可调用工具定义）、WorkspaceStore（工作区文件 / 文件管理器与 IDE）、
                 ScreenVision（截图 + 本地 OCR）、MCP + MCPStore（MCP 协议客户端与服务器管理）、
+                RemindersService（提醒事项与日历，EventKit）、
                 AppCache（缓存统计/清理）、SSHStore、GitAccountStore、Keychain
   Design/       Theme（配色/间距/圆角/动效）、SecureInputField、TapToDismissKeyboard
   Features/
@@ -88,16 +89,16 @@ xcodebuild test -project DSHiOS.xcodeproj -scheme DSHiOS -destination "platform=
 
 ## 当前状态
 
-- 版本：**1.4.0（build 85）**，已发布的未签名 IPA 见 Releases。
-- 1.4.0 交付：
-  - 技能页左滑删除改为自绘 `SwipeToDeleteRow`：删除背景与卡片同高同圆角、固定红色（系统 swipeActions 会露出直角且比卡片高）；
-  - 侧栏删除最后一条记录时，空状态延后 0.4s 再淡入，不再与被删记录 / 长按菜单收起动画重叠；
-  - 对话页模型输出对齐参考实现：每条回复带「图标 + DeepSeek」标识行，思考过程 / 过程摘要排在正文之前；
-  - 输出完成后滚动卡顿治理：消息入场动画只在刚生成时播放（滚动回收重建的行不重播），正文分块不再逐块开启文本选择；
-  - 新增 **MCP 协议支持**（`Sources/Core/MCP.swift`）：JSON-RPC 2.0 over Streamable HTTP，
-    覆盖 initialize 握手 / 协议版本协商 / `Mcp-Session-Id` 会话 / `notifications/initialized` /
-    tools(list·call) / resources(list·read) / prompts(list·get)，兼容 JSON 与 SSE 两种响应；
-    设置页可添加多台服务器（名称 / 地址 / 请求头）、连接并刷新、查看工具与提示模板，
-    已连接服务器的工具以 `mcp_<别名>_<工具名>` 下发给模型，调用时由本机代发。
+- 版本：**1.5.0（build 86）**，已发布的未签名 IPA 见 Releases。
+- 1.5.0 交付：
+  - 技能页左滑删除进一步加固：删除区改用固定鲜红实底（`DSHTheme.dangerSolid`，不随深浅色变化）、
+    滑开阈值放宽到 1/4 宽度并加入惯性预测（快速轻扫不会闪一下就弹回），
+    另外补了「长按菜单」兜底（编辑技能 / 删除），个别机型手势不跟手时也能删；
+  - 新增智能体工具 **`clipboard`**：读写系统剪贴板（读取时 iOS 会弹「允许粘贴」确认）；
+  - 新增智能体工具 **`reminder`**：读写系统「提醒事项」与「日历」（本机 EventKit，
+    支持 list_reminders / create_reminder / list_events / create_event，首次使用请求系统权限）；
+  - MCP 服务器页新增**推荐服务器一键添加**：GitHub 官方 MCP（`https://api.githubcopilot.com/mcp/`，
+    自动带上「代码托管」里已登录的 GitHub Token）、DeepWiki、Context7——都是官方托管的远程服务器，免本地安装。
+- 1.4.0 交付：技能页左滑自绘删除、侧栏删除过渡、对话页输出样式对齐、滚动卡顿治理、完整 MCP 协议支持。
 - 1.3.0 交付：冷启动顶栏稳定、消息长按圆角、技能开关归位、智能体「查看画面」（截图 + OCR）、内置文件管理器与 IDE。
 - 历史需求与逐版交付记录见 [`docs/CONVERSATION_HISTORY.md`](docs/CONVERSATION_HISTORY.md)。

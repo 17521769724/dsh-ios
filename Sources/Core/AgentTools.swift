@@ -14,6 +14,10 @@ enum AgentToolCatalog {
     static let screenshotName = "screenshot"
     /// 工作区文件：读写内置文件管理器与 IDE 所在的文件夹
     static let workspaceName = "workspace"
+    /// 系统剪贴板：读写复制内容
+    static let clipboardName = "clipboard"
+    /// 提醒事项与日历：本地读写待办与日程
+    static let reminderName = "reminder"
     /// MCP 工具名前缀（模型侧形如 mcp_<服务器别名>_<工具名>）
     static let mcpToolPrefix = "mcp_"
 
@@ -32,6 +36,8 @@ enum AgentToolCatalog {
         giteeEnabled: Bool = false,
         visionEnabled: Bool = false,
         fileEnabled: Bool = false,
+        clipboardEnabled: Bool = false,
+        reminderEnabled: Bool = false,
         mcpTools: [APITool] = [],
         skillNames: [String] = []
     ) -> [APITool] {
@@ -50,6 +56,12 @@ enum AgentToolCatalog {
         }
         if fileEnabled {
             tools.append(workspace)
+        }
+        if clipboardEnabled {
+            tools.append(clipboard)
+        }
+        if reminderEnabled {
+            tools.append(reminder)
         }
         // MCP 服务器提供的工具由各自的服务器描述，这里原样追加
         tools.append(contentsOf: mcpTools)
@@ -181,6 +193,90 @@ enum AgentToolCatalog {
         """)
     )
 
+    /// 系统剪贴板：写入 / 读取复制内容
+    static let clipboard = APITool(
+        name: clipboardName,
+        description: """
+        读写系统剪贴板。action=read 读取剪贴板里的文本（首次读取系统会弹出「允许粘贴」确认，需要用户点允许）；\
+        action=write 把 text 写入剪贴板，用户之后可在任意 App 里粘贴。\
+        适合「把这段复制给我」「读一下我刚复制的内容」这类请求。
+        """,
+        parameters: schema("""
+        {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "description": "操作类型：read=读取，write=写入",
+              "enum": ["read", "write"]
+            },
+            "text": {
+              "type": "string",
+              "description": "要写入剪贴板的文本（write 时必填），原样写入不做裁剪"
+            }
+          },
+          "required": ["action"]
+        }
+        """)
+    )
+
+    /// 提醒事项与日历：本机 EventKit，读写待办与日程
+    static let reminder = APITool(
+        name: reminderName,
+        description: """
+        读写系统「提醒事项」与「日历」（只在本机操作，不上传任何服务器；首次使用会请求系统权限）。可用动作：
+        list_reminders（列出未完成提醒，可用 days 指定往后看几天，默认 7，逾期 30 天内的也会列出）、
+        create_reminder（新建提醒，需要 title，可选 due「2026-10-10 09:00」、notes、list 清单名）、
+        list_events（列出未来日程，days 默认 7）、
+        create_event（新建日程，需要 title 与 start，可选 end、location、notes，默认时长 1 小时）。
+        """,
+        parameters: schema("""
+        {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "description": "操作类型，见工具说明",
+              "enum": ["list_reminders", "create_reminder", "list_events", "create_event"]
+            },
+            "title": {
+              "type": "string",
+              "description": "标题（create_reminder / create_event 必填）"
+            },
+            "due": {
+              "type": "string",
+              "description": "提醒到期时间，例如 2026-10-10 09:00；只写日期时按当天 09:00"
+            },
+            "start": {
+              "type": "string",
+              "description": "日程开始时间，例如 2026-10-10 15:00"
+            },
+            "end": {
+              "type": "string",
+              "description": "日程结束时间（可省略，默认开始后 1 小时）"
+            },
+            "days": {
+              "type": "integer",
+              "description": "查询往后看几天，默认 7"
+            },
+            "notes": {
+              "type": "string",
+              "description": "备注"
+            },
+            "location": {
+              "type": "string",
+              "description": "地点（create_event）"
+            },
+            "list": {
+              "type": "string",
+              "description": "提醒清单名称（可省略，默认用系统默认清单）"
+            }
+          },
+          "required": ["action"]
+        }
+        """)
+    )
+
     static let github = APITool(
         name: githubName,
         description: """
@@ -305,5 +401,14 @@ enum ToolArguments {
             return nil
         }
         return value
+    }
+
+    /// 把参数整体解析成字典（提醒事项这类参数较多的工具用）
+    static func dictionary(_ raw: String) -> [String: Any] {
+        guard let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return [:]
+        }
+        return object
     }
 }

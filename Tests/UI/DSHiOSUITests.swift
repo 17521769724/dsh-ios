@@ -585,6 +585,20 @@ final class DSHiOSUITests: XCTestCase {
         // 新增的两个智能体工具开关（查看画面 / 工作区文件）在同一分组、位于浏览器开关下方
         XCTAssertTrue(scrollTo("feature.visionTool").waitForExistence(timeout: 5), "缺少「智能体查看画面」开关")
         XCTAssertTrue(scrollTo("feature.fileTool").waitForExistence(timeout: 5), "缺少「智能体读写工作区文件」开关")
+        XCTAssertTrue(scrollTo("feature.mcpTool").waitForExistence(timeout: 5), "缺少「MCP 工具」开关")
+        XCTAssertTrue(scrollTo("feature.clipboardTool").waitForExistence(timeout: 5), "缺少「剪贴板读写」开关")
+        XCTAssertTrue(scrollTo("feature.reminderTool").waitForExistence(timeout: 5), "缺少「提醒事项与日历」开关")
+        if scrollTo("settings.mcp").exists {
+            element("settings.mcp").tap()
+            XCTAssertTrue(app.navigationBars["MCP 服务器"].waitForExistence(timeout: 5), "MCP 服务器页未打开")
+            // 预设服务器（GitHub 官方 MCP / DeepWiki / Context7）应可直接添加
+            XCTAssertTrue(app.staticTexts["GitHub 官方 MCP"].exists, "缺少 GitHub MCP 预设")
+            capture("26-mcp-presets")
+            // 按标题精确定位返回按钮，避免误触右上角「+」
+            app.navigationBars.buttons
+                .matching(NSPredicate(format: "label IN %@", ["设置", "Back", "返回"]))
+                .firstMatch.tap()
+        }
         closeSettings()
     }
 

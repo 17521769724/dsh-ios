@@ -106,6 +106,10 @@ struct ChatProcess: Equatable {
                 return Form(key: "vision", title: "查看画面", icon: "eye", verb: "查看", unit: "次画面")
             case AgentToolCatalog.workspaceName:
                 return Form(key: "workspace", title: "文件操作", icon: "folder", verb: "操作", unit: "次文件")
+            case AgentToolCatalog.clipboardName:
+                return Form(key: "clipboard", title: "剪贴板", icon: "doc.on.clipboard", verb: "读写", unit: "次剪贴板")
+            case AgentToolCatalog.reminderName:
+                return Form(key: "reminder", title: "提醒与日程", icon: "calendar", verb: "处理", unit: "条日程")
             case let name where AgentToolCatalog.isMCPTool(name):
                 // MCP 工具按服务器提供的名字展示，摘要里合并计数
                 return Form(key: "mcp", title: "MCP 工具", icon: "puzzlepiece.extension", verb: "调用", unit: "次 MCP 工具")
@@ -139,6 +143,17 @@ struct ChatProcess: Equatable {
                 return "\(action) · \(path)"
             }
             return action
+        case AgentToolCatalog.clipboardName:
+            return ToolArguments.string("action", in: call.arguments) == "write" ? "复制到剪贴板" : "读取剪贴板"
+        case AgentToolCatalog.reminderName:
+            let action = ToolArguments.string("action", in: call.arguments) ?? ""
+            let title = ToolArguments.string("title", in: call.arguments)
+            switch action {
+            case "list_reminders", "list_events":
+                return "\(action == "list_reminders" ? "查看提醒" : "查看日程") · 未来 \(ToolArguments.string("days", in: call.arguments) ?? "7") 天"
+            default:
+                return title.map { "\(action == "create_reminder" ? "新建提醒" : "新建日程") · \($0)" } ?? action
+            }
         default:
             // MCP 工具的参数是服务器自定义的，直接展示第一个字符串参数
             if AgentToolCatalog.isMCPTool(call.name) {

@@ -1491,6 +1491,70 @@ final class FeatureFlagCompatibilityTests: XCTestCase {
     func testMCPToolDefaultsOn() {
         XCTAssertTrue(FeatureFlags().mcpTool)
         XCTAssertTrue(FeatureFlags.allOn.mcpTool)
+        XCTAssertTrue(FeatureFlags().clipboardTool)
+        XCTAssertTrue(FeatureFlags().reminderTool)
+        XCTAssertTrue(FeatureFlags.allOn.clipboardTool)
+        XCTAssertTrue(FeatureFlags.allOn.reminderTool)
+    }
+}
+
+// MARK: - 剪贴板 / 提醒事项工具
+
+final class SystemToolsTests: XCTestCase {
+
+    /// 两个新工具各自独立下发，默认不下发
+    func testClipboardAndReminderFollowFlags() {
+        let defaults = AgentToolCatalog.tools(sshEnabled: false, browserEnabled: false, browserReadEnabled: false)
+        XCTAssertTrue(defaults.isEmpty, "默认不应下发任何工具")
+
+        let list = AgentToolCatalog.tools(
+            sshEnabled: false,
+            browserEnabled: false,
+            browserReadEnabled: false,
+            clipboardEnabled: true,
+            reminderEnabled: true
+        )
+        XCTAssertEqual(list.map(\.name), [AgentToolCatalog.clipboardName, AgentToolCatalog.reminderName])
+
+        // 剪贴板支持 read / write 两种动作
+        let clipboard = try? XCTUnwrap(list.first)
+        let properties = clipboard?.parameters["properties"] as? [String: Any]
+        let action = properties?["action"] as? [String: Any]
+        XCTAssertEqual(action?["enum"] as? [String], ["read", "write"])
+
+        // 提醒工具覆盖提醒与日历四类动作
+        let reminder = list.last
+        let reminderProperties = reminder?.parameters["properties"] as? [String: Any]
+        let reminderAction = reminderProperties?["action"] as? [String: Any]
+        XCTAssertEqual(
+            reminderAction?["enum"] as? [String],
+            ["list_reminders", "create_reminder", "list_events", "create_event"]
+        )
+    }
+
+    /// 时间写法解析：支持常见格式，只给日期时按 09:00
+    func testParseDateVariants() throws {
+        let calendar = Calendar.current
+
+        func parts(_ text: String) throws -> [Int?] {
+            let date = try XCTUnwrap(RemindersService.parseDate(text), "应能解析：\(text)")
+            let components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+            return [components.year, components.month, components.day, components.hour, components.minute]
+        }
+
+        XCTAssertEqual(try parts("2026-10-10 09:30"), [2026, 10, 10, 9, 30])
+        XCTAssertEqual(try parts("2026-10-10"), [2026, 10, 10, 9, 0])
+        XCTAssertEqual(try parts("2026/10/10 15:00"), [2026, 10, 10, 15, 0])
+        XCTAssertEqual(try parts("2026年10月10日 15:00"), [2026, 10, 10, 15, 0])
+        XCTAssertEqual(try parts("2026-10-10T15:00"), [2026, 10, 10, 15, 0])
+
+        // 只给时间：按今天算
+        let timeOnly = try XCTUnwrap(RemindersService.parseDate("08:15"))
+        let timeParts = calendar.dateComponents([.hour, .minute], from: timeOnly)
+        XCTAssertEqual([timeParts.hour, timeParts.minute], [8, 15])
+
+        XCTAssertNil(RemindersService.parseDate("明天"))
+        XCTAssertNil(RemindersService.parseDate(""))
     }
 }
 

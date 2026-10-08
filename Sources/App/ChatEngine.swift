@@ -19,6 +19,8 @@ final class ChatEngine: ObservableObject {
     let workspaceStore: WorkspaceStore
     /// MCP 服务器：把远程服务器的工具下发给模型
     let mcpStore: MCPStore
+    /// 系统提醒事项与日历（本机 EventKit）
+    private let reminders = RemindersService()
 
     // MARK: - 界面状态
 
@@ -457,6 +459,8 @@ final class ChatEngine: ObservableObject {
             giteeEnabled: features.giteeTool && gitStore.isConnected(.gitee),
             visionEnabled: features.visionTool,
             fileEnabled: features.fileTool,
+            clipboardEnabled: features.clipboardTool,
+            reminderEnabled: features.reminderTool,
             mcpTools: features.mcpTool ? mcpStore.availableTools() : [],
             skillNames: activeSkillNames
         )
@@ -598,12 +602,41 @@ final class ChatEngine: ObservableObject {
             let content = ToolArguments.rawString("content", in: call.arguments) ?? ""
             return workspaceStore.perform(action: action, path: path, content: content)
 
+        case AgentToolCatalog.clipboardName:
+            return clipboard(action: ToolArguments.string("action", in: call.arguments) ?? "read", call: call)
+
+        case AgentToolCatalog.reminderName:
+            let action = ToolArguments.string("action", in: call.arguments) ?? ""
+            return await reminders.perform(action: action, arguments: ToolArguments.dictionary(call.arguments))
+
         default:
             // MCP 服务器提供的工具：转发给对应服务器执行
             if AgentToolCatalog.isMCPTool(call.name) {
                 return await mcpStore.callTool(modelToolName: call.name, argumentsJSON: call.arguments)
             }
             return "未知工具：\(call.name)"
+        }
+    }
+
+    // MARK: - 剪贴板
+
+    /// 读写系统剪贴板：读取时系统会弹「允许粘贴」确认（iOS 的行为）
+    private func clipboard(action: String, call: ToolCall) -> String {
+        switch action.lowercased() {
+        case "read":
+            guard let text = UIPasteboard.general.string, !text.isEmpty else {
+                return "剪贴板里现在没有文本内容。"
+            }
+            let limited = text.count > 4_000 ? String(text.prefix(4_000)) + "\n…（内容过长，已截断）" : text
+            return "剪贴板内容如下：\n\n\(limited)"
+        case "write":
+            guard let text = ToolArguments.rawString("text", in: call.arguments), !text.isEmpty else {
+                return "请通过 text 参数给出要复制到剪贴板的文本。"
+            }
+            UIPasteboard.general.string = text
+            return "已复制到剪贴板（\(text.count) 字符），用户现在可以在任意 App 里粘贴。"
+        default:
+            return "不支持的动作：\(action)（可用：read / write）"
         }
     }
 

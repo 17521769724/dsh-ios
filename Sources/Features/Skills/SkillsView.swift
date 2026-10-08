@@ -203,11 +203,11 @@ struct SwipeToDeleteRow<Content: View>: View {
                 delete()
             } label: {
                 Image(systemName: "trash")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: actionWidth)
                     .frame(maxHeight: .infinity)
-                    .background(DSHTheme.danger)
+                    .background(DSHTheme.dangerSolid)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -223,6 +223,19 @@ struct SwipeToDeleteRow<Content: View>: View {
                         close()
                     } else {
                         onTap()
+                    }
+                }
+                // 长按兜底：万一滑动手势在个别机型上不跟手，也能从这里删除
+                .contextMenu {
+                    Button {
+                        onTap()
+                    } label: {
+                        Label("编辑技能", systemImage: "pencil")
+                    }
+                    Button(role: .destructive) {
+                        delete()
+                    } label: {
+                        Label("删除", systemImage: "trash")
                     }
                 }
 
@@ -263,9 +276,16 @@ struct SwipeToDeleteRow<Content: View>: View {
                 offset = min(0, max(-actionWidth, base + value.translation.width))
             }
             .onEnded { value in
-                guard abs(value.translation.width) > abs(value.translation.height) else { return }
                 let dx = value.translation.width
-                let shouldOpen = opened ? !(dx > actionWidth * 0.4) : (dx < -actionWidth * 0.4)
+                let projected = value.predictedEndTranslation.width
+                // 横向位移明显、或「快速轻扫」都算想滑开：
+                // 阈值放宽到 1/4 屏宽并使用惯性预测，避免手指刚滑开一点就弹回去
+                let isHorizontal = abs(dx) > abs(value.translation.height)
+                let isFlick = abs(projected) > actionWidth
+                guard isHorizontal || isFlick else { return }
+                let shouldOpen = opened
+                    ? !(dx > actionWidth * 0.25 || projected > actionWidth * 0.5)
+                    : (dx < -actionWidth * 0.25 || projected < -actionWidth * 0.5)
                 withAnimation(DSHAnim.list) {
                     opened = shouldOpen
                     offset = shouldOpen ? -actionWidth : 0

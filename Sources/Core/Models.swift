@@ -326,6 +326,10 @@ struct FeatureFlags: Codable, Equatable {
     var fileTool: Bool = true
     /// MCP 服务器（把远程 MCP 服务器的工具下发给模型）
     var mcpTool: Bool = true
+    /// 系统剪贴板（智能体可读写复制内容）
+    var clipboardTool: Bool = true
+    /// 提醒事项与日历（智能体可读写待办与日程）
+    var reminderTool: Bool = true
 
     init() {}
 
@@ -356,6 +360,8 @@ struct FeatureFlags: Codable, Equatable {
         self.visionTool = try container.decodeIfPresent(Bool.self, forKey: .visionTool) ?? fallback.visionTool
         self.fileTool = try container.decodeIfPresent(Bool.self, forKey: .fileTool) ?? fallback.fileTool
         self.mcpTool = try container.decodeIfPresent(Bool.self, forKey: .mcpTool) ?? fallback.mcpTool
+        self.clipboardTool = try container.decodeIfPresent(Bool.self, forKey: .clipboardTool) ?? fallback.clipboardTool
+        self.reminderTool = try container.decodeIfPresent(Bool.self, forKey: .reminderTool) ?? fallback.reminderTool
     }
 
     init(
@@ -372,7 +378,9 @@ struct FeatureFlags: Codable, Equatable {
         skillTool: Bool = true,
         visionTool: Bool = true,
         fileTool: Bool = true,
-        mcpTool: Bool = true
+        mcpTool: Bool = true,
+        clipboardTool: Bool = true,
+        reminderTool: Bool = true
     ) {
         self.sessionLog = sessionLog
         self.pluginCommands = pluginCommands
@@ -388,6 +396,8 @@ struct FeatureFlags: Codable, Equatable {
         self.visionTool = visionTool
         self.fileTool = fileTool
         self.mcpTool = mcpTool
+        self.clipboardTool = clipboardTool
+        self.reminderTool = reminderTool
     }
 
     static let allOn = FeatureFlags(
@@ -404,7 +414,9 @@ struct FeatureFlags: Codable, Equatable {
         skillTool: true,
         visionTool: true,
         fileTool: true,
-        mcpTool: true
+        mcpTool: true,
+        clipboardTool: true,
+        reminderTool: true
     )
 }
 

@@ -41,6 +41,8 @@ enum DSHTheme {
     static let sendIdleIcon = dynamic(light: 0xA8ADB8, dark: 0x6E7076)
 
     static let danger = Color(uiColor: .systemRed)
+    /// 破坏性操作的实底红：不随浅色/深色模式变化，保证在卡片上足够醒目
+    static let dangerSolid = Color(uiColor: UIColor(dshRGB: 0xFF3B30))
     static let warning = Color(uiColor: .systemOrange)
     static let success = Color(uiColor: .systemGreen)
 
