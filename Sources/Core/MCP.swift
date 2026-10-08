@@ -152,7 +152,7 @@ struct MCPPromptInfo: Codable, Equatable, Identifiable {
     var id: String { name }
 
     /// 有必填参数的模板暂不支持一键填入
-    var needsArguments: Bool { arguments.contains(\.required) }
+    var needsArguments: Bool { arguments.contains(where: \.required) }
 }
 
 // MARK: - 错误

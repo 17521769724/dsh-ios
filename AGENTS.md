@@ -88,7 +88,7 @@ xcodebuild test -project DSHiOS.xcodeproj -scheme DSHiOS -destination "platform=
 
 ## 当前状态
 
-- 版本：**1.4.0（build 81）**，已发布的未签名 IPA 见 Releases。
+- 版本：**1.4.0（build 82）**，已发布的未签名 IPA 见 Releases。
 - 1.4.0 交付：
   - 技能页左滑删除改为自绘 `SwipeToDeleteRow`：删除背景与卡片同高同圆角、固定红色（系统 swipeActions 会露出直角且比卡片高）；
   - 侧栏删除最后一条记录时，空状态延后 0.4s 再淡入，不再与被删记录 / 长按菜单收起动画重叠；
