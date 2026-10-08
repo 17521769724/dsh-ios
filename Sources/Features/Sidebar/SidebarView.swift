@@ -7,10 +7,12 @@ struct SidebarView: View {
     @EnvironmentObject private var engine: ChatEngine
     @EnvironmentObject private var settingsStore: SettingsStore
     @EnvironmentObject private var plugins: PluginManager
+    @EnvironmentObject private var skillStore: SkillStore
 
     var close: () -> Void
     var openSettings: () -> Void
     var openPlugins: () -> Void
+    var openSkills: () -> Void
 
     @State private var query = ""
     @State private var renameTarget: Conversation?
@@ -165,11 +167,15 @@ struct SidebarView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 44)
+                    // 空状态只让自己淡入：被删除的行已经立即消失，两者不会重叠
+                    .transition(.opacity)
+                    .animation(DSHAnim.standard, value: filtered.isEmpty)
                 }
             }
             .padding(.horizontal, DSHTheme.Spacing.small)
             .padding(.bottom, DSHTheme.Spacing.small)
-            .animation(DSHAnim.list, value: filtered.count)
+            // 不做「列表整体动画」：删除后行必须立即消失，
+            // 整段动画会让被删的行淡出与新出现的空状态图标同时存在、互相重合
         }
     }
 
@@ -241,8 +247,10 @@ struct SidebarView: View {
             }
             .padding(.horizontal, 12)
             .frame(height: 44)
-            // 底色画在行内部：长按预览时不会变成透明，选中行用主题色区分
-            .background(selected ? DSHTheme.brandSoft : DSHTheme.composerCard)
+            // 底色画在行内部：长按预览时不会变成透明。
+            // 选中态用不透明的主题色（此前用 12% 透明度的品牌色，
+            // 长按抬起时能透出下方内容，看起来像「半透明卡片」）。
+            .background(selected ? DSHTheme.rowSelected : DSHTheme.composerCard)
             .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous))
             .contentShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous))
         }
@@ -267,7 +275,9 @@ struct SidebarView: View {
                 Label(conversation.isPinned ? "取消置顶" : "置顶", systemImage: "pin")
             }
             Button(role: .destructive) {
-                withAnimation(DSHAnim.list) { engine.delete(conversation) }
+                // 不加动画：删掉的会话必须立刻从列表消失，
+                // 否则淡出过程中会和下方的空状态图标叠在一起
+                engine.delete(conversation)
             } label: {
                 Label("删除", systemImage: "trash")
             }
@@ -296,6 +306,13 @@ struct SidebarView: View {
             if features.pluginCommands {
                 entryRow(icon: "puzzlepiece.extension", title: "插件中心", identifier: "sidebar.plugins", action: openPlugins)
             }
+            entryRow(
+                icon: "sparkles",
+                title: "技能",
+                identifier: "sidebar.skills",
+                trailing: skillStore.skills.isEmpty ? "未添加" : "\(skillStore.skills.count) 个",
+                action: openSkills
+            )
             entryRow(
                 icon: "gearshape",
                 title: "设置",
