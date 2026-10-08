@@ -8,6 +8,8 @@ enum AgentToolCatalog {
     static let browserReadName = "browser_read"
     static let githubName = "github"
     static let giteeName = "gitee"
+    /// 读取用户自定义技能（技能规定做法，工具执行操作，两者互补）
+    static let skillName = "skill"
 
     /// 当前可用的工具：只有开启且可用的工具才下发给模型，
     /// 避免模型调用必然失败的工具（SSH 未配置、浏览器功能关闭等）。
@@ -16,7 +18,8 @@ enum AgentToolCatalog {
         browserEnabled: Bool,
         browserReadEnabled: Bool,
         githubEnabled: Bool = false,
-        giteeEnabled: Bool = false
+        giteeEnabled: Bool = false,
+        skillNames: [String] = []
     ) -> [APITool] {
         var tools: [APITool] = []
         if sshEnabled {
@@ -33,6 +36,10 @@ enum AgentToolCatalog {
         }
         if giteeEnabled {
             tools.append(gitee)
+        }
+        // 只有存在已启用技能时才下发，避免模型调用空技能库
+        if !skillNames.isEmpty {
+            tools.append(skill(names: skillNames))
         }
         return tools
     }
@@ -108,6 +115,37 @@ enum AgentToolCatalog {
         """,
         parameters: gitParameters
     )
+
+    /// 技能工具：把用户自己写的技能全文取回来照着做。
+    /// 入参带上当前已启用的技能名，模型就能准确选中要用的那一个。
+    private static func skill(names: [String]) -> APITool {
+        let list = names.map { "「\($0)」" }.joined(separator: "、")
+        let escaped = names
+            .map { $0.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") }
+            .map { "\"\($0)\"" }
+            .joined(separator: ", ")
+        return APITool(
+            name: skillName,
+            description: """
+            读取用户自定义技能的完整说明，然后按该技能规定的步骤与要求完成任务。
+            可用技能：\(list)。
+            技能规定「该怎么做」，工具负责「真正执行」；与当前请求相关的技能应先取回说明再动手。
+            """,
+            parameters: schema("""
+            {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "技能名，必须是可用技能之一",
+                  "enum": [\(escaped)]
+                }
+              },
+              "required": ["name"]
+            }
+            """)
+        )
+    }
 
     /// GitHub 与 Gitee 的动作和参数完全一致，共用同一套参数描述
     private static let gitParameters = schema("""
