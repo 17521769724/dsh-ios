@@ -15,6 +15,8 @@ final class ChatEngine: ObservableObject {
     let gitStore: GitAccountStore
     /// 用户自定义技能库：技能规定做法（与执行操作的工具互补）
     let skillStore: SkillStore
+    /// 工作区文件：内置文件管理器与 IDE 和智能体工具共用同一批文件
+    let workspaceStore: WorkspaceStore
 
     // MARK: - 界面状态
 
@@ -53,7 +55,8 @@ final class ChatEngine: ObservableObject {
         pluginManager: PluginManager,
         sshStore: SSHStore,
         gitStore: GitAccountStore,
-        skillStore: SkillStore
+        skillStore: SkillStore,
+        workspaceStore: WorkspaceStore = WorkspaceStore()
     ) {
         self.settingsStore = settingsStore
         self.conversationStore = conversationStore
@@ -61,6 +64,7 @@ final class ChatEngine: ObservableObject {
         self.sshStore = sshStore
         self.gitStore = gitStore
         self.skillStore = skillStore
+        self.workspaceStore = workspaceStore
         self.client = DeepSeekClient(timeout: settingsStore.settings.requestTimeout)
 
         if let latest = conversationStore.sortedConversations.first {
@@ -447,6 +451,8 @@ final class ChatEngine: ObservableObject {
             browserReadEnabled: features.browserTool && browser.allowAgentRead,
             githubEnabled: features.githubTool && gitStore.isConnected(.github),
             giteeEnabled: features.giteeTool && gitStore.isConnected(.gitee),
+            visionEnabled: features.visionTool,
+            fileEnabled: features.fileTool,
             skillNames: activeSkillNames
         )
     }
@@ -575,9 +581,74 @@ final class ChatEngine: ObservableObject {
             }
             return "技能「\(skill.name)」的完整说明如下，请严格按它的步骤与要求完成用户的请求：\n\n\(skill.content)"
 
+        case AgentToolCatalog.screenshotName:
+            let raw = ToolArguments.string("target", in: call.arguments) ?? ScreenVision.Target.screen.rawValue
+            let target = ScreenVision.Target(rawValue: raw.lowercased()) ?? .screen
+            return await captureScreen(target: target, call: call)
+
+        case AgentToolCatalog.workspaceName:
+            let action = ToolArguments.string("action", in: call.arguments) ?? ""
+            let path = ToolArguments.string("path", in: call.arguments) ?? ""
+            // 文件内容原样写入：代码里的缩进与换行不能被裁掉
+            let content = ToolArguments.rawString("content", in: call.arguments) ?? ""
+            return workspaceStore.perform(action: action, path: path, content: content)
+
         default:
             return "未知工具：\(call.name)"
         }
+    }
+
+    // MARK: - 查看画面（截图 + 本地 OCR）
+
+    /// 截取界面并识别文字：截图挂到工具消息上（「过程」弹窗里能看到），
+    /// 随后的请求会把它作为图片发给模型——视觉模型直接看画面，纯文本模型读 OCR 文本。
+    @MainActor
+    private func captureScreen(target: ScreenVision.Target, call: ToolCall) async -> String {
+        var image: UIImage?
+        var sourceName = "App 当前界面"
+        if target == .browser {
+            if let snapshot = await ScreenVision.captureBrowser() {
+                image = snapshot.image
+                sourceName = snapshot.url.map { "内置浏览器页面（\($0.absoluteString)）" } ?? "内置浏览器页面"
+            }
+        } else {
+            image = ScreenVision.captureAppScreen()
+        }
+        guard let image else {
+            return target == .browser
+                ? "内置浏览器没有打开或页面还没就绪，无法截图。可以先用 browser_open 打开目标网址，再调用 screenshot。"
+                : "截图失败，请稍后重试。"
+        }
+
+        // 识别与压缩都放到后台，避免阻塞主线程（截图本身必须在主线程）
+        let recognized = await ScreenVision.recognizeText(in: image)
+        let jpeg = image.jpegData(compressionQuality: 0.82)
+        let attachment = await Task.detached(priority: .userInitiated) {
+            jpeg.flatMap { ChatAttachment.save($0) }
+        }.value
+        if let attachment {
+            attach(attachment, toToolCall: call.id)
+        }
+
+        var lines = ["已截取\(sourceName)，截图作为图片附在本次工具结果之后。"]
+        if recognized.isEmpty {
+            lines.append("本地 OCR 没有识别到文字，请直接看图片内容。")
+        } else {
+            lines.append("本地 OCR 识别到的文字：\n\(ScreenVision.truncated(recognized))")
+        }
+        return lines.joined(separator: "\n\n")
+    }
+
+    /// 把截图挂到对应的工具结果消息上
+    @MainActor
+    private func attach(_ attachment: ChatAttachment, toToolCall callID: String) {
+        guard var conversation = currentConversation else { return }
+        guard let index = conversation.messages.lastIndex(where: { $0.toolCallID == callID }) else { return }
+        var attachments = conversation.messages[index].attachments ?? []
+        attachments.append(attachment)
+        conversation.messages[index].attachments = attachments
+        conversation.updatedAt = Date()
+        currentConversation = conversation
     }
 
     /// 把「可用技能」清单并入系统提示：技能规定做法，工具负责执行，两者互补。
@@ -599,6 +670,15 @@ final class ChatEngine: ObservableObject {
     private func buildAPIMessages(conversationID: UUID, latestUserText: String) -> [APIMessage] {
         guard let conversation = currentConversation else { return [] }
         var result: [APIMessage] = []
+        /// 工具产生的截图（如「查看画面」）：等这一批工具结果都发完之后再作为一条用户消息附上，
+        /// 避免打断「assistant(tool_calls) → tool(tool_call_id)…」的配对顺序
+        var pendingToolImages: [ChatAttachment] = []
+
+        func flushToolImages() {
+            guard !pendingToolImages.isEmpty else { return }
+            result.append(APIMessage(role: "user", content: Self.toolImagePlaceholder, images: pendingToolImages))
+            pendingToolImages = []
+        }
 
         let systemPrompt = Self.systemPrompt(base: settingsStore.settings.systemPrompt, skills: activeSkills)
         if !systemPrompt.isEmpty {
@@ -606,6 +686,8 @@ final class ChatEngine: ObservableObject {
         }
 
         for message in conversation.messages where message.id != lastStreamingAssistantID(in: conversation) {
+            // 遇到非工具消息说明这一批工具结果已经发完，先把截图补上
+            if message.role != .tool { flushToolImages() }
             switch message.role {
             case .user, .assistant:
                 let toolCalls = message.toolCalls ?? []
@@ -626,13 +708,16 @@ final class ChatEngine: ObservableObject {
                     toolCalls: nil,
                     toolCallID: message.toolCallID
                 ))
+                pendingToolImages.append(contentsOf: message.attachments ?? [])
             case .system:
                 continue
             }
         }
+        flushToolImages()
 
-        // 确保最新的用户输入（可能被插件改写）出现在最后；图片要一并保留
-        if let last = result.last, last.role == "user" {
+        // 确保最新的用户输入（可能被插件改写）出现在最后；图片要一并保留。
+        // 末尾若是刚补上的截图消息，则不动它（否则截图会关联到错误的文字）。
+        if let last = result.last, last.role == "user", last.content != Self.toolImagePlaceholder {
             result[result.count - 1] = APIMessage(
                 role: "user",
                 content: latestUserText,
@@ -641,6 +726,9 @@ final class ChatEngine: ObservableObject {
         }
         return result
     }
+
+    /// 工具截图补给模型时用的占位文案（末尾替换逻辑据此跳过）
+    private static let toolImagePlaceholder = "（这是工具刚截取的画面）"
 
     private func lastStreamingAssistantID(in conversation: Conversation) -> UUID? {
         conversation.messages.last(where: { $0.role == .assistant && $0.isStreaming })?.id

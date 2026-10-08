@@ -11,6 +11,8 @@ struct ChatProcessStep: Identifiable, Equatable {
     let detail: String
     /// 工具返回内容
     let output: String?
+    /// 工具产生的截图（「查看画面」），在弹窗里直接显示
+    let image: ChatAttachment?
 }
 
 /// 一条助手消息的「过程」：折叠行摘要 + 弹窗里的步骤与思考内容。
@@ -42,13 +44,15 @@ struct ChatProcess: Equatable {
             forms[form.key] = form
             counts[form.key, default: 0] += 1
             if !order.contains(form.key) { order.append(form.key) }
-            let output = toolMessages.first { $0.toolCallID == call.id }?.content
+            let toolMessage = toolMessages.first { $0.toolCallID == call.id }
+            let output = toolMessage?.content
             steps.append(ChatProcessStep(
                 id: call.id,
                 title: form.title,
                 icon: form.icon,
                 detail: Self.detail(for: call),
-                output: (output?.isEmpty ?? true) ? nil : output
+                output: (output?.isEmpty ?? true) ? nil : output,
+                image: toolMessage?.attachments?.first
             ))
         }
 
@@ -98,6 +102,10 @@ struct ChatProcess: Equatable {
                 return Form(key: "gitee", title: "Gitee 操作", icon: "chevron.left.forwardslash.chevron.right", verb: "调用", unit: "次 Gitee")
             case AgentToolCatalog.skillName:
                 return Form(key: "skill", title: "调用技能", icon: "sparkles", verb: "调用", unit: "个技能")
+            case AgentToolCatalog.screenshotName:
+                return Form(key: "vision", title: "查看画面", icon: "eye", verb: "查看", unit: "次画面")
+            case AgentToolCatalog.workspaceName:
+                return Form(key: "workspace", title: "文件操作", icon: "folder", verb: "操作", unit: "次文件")
             default:
                 return Form(key: toolName, title: "工具调用", icon: "wrench.and.screwdriver", verb: "调用", unit: "次工具")
             }
@@ -119,6 +127,15 @@ struct ChatProcess: Equatable {
             return action
         case AgentToolCatalog.skillName:
             return ToolArguments.string("name", in: call.arguments) ?? call.arguments
+        case AgentToolCatalog.screenshotName:
+            let target = ToolArguments.string("target", in: call.arguments) ?? "screen"
+            return target.lowercased() == "browser" ? "内置浏览器页面" : "App 当前界面"
+        case AgentToolCatalog.workspaceName:
+            let action = ToolArguments.string("action", in: call.arguments) ?? "操作"
+            if let path = ToolArguments.string("path", in: call.arguments) {
+                return "\(action) · \(path)"
+            }
+            return action
         default:
             return call.arguments
         }

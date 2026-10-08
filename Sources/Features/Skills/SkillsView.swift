@@ -12,6 +12,16 @@ struct SkillsView: View {
 
     var body: some View {
         List {
+            // 总开关放在顶部：技能库整体「能不能被智能体调用」只在这里控制
+            Section {
+                Toggle(isOn: $settingsStore.settings.features.skillTool) {
+                    SettingsRowLabel(symbol: "sparkles", color: .orange, title: "允许智能体调用技能")
+                }
+                .accessibilityIdentifier("skills.agentToggle")
+            } footer: {
+                Text("关闭后技能仍保留在本地，但不会出现在对话中，模型也不会调用。")
+            }
+
             Section {
                 ForEach(listSkills) { skill in
                     NavigationLink {
@@ -20,12 +30,21 @@ struct SkillsView: View {
                         rowLabel(skill)
                     }
                     .accessibilityIdentifier("skills.row")
-                    .swipeActions(edge: .trailing) {
+                    // 行背景自绘成圆角卡片：系统默认行背景在「左滑后再右滑」时会残留直角
+                    .listRowBackground(
+                        RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous)
+                            .fill(DSHTheme.page)
+                            .padding(.vertical, 3)
+                    )
+                    .listRowSeparator(.hidden)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                         Button(role: .destructive) {
                             skillStore.delete(id: skill.id)
                         } label: {
                             Label("删除", systemImage: "trash")
                         }
+                        // 明确指定红色：列表上的品牌色 tint 会把破坏性按钮一起染蓝
+                        .tint(DSHTheme.danger)
                     }
                 }
                 if listSkills.isEmpty {
@@ -37,15 +56,6 @@ struct SkillsView: View {
                 Text("技能库（\(skillStore.skills.count)）")
             } footer: {
                 Text("技能与工具不重合、可同时使用：工具负责执行操作（执行命令、打开网页、读写仓库），技能负责规定「该怎么做」（步骤、规范、检查清单）。启用后模型会在需要时调用 skill 工具读取技能全文。")
-            }
-
-            Section {
-                Toggle(isOn: $settingsStore.settings.features.skillTool) {
-                    SettingsRowLabel(symbol: "sparkles", color: .orange, title: "允许智能体调用技能")
-                }
-                .accessibilityIdentifier("skills.agentToggle")
-            } footer: {
-                Text("关闭后技能仍保留在本地，但不会出现在对话中，模型也不会调用。")
             }
 
             Section {
@@ -94,6 +104,10 @@ struct SkillsView: View {
                     .lineLimit(2)
             }
         }
+        // 行背景是自绘的圆角卡片，这里给内容留出上下内边距
+        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
 }
 

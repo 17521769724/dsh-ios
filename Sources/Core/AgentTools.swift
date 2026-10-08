@@ -10,6 +10,10 @@ enum AgentToolCatalog {
     static let giteeName = "gitee"
     /// 读取用户自定义技能（技能规定做法，工具执行操作，两者互补）
     static let skillName = "skill"
+    /// 查看画面：截取界面 / 内置浏览器并用本地 OCR 识别文字
+    static let screenshotName = "screenshot"
+    /// 工作区文件：读写内置文件管理器与 IDE 所在的文件夹
+    static let workspaceName = "workspace"
 
     /// 当前可用的工具：只有开启且可用的工具才下发给模型，
     /// 避免模型调用必然失败的工具（SSH 未配置、浏览器功能关闭等）。
@@ -19,6 +23,8 @@ enum AgentToolCatalog {
         browserReadEnabled: Bool,
         githubEnabled: Bool = false,
         giteeEnabled: Bool = false,
+        visionEnabled: Bool = false,
+        fileEnabled: Bool = false,
         skillNames: [String] = []
     ) -> [APITool] {
         var tools: [APITool] = []
@@ -30,6 +36,12 @@ enum AgentToolCatalog {
             if browserReadEnabled {
                 tools.append(browserRead)
             }
+        }
+        if visionEnabled {
+            tools.append(screenshot)
+        }
+        if fileEnabled {
+            tools.append(workspace)
         }
         if githubEnabled {
             tools.append(github)
@@ -94,6 +106,67 @@ enum AgentToolCatalog {
             }
           },
           "required": ["url"]
+        }
+        """)
+    )
+
+    /// 查看画面：截取界面并用本地 OCR 识别文字，同时把截图作为图片发给模型。
+    /// 视觉模型可以直接「看到」用户界面或浏览器页面，纯文本模型也有 OCR 文本可用。
+    static let screenshot = APITool(
+        name: screenshotName,
+        description: """
+        截取画面并识别其中的文字（本地 OCR），同时把截图作为图片发给你。\
+        target=screen 截取 App 当前界面（用户正在看的内容），target=browser 截取内置浏览器当前页面。\
+        适合用户说「你看看这个」「这页里写了什么」「帮我确认报错」这类需要你亲眼看一眼的场景；\
+        要看某个网址时先调用 browser_open 打开它，再用 target=browser 截图。
+        """,
+        parameters: schema("""
+        {
+          "type": "object",
+          "properties": {
+            "target": {
+              "type": "string",
+              "description": "要查看的位置：screen=App 当前界面（默认），browser=内置浏览器页面",
+              "enum": ["screen", "browser"]
+            },
+            "reason": {
+              "type": "string",
+              "description": "想通过画面确认什么，例如「读出页面上的价格」「确认报错提示」"
+            }
+          },
+          "required": []
+        }
+        """)
+    )
+
+    /// 工作区文件：与内置文件管理器 / IDE 共用同一批文件，
+    /// 模型写下的代码可以直接在 App 里用编辑器打开继续改。
+    static let workspace = APITool(
+        name: workspaceName,
+        description: """
+        读写 App 工作区里的文件（内置「文件」页与 IDE 所在的文件夹，用户也能在系统「文件」App 里看到）。\
+        可用动作：list（列出目录）、read（读取文本文件）、write（新建或覆盖文件）、mkdir（新建文件夹）、delete（删除文件或文件夹）。\
+        路径使用相对工作区的写法，例如 src/main.swift；省略 path 表示工作区根目录。
+        """,
+        parameters: schema("""
+        {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "description": "操作类型：list / read / write / mkdir / delete",
+              "enum": ["list", "read", "write", "mkdir", "delete"]
+            },
+            "path": {
+              "type": "string",
+              "description": "相对工作区的路径，例如 src/main.swift；省略表示工作区根目录"
+            },
+            "content": {
+              "type": "string",
+              "description": "文件内容（write 时必填），原样写入，不做裁剪"
+            }
+          },
+          "required": ["action"]
         }
         """)
     )
@@ -211,5 +284,16 @@ enum ToolArguments {
         }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// 读取字符串参数并保留原始空白：写文件内容时用，
+    /// 代码里的缩进、换行与结尾空行不能被裁掉。
+    static func rawString(_ key: String, in raw: String) -> String? {
+        guard let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let value = object[key] as? String else {
+            return nil
+        }
+        return value
     }
 }

@@ -7,6 +7,11 @@ struct BrowserRequest: Identifiable, Equatable {
     let url: URL
 }
 
+/// 当前打开的浏览器页面：智能体的「查看画面」工具用它截取页面内容
+enum BrowserRegistry {
+    static weak var activeWebView: WKWebView?
+}
+
 /// 内置浏览器：地址栏 + 前进/后退/刷新 + 分享。
 struct BrowserView: View {
     let initialURL: URL
@@ -82,6 +87,13 @@ struct BrowserView: View {
             model.onRedirect = onRedirect
             model.applyDesktopMode(settingsStore.settings.browser.desktopSite)
             model.load(initialURL)
+            // 登记当前页面，供智能体「查看画面」工具截图
+            BrowserRegistry.activeWebView = model.webView
+        }
+        .onDisappear {
+            if BrowserRegistry.activeWebView === model.webView {
+                BrowserRegistry.activeWebView = nil
+            }
         }
         .onChange(of: settingsStore.settings.browser.desktopSite) { on in
             model.applyDesktopMode(on)

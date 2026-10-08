@@ -68,6 +68,11 @@ struct MessageBubble: View, Equatable {
             .padding(.vertical, 10)
             .background(DSHTheme.userBubble)
             .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.bubble, style: .continuous))
+            // 长按呼出菜单时的抬起预览与高亮也按圆角绘制，避免出现直角背景
+            .contentShape(
+                .contextMenuPreview,
+                RoundedRectangle(cornerRadius: DSHTheme.Radius.bubble, style: .continuous)
+            )
             .contextMenu {
                 Button { onCopy() } label: { Label("复制", systemImage: "doc.on.doc") }
                 Button { onEdit() } label: { Label("编辑并重发", systemImage: "pencil") }

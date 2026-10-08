@@ -127,10 +127,20 @@ struct SettingsView: View {
                 )
             }
             .accessibilityIdentifier("settings.browser")
+
+            Toggle(isOn: $settingsStore.settings.features.visionTool) {
+                SettingsRowLabel(symbol: "eye.fill", color: .purple, title: "智能体查看画面（截图 + OCR）")
+            }
+            .accessibilityIdentifier("feature.visionTool")
+
+            Toggle(isOn: $settingsStore.settings.features.fileTool) {
+                SettingsRowLabel(symbol: "folder.fill", color: .brown, title: "智能体读写工作区文件")
+            }
+            .accessibilityIdentifier("feature.fileTool")
         } header: {
             Text("智能体工具")
         } footer: {
-            Text("两个开关彼此独立：SSH 控制智能体能否在服务器上执行命令（需先配置服务器），浏览器控制智能体能否打开或读取网页；关闭后模型不会再调用对应工具。")
+            Text("各开关彼此独立：SSH 控制能否在服务器执行命令（需先配置服务器）、浏览器控制能否打开或读取网页、查看画面允许智能体截图并用本地 OCR 识别内容、工作区文件允许智能体读写「文件」页里的代码文件；关闭后模型不会再调用对应工具。")
         }
     }
 
@@ -322,11 +332,7 @@ struct SettingsView: View {
 
     private var skillsSection: some View {
         Section {
-            Toggle(isOn: $settingsStore.settings.features.skillTool) {
-                SettingsRowLabel(symbol: "sparkles", color: .orange, title: "技能（智能体可调用）")
-            }
-            .accessibilityIdentifier("feature.skillTool")
-
+            // 技能总开关已移到技能库页顶部，这里只保留入口
             NavigationLink {
                 SkillsView()
                     .environmentObject(skillStore)
@@ -345,7 +351,7 @@ struct SettingsView: View {
         } header: {
             Text("技能")
         } footer: {
-            Text("技能与工具不重合：工具负责执行操作（执行命令、打开网页、读写仓库），技能负责规定做法（步骤、规范、检查清单）。启用后模型会在需要时调用 skill 工具读取技能全文并照着完成。")
+            Text("技能与工具不重合：工具负责执行操作（执行命令、打开网页、读写仓库），技能负责规定做法（步骤、规范、检查清单）。是否允许智能体调用技能，在技能库页顶部的开关里控制。")
         }
     }
 

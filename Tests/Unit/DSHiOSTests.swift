@@ -1305,4 +1305,185 @@ final class SkillAgentTests: XCTestCase {
             ["ssh_exec", "browser_open", "browser_read", AgentToolCatalog.skillName]
         )
     }
+
+    /// 查看画面与工作区文件工具：各自独立开关，默认不下发（旧调用行为不变）
+    func testVisionAndWorkspaceToolsAreGatedByFlags() {
+        XCTAssertFalse(
+            AgentToolCatalog.tools(sshEnabled: false, browserEnabled: false, browserReadEnabled: false)
+                .contains { $0.name == AgentToolCatalog.screenshotName }
+        )
+
+        let withVision = AgentToolCatalog.tools(
+            sshEnabled: false,
+            browserEnabled: false,
+            browserReadEnabled: false,
+            visionEnabled: true
+        )
+        XCTAssertEqual(withVision.map(\.name), [AgentToolCatalog.screenshotName])
+        let target = withVision[0].parameters["properties"] as? [String: Any]
+        let targetField = target?["target"] as? [String: Any]
+        XCTAssertEqual(targetField?["enum"] as? [String], ["screen", "browser"])
+
+        let withFiles = AgentToolCatalog.tools(
+            sshEnabled: false,
+            browserEnabled: false,
+            browserReadEnabled: false,
+            fileEnabled: true
+        )
+        XCTAssertEqual(withFiles.map(\.name), [AgentToolCatalog.workspaceName])
+
+        let all = AgentToolCatalog.tools(
+            sshEnabled: true,
+            browserEnabled: true,
+            browserReadEnabled: true,
+            visionEnabled: true,
+            fileEnabled: true,
+            skillNames: ["周报整理"]
+        )
+        XCTAssertEqual(
+            all.map(\.name),
+            ["ssh_exec", "browser_open", "browser_read", "screenshot", "workspace", AgentToolCatalog.skillName]
+        )
+    }
+}
+
+// MARK: - 工作区文件（文件管理器 / IDE / 智能体工具）
+
+final class WorkspaceStoreTests: XCTestCase {
+
+    private var root: URL!
+
+    override func setUpWithError() throws {
+        root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("workspace-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        if let root { try? FileManager.default.removeItem(at: root) }
+    }
+
+    func testCreateWriteReadRenameDelete() throws {
+        let store = WorkspaceStore(root: root)
+        XCTAssertTrue(store.items.isEmpty, "新工作区应为空")
+
+        // 新建文件并写入代码：内容必须原样保存（含缩进与换行）
+        let code = "func main() {\n    print(\"hi\")\n}\n"
+        let fileURL = try XCTUnwrap(store.createFile(named: "main.swift"))
+        XCTAssertTrue(store.write(code, to: fileURL))
+        XCTAssertEqual(store.read(fileURL), code)
+        XCTAssertEqual(store.items.map(\.name), ["main.swift"])
+
+        // 新建文件夹后进入，再返回上级
+        let folder = try XCTUnwrap(store.createFolder(named: "src"))
+        store.enter(WorkspaceStore.Item(url: folder, isDirectory: true, size: 0, modifiedAt: Date()))
+        XCTAssertTrue(store.items.isEmpty)
+        store.goUp()
+        XCTAssertEqual(store.items.count, 2, "返回上级后应看到文件夹与文件")
+
+        // 重命名与删除
+        let item = try XCTUnwrap(store.items.first { $0.name == "main.swift" })
+        XCTAssertTrue(store.rename(item, to: "app.swift"))
+        XCTAssertTrue(store.items.contains { $0.name == "app.swift" })
+        let renamed = try XCTUnwrap(store.items.first { $0.name == "app.swift" })
+        XCTAssertTrue(store.delete(renamed))
+        XCTAssertFalse(store.items.contains { $0.name == "app.swift" })
+    }
+
+    func testDisplayNameSanitizingRejectsBadNames() {
+        let store = WorkspaceStore(root: root)
+        XCTAssertNil(store.createFile(named: "   "))
+        XCTAssertNil(store.createFile(named: "../evil.swift"))
+        XCTAssertNil(store.createFolder(named: "a/b"))
+    }
+
+    func testResolveRejectsPathsOutsideWorkspace() {
+        XCTAssertNil(WorkspaceStore.resolve(path: "/etc/passwd", root: root))
+        XCTAssertNil(WorkspaceStore.resolve(path: "../escape", root: root))
+        XCTAssertEqual(WorkspaceStore.resolve(path: "", root: root)?.path, root.path)
+        XCTAssertEqual(
+            WorkspaceStore.resolve(path: "src/main.swift", root: root)?.path,
+            root.appendingPathComponent("src/main.swift").path
+        )
+    }
+
+    func testTextAndImageDetection() {
+        XCTAssertTrue(WorkspaceStore.isTextFile(root.appendingPathComponent("a.swift")))
+        XCTAssertTrue(WorkspaceStore.isTextFile(root.appendingPathComponent("b.md")))
+        XCTAssertFalse(WorkspaceStore.isTextFile(root.appendingPathComponent("c.png")))
+        XCTAssertTrue(WorkspaceStore.isImageFile(root.appendingPathComponent("c.png")))
+        XCTAssertFalse(WorkspaceStore.isImageFile(root.appendingPathComponent("a.swift")))
+    }
+
+    /// 智能体工具的文本结果：list / read / write / mkdir / delete 五种动作
+    func testAgentPerformActions() {
+        let store = WorkspaceStore(root: root)
+
+        let written = store.perform(action: "write", path: "src/app.js", content: "console.log(1)\n")
+        XCTAssertTrue(written.contains("已写入"), written)
+
+        let listed = store.perform(action: "list", path: "src", content: "")
+        XCTAssertTrue(listed.contains("app.js"), listed)
+
+        let read = store.perform(action: "read", path: "src/app.js", content: "")
+        XCTAssertTrue(read.contains("console.log(1)"), read)
+
+        let made = store.perform(action: "mkdir", path: "docs", content: "")
+        XCTAssertTrue(made.contains("已创建文件夹"), made)
+
+        let removed = store.perform(action: "delete", path: "src/app.js", content: "")
+        XCTAssertTrue(removed.contains("已删除"), removed)
+
+        XCTAssertTrue(store.perform(action: "list", path: "src", content: "").contains("空目录"))
+        XCTAssertTrue(store.perform(action: "read", path: "nope.txt", content: "").contains("不存在"))
+        XCTAssertTrue(store.perform(action: "bad", path: "", content: "").contains("不支持的动作"))
+        // 越界路径必须被拒绝
+        XCTAssertTrue(store.perform(action: "read", path: "../state.json", content: "").contains("路径不合法"))
+    }
+}
+
+// MARK: - 查看画面（OCR 文本处理）
+
+final class ScreenVisionTests: XCTestCase {
+
+    func testTargetParsing() {
+        XCTAssertEqual(ScreenVision.Target(rawValue: "screen"), .screen)
+        XCTAssertEqual(ScreenVision.Target(rawValue: "browser"), .browser)
+        XCTAssertNil(ScreenVision.Target(rawValue: "unknown"))
+    }
+
+    func testLongTextIsTruncated() {
+        let short = "识别结果"
+        XCTAssertEqual(ScreenVision.truncated(short), short)
+
+        let long = String(repeating: "字", count: ScreenVision.maxTextLength + 100)
+        let result = ScreenVision.truncated(long)
+        XCTAssertTrue(result.hasPrefix(String(repeating: "字", count: 50)))
+        XCTAssertTrue(result.count < long.count)
+        XCTAssertTrue(result.contains("已截断"))
+    }
+}
+
+// MARK: - 新增功能开关的默认值与旧数据兼容
+
+final class FeatureFlagCompatibilityTests: XCTestCase {
+
+    func testVisionAndFileToolsDefaultOn() {
+        let flags = FeatureFlags()
+        XCTAssertTrue(flags.visionTool, "查看画面默认开启（用户要求新增该能力）")
+        XCTAssertTrue(flags.fileTool, "工作区文件默认开启")
+
+        XCTAssertTrue(FeatureFlags.allOn.visionTool)
+        XCTAssertTrue(FeatureFlags.allOn.fileTool)
+    }
+
+    /// 旧版本写入的设置里没有这两个开关时，解码后应取默认值而不是 false
+    func testLegacyDataDecodesToDefaults() throws {
+        let legacy = #"{"sessionLog":true}"#
+        let decoded = try JSONDecoder().decode(FeatureFlags.self, from: Data(legacy.utf8))
+        XCTAssertTrue(decoded.sessionLog)
+        XCTAssertTrue(decoded.visionTool)
+        XCTAssertTrue(decoded.fileTool)
+        XCTAssertTrue(decoded.skillTool)
+    }
 }

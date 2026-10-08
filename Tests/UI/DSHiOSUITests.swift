@@ -582,6 +582,9 @@ final class DSHiOSUITests: XCTestCase {
         // 恢复默认，避免影响其它用例
         openSettings()
         toggleFeature("feature.browserTool", on: false)
+        // 新增的两个智能体工具开关（查看画面 / 工作区文件）在同一分组、位于浏览器开关下方
+        XCTAssertTrue(scrollTo("feature.visionTool").waitForExistence(timeout: 5), "缺少「智能体查看画面」开关")
+        XCTAssertTrue(scrollTo("feature.fileTool").waitForExistence(timeout: 5), "缺少「智能体读写工作区文件」开关")
         closeSettings()
     }
 
@@ -688,6 +691,10 @@ final class DSHiOSUITests: XCTestCase {
 
         XCTAssertTrue(app.navigationBars["技能"].waitForExistence(timeout: 5), "技能页未打开")
 
+        // 总开关已从设置页移到技能库页顶部
+        let agentToggle = element("skills.agentToggle")
+        XCTAssertTrue(agentToggle.waitForExistence(timeout: 5), "技能页顶部缺少总开关")
+
         element("skills.add").tap()
         let nameField = element("skills.editor.name")
         XCTAssertTrue(nameField.waitForExistence(timeout: 5), "新建技能页未打开")
@@ -702,6 +709,8 @@ final class DSHiOSUITests: XCTestCase {
 
         let row = app.staticTexts["UI Test Skill"]
         XCTAssertTrue(row.waitForExistence(timeout: 5), "新增的技能未出现在列表里")
+        // 开关应在技能列表上方（用户要求把开关放到顶部）
+        XCTAssertLessThan(agentToggle.frame.minY, row.frame.minY, "总开关应位于技能列表上方")
         capture("20-skill-added")
 
         // 左滑删除：技能应立即消失并回到空态
@@ -716,5 +725,84 @@ final class DSHiOSUITests: XCTestCase {
             element("skills.empty").waitForExistence(timeout: 5),
             "删除后技能列表未立即回到空态"
         )
+    }
+
+    // MARK: - 文件管理器与 IDE（新增功能）
+
+    func test21_文件管理器与IDE可编写代码() {
+        element("topbar.sidebar").tap()
+        let filesEntry = element("sidebar.files")
+        XCTAssertTrue(filesEntry.waitForExistence(timeout: 5), "抽屉缺少文件入口")
+        filesEntry.tap()
+
+        XCTAssertTrue(app.navigationBars["文件"].waitForExistence(timeout: 5), "文件页未打开")
+        let empty = element("files.empty")
+        XCTAssertTrue(empty.waitForExistence(timeout: 5), "空工作区应显示空状态")
+        capture("21-files-empty")
+
+        // 新建代码文件：创建后应直接进入内置编辑器
+        element("files.add").tap()
+        let newFile = app.buttons["新建文件"].firstMatch
+        XCTAssertTrue(newFile.waitForExistence(timeout: 5), "缺少「新建文件」入口")
+        newFile.tap()
+
+        let nameField = app.alerts.firstMatch.textFields.firstMatch
+        XCTAssertTrue(nameField.waitForExistence(timeout: 5), "新建文件弹窗缺少输入框")
+        nameField.typeText("hello.swift")
+        app.alerts.firstMatch.buttons["创建"].tap()
+
+        let editor = element("files.editor.text")
+        XCTAssertTrue(editor.waitForExistence(timeout: 10), "新建文件后未进入内置编辑器")
+        editor.tap()
+        editor.typeText("let answer = 42\n")
+        capture("22-ide-editor")
+
+        element("files.editor.save").tap()
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertTrue(app.staticTexts["已保存"].waitForExistence(timeout: 5), "保存后状态栏未显示已保存")
+
+        // 返回文件列表，应看到新建的文件
+        app.navigationBars.buttons.firstMatch.tap()
+        let row = app.staticTexts["hello.swift"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "文件列表未出现新建的文件")
+        capture("23-files-list")
+
+        // 重新打开，确认代码已落盘
+        row.tap()
+        let reopened = element("files.editor.text")
+        XCTAssertTrue(reopened.waitForExistence(timeout: 8), "未重新进入编辑器")
+        let text = (reopened.value as? String) ?? ""
+        XCTAssertTrue(text.contains("let answer = 42"), "重新打开后代码内容丢失：\(text)")
+        capture("24-ide-reopened")
+
+        app.navigationBars.buttons.firstMatch.tap()
+        app.buttons["完成"].firstMatch.tap()
+        XCTAssertTrue(element("composer.input").waitForExistence(timeout: 5), "关闭文件页后未回到主页")
+    }
+
+    // MARK: - 冷启动顶栏（真机问题回归：图标跳动）
+
+    func test22_冷启动顶栏图标不跳动() {
+        launchApp(configured: true, seed: false)
+        // 启动后立刻抓一帧，再等布局稳定后对比（截图会随 CI 产物一起收集）
+        capture("25-cold-start-early")
+
+        let sidebar = element("topbar.sidebar")
+        XCTAssertTrue(sidebar.waitForExistence(timeout: 10), "缺少左侧顶栏图标")
+        let early = sidebar.frame
+
+        Thread.sleep(forTimeInterval: 1.5)
+        let settled = sidebar.frame
+        capture("25-cold-start-settled")
+
+        XCTAssertEqual(early.minX, settled.minX, accuracy: 0.5, "冷启动后左侧顶栏图标横向位移")
+        XCTAssertEqual(early.minY, settled.minY, accuracy: 0.5, "冷启动后左侧顶栏图标纵向位移")
+
+        let menu = element("topbar.menu")
+        XCTAssertTrue(menu.exists, "缺少右侧顶栏图标")
+        let menuEarly = menu.frame
+        Thread.sleep(forTimeInterval: 0.8)
+        XCTAssertEqual(menuEarly.minX, menu.frame.minX, accuracy: 0.5, "冷启动后右侧顶栏图标横向位移")
+        XCTAssertEqual(menuEarly.minY, menu.frame.minY, accuracy: 0.5, "冷启动后右侧顶栏图标纵向位移")
     }
 }

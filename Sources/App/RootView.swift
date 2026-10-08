@@ -17,13 +17,23 @@ struct RootView: View {
     @State private var showSettings = false
     @State private var showPlugins = false
     @State private var showSkills = false
+    @State private var showFiles = false
     @State private var showSessionLog = false
+    /// 启动阶段是否已经稳定：首帧布局就绪前屏蔽隐式动画，
+    /// 否则冷启动时（顶栏、抽屉）会播放一次位移动画，看起来就是「图标跳动」
+    @State private var hasSettled = false
+    /// 抽屉宽度在启动时算一次就固定：冷启动首帧屏幕尺寸未就绪时宽度变化会让抽屉闪现、顶栏图标跳动
+    @State private var drawerWidth: CGFloat = RootView.initialDrawerWidth
 
     private var settings: AppSettings { settingsStore.settings }
     private var features: FeatureFlags { settings.features }
 
     private var isRegular: Bool { sizeClass == .regular }
-    private var drawerWidth: CGFloat { isRegular ? 320 : min(320, UIScreen.main.bounds.width * 0.82) }
+
+    /// 启动时的抽屉宽度：手机约为屏宽的 82%（上限 320），iPad 固定 320
+    private static var initialDrawerWidth: CGFloat {
+        min(320, max(280, UIScreen.main.bounds.width * 0.82))
+    }
 
     var body: some View {
         Group {
@@ -36,6 +46,14 @@ struct RootView: View {
             }
         }
         .dshAppearance(settings.appTheme)
+        // 首帧稳定前不播放隐式动画：冷启动时布局还在收敛，播放动画会表现为顶栏图标「跳动」
+        .transaction { transaction in
+            if !hasSettled { transaction.animation = nil }
+        }
+        .onAppear {
+            guard !hasSettled else { return }
+            DispatchQueue.main.async { hasSettled = true }
+        }
         // 全局：点击空白区域收起键盘（点击输入框内部不收起）
         .background(alignment: .topLeading) {
             TapToDismissKeyboard()
@@ -46,13 +64,14 @@ struct RootView: View {
             settingsStore.onboardingRequested = false
             showPlugins = false
             showSkills = false
+            showFiles = false
             showSessionLog = false
             showSettings = false
         }
     }
 
     private var isAnyOverlayPresented: Bool {
-        showSettings || showPlugins || showSkills || showSessionLog
+        showSettings || showPlugins || showSkills || showFiles || showSessionLog
     }
 
     // MARK: - 主界面
@@ -80,6 +99,8 @@ struct RootView: View {
                     .frame(width: drawerWidth)
                     .background(DSHTheme.page.ignoresSafeArea())
                     .offset(x: drawerOffset)
+                    // 关闭时同时置为透明：冷启动首帧几何尚未就绪时也不会闪现抽屉
+                    .opacity(drawerOpen ? 1 : 0)
                     .gesture(dragToClose)
             }
 
@@ -121,6 +142,19 @@ struct RootView: View {
                     .toolbar {
                         ToolbarItem(placement: .navigationBarLeading) {
                             Button("关闭") { showSkills = false }
+                        }
+                    }
+            }
+            .dshAppearance(settings.appTheme)
+        }
+        // 内置文件管理器 + IDE：与智能体的「工作区文件」工具共用同一批文件
+        .sheet(isPresented: $showFiles) {
+            NavigationStack {
+                FilesView()
+                    .environmentObject(engine.workspaceStore)
+                    .toolbar {
+                        ToolbarItem(placement: .navigationBarTrailing) {
+                            Button("完成") { showFiles = false }
                         }
                     }
             }
@@ -247,7 +281,8 @@ struct RootView: View {
             close: { if !embedded { closeDrawer() } },
             openSettings: { presentOverlay { showSettings = true } },
             openPlugins: { presentOverlay { showPlugins = true } },
-            openSkills: { presentOverlay { showSkills = true } }
+            openSkills: { presentOverlay { showSkills = true } },
+            openFiles: { presentOverlay { showFiles = true } }
         )
         // 搜索框聚焦弹出键盘时，抽屉底部的「插件中心 / 设置」保持固定在屏幕底部，
         // 不随键盘上移（被键盘遮挡也保持原位置）。

@@ -320,6 +320,10 @@ struct FeatureFlags: Codable, Equatable {
     var giteeTool: Bool = false
     /// 技能（智能体可按需取用用户自己写的技能说明；技能规定做法，工具执行操作）
     var skillTool: Bool = true
+    /// 查看画面（智能体可截取当前界面或内置浏览器页面，并用本地 OCR 识别文字）
+    var visionTool: Bool = true
+    /// 工作区文件（智能体可读写「文件」页里的代码文件）
+    var fileTool: Bool = true
 
     init() {}
 
@@ -347,6 +351,8 @@ struct FeatureFlags: Codable, Equatable {
         self.githubTool = try container.decodeIfPresent(Bool.self, forKey: .githubTool) ?? fallback.githubTool
         self.giteeTool = try container.decodeIfPresent(Bool.self, forKey: .giteeTool) ?? fallback.giteeTool
         self.skillTool = try container.decodeIfPresent(Bool.self, forKey: .skillTool) ?? fallback.skillTool
+        self.visionTool = try container.decodeIfPresent(Bool.self, forKey: .visionTool) ?? fallback.visionTool
+        self.fileTool = try container.decodeIfPresent(Bool.self, forKey: .fileTool) ?? fallback.fileTool
     }
 
     init(
@@ -360,7 +366,9 @@ struct FeatureFlags: Codable, Equatable {
         browserTool: Bool = false,
         githubTool: Bool = false,
         giteeTool: Bool = false,
-        skillTool: Bool = true
+        skillTool: Bool = true,
+        visionTool: Bool = true,
+        fileTool: Bool = true
     ) {
         self.sessionLog = sessionLog
         self.pluginCommands = pluginCommands
@@ -373,6 +381,8 @@ struct FeatureFlags: Codable, Equatable {
         self.githubTool = githubTool
         self.giteeTool = giteeTool
         self.skillTool = skillTool
+        self.visionTool = visionTool
+        self.fileTool = fileTool
     }
 
     static let allOn = FeatureFlags(
@@ -386,7 +396,9 @@ struct FeatureFlags: Codable, Equatable {
         browserTool: true,
         githubTool: true,
         giteeTool: true,
-        skillTool: true
+        skillTool: true,
+        visionTool: true,
+        fileTool: true
     )
 }
 

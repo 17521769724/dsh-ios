@@ -113,6 +113,19 @@ struct ProcessSheet: View {
                     .lineLimit(3)
                     .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                // 「查看画面」的截图：让用户看到模型究竟看到了什么
+                if let attachment = step.image,
+                   let image = AttachmentImageCache.image(for: attachment, maxSide: 900) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: DSHTheme.Radius.card, style: .continuous)
+                                .stroke(DSHTheme.separator.opacity(0.8), lineWidth: 0.5)
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.card, style: .continuous))
+                }
                 if let output = step.output {
                     Text(Self.trimmed(output))
                         .font(.system(size: 12, design: .monospaced))

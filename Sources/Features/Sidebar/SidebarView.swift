@@ -13,6 +13,7 @@ struct SidebarView: View {
     var openSettings: () -> Void
     var openPlugins: () -> Void
     var openSkills: () -> Void
+    var openFiles: () -> Void
 
     @State private var query = ""
     @State private var renameTarget: Conversation?
@@ -312,6 +313,12 @@ struct SidebarView: View {
                 identifier: "sidebar.skills",
                 trailing: skillStore.skills.isEmpty ? "未添加" : "\(skillStore.skills.count) 个",
                 action: openSkills
+            )
+            entryRow(
+                icon: "folder",
+                title: "文件",
+                identifier: "sidebar.files",
+                action: openFiles
             )
             entryRow(
                 icon: "gearshape",

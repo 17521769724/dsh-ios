@@ -9,6 +9,7 @@ struct DSHiOSApp: App {
     @StateObject private var skillStore: SkillStore
     @StateObject private var sshStore: SSHStore
     @StateObject private var gitStore: GitAccountStore
+    @StateObject private var workspaceStore: WorkspaceStore
     @StateObject private var engine: ChatEngine
 
     init() {
@@ -25,6 +26,8 @@ struct DSHiOSApp: App {
         if arguments.contains("-uitest-reset") {
             conversations.deleteAll()
             skillStore.deleteAll()
+            // 工作区（文件 / IDE 的文件夹）也一并清空，保证文件相关用例从空目录开始
+            try? FileManager.default.removeItem(at: WorkspaceStore.defaultRoot)
             // Keychain 在模拟器上不会随 App 卸载而清空，需显式清掉 Key，
             // 否则引导页门禁测试会因残留 Key 直接进入主页。
             settings.apiKey = ""
@@ -36,13 +39,17 @@ struct DSHiOSApp: App {
             settings.apiKey = "sk-uitest-placeholder"
         }
 
+        // 上面可能删除了工作区目录，这里再建实例，保证根目录存在
+        let workspaceStore = WorkspaceStore()
+
         let engine = ChatEngine(
             settingsStore: settings,
             conversationStore: conversations,
             pluginManager: pluginManager,
             sshStore: sshStore,
             gitStore: gitStore,
-            skillStore: skillStore
+            skillStore: skillStore,
+            workspaceStore: workspaceStore
         )
         // 让插件（如「回答风格约束」）能读到设置里编辑的内容
         pluginManager.configure(settingsStore: settings)
@@ -61,6 +68,7 @@ struct DSHiOSApp: App {
         _skillStore = StateObject(wrappedValue: skillStore)
         _sshStore = StateObject(wrappedValue: sshStore)
         _gitStore = StateObject(wrappedValue: gitStore)
+        _workspaceStore = StateObject(wrappedValue: workspaceStore)
         _engine = StateObject(wrappedValue: engine)
     }
 
@@ -74,6 +82,7 @@ struct DSHiOSApp: App {
                 .environmentObject(skillStore)
                 .environmentObject(sshStore)
                 .environmentObject(gitStore)
+                .environmentObject(workspaceStore)
                 .tint(DSHTheme.brand)
         }
     }
