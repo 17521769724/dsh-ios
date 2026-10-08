@@ -1,4 +1,164 @@
-= false,
+import Foundation
+import UIKit
+
+// MARK: - 角色
+
+enum MessageRole: String, Codable, Hashable {
+    case system
+    case user
+    case assistant
+    case tool
+
+    var displayName: String {
+        switch self {
+        case .system: return "系统"
+        case .user: return "我"
+        case .assistant: return "DeepSeek"
+        case .tool: return "工具"
+        }
+    }
+}
+
+// MARK: - 工具调用
+
+/// 模型请求的一次工具调用（OpenAI 兼容的 function calling）
+struct ToolCall: Codable, Hashable, Identifiable {
+    var id: String
+    var name: String
+    /// 模型给出的 JSON 参数原文，例如 {"command":"ls -la"}
+    var arguments: String
+
+    /// 供 UI 展示的简短参数摘要
+    var argumentPreview: String {
+        guard let data = arguments.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let value = object.values.first as? String else {
+            return arguments
+        }
+        return value
+    }
+}
+
+// MARK: - 图片附件
+
+/// 用户消息附带的一张图片。
+/// 图片压缩后存到 Documents/attachments/ 下的独立文件，消息里只保存文件名，
+/// 避免 state.json 因为内嵌 Base64 膨胀。
+struct ChatAttachment: Identifiable, Codable, Hashable {
+    var id: UUID
+    var fileName: String
+    var mimeType: String
+
+    init(id: UUID = UUID(), fileName: String, mimeType: String = "image/jpeg") {
+        self.id = id
+        self.fileName = fileName
+        self.mimeType = mimeType
+    }
+
+    static var directory: URL {
+        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("attachments", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: dir.path) {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        return dir
+    }
+
+    var fileURL: URL { Self.directory.appendingPathComponent(fileName) }
+
+    var data: Data? { try? Data(contentsOf: fileURL) }
+
+    /// 相册原图动辄几 MB，先缩到最长边 1280 再按 JPEG 存盘；
+    /// 失败（不是图片 / 写盘错误）返回 nil。
+    static func save(_ imageData: Data) -> ChatAttachment? {
+        guard let image = UIImage(data: imageData) else { return nil }
+        let scaled = AttachmentImageCache.downscaled(image, maxSide: 1280)
+        guard let jpeg = scaled.jpegData(compressionQuality: 0.75) else { return nil }
+        let fileName = UUID().uuidString + ".jpg"
+        do {
+            try jpeg.write(to: directory.appendingPathComponent(fileName))
+        } catch {
+            return nil
+        }
+        return ChatAttachment(fileName: fileName)
+    }
+
+    /// 删除图片文件与对应的内存缓存：
+    /// 图片只被消息引用一次，删掉消息（或撤销待发图片）时文件也要一起删，
+    /// 否则会一直留在磁盘上占空间。
+    static func delete(_ attachments: [ChatAttachment]) {
+        guard !attachments.isEmpty else { return }
+        for attachment in attachments {
+            try? FileManager.default.removeItem(at: attachment.fileURL)
+        }
+        AttachmentImageCache.removeAll()
+    }
+}
+
+/// 图片解码缓存：输入框缩略图与消息气泡每次重绘都要用，
+/// 缓存住解码结果，避免反复读盘 + 解码导致输入卡顿。
+enum AttachmentImageCache {
+    private static let cache = NSCache<NSString, UIImage>()
+
+    static func image(for attachment: ChatAttachment, maxSide: CGFloat) -> UIImage? {
+        let key = "\(attachment.fileName)@\(Int(maxSide))" as NSString
+        if let cached = cache.object(forKey: key) { return cached }
+        guard let data = attachment.data, let image = UIImage(data: data) else { return nil }
+        let scaled = downscaled(image, maxSide: maxSide)
+        cache.setObject(scaled, forKey: key)
+        return scaled
+    }
+
+    /// 图片文件被删除或清理缓存时调用，避免内存里继续持有已删除的图片
+    static func removeAll() {
+        cache.removeAllObjects()
+    }
+
+    /// 等比缩放到最长边不超过 maxSide（原图更小则原样返回）
+    static func downscaled(_ image: UIImage, maxSide: CGFloat) -> UIImage {
+        let longest = max(image.size.width, image.size.height)
+        guard longest > maxSide, longest > 0 else { return image }
+        let scale = maxSide / longest
+        let target = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let renderer = UIGraphicsImageRenderer(size: target)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: target))
+        }
+    }
+}
+
+// MARK: - 消息
+
+struct ChatMessage: Identifiable, Codable, Hashable {
+    var id: UUID
+    var role: MessageRole
+    var content: String
+    var reasoning: String?
+    var createdAt: Date
+    var isStreaming: Bool
+    var errorText: String?
+    var model: String?
+    var promptTokens: Int?
+    var completionTokens: Int?
+    /// token 数为本地估算（服务端未返回 usage 时的兜底），界面会标注 ≈
+    var tokensEstimated: Bool?
+    /// 用户对回复的反馈：1 赞，-1 踩，nil 未评价
+    var rating: Int?
+    /// 助手消息发起的工具调用
+    var toolCalls: [ToolCall]?
+    /// 工具结果消息对应的调用 id 与工具名
+    var toolCallID: String?
+    var toolName: String?
+    /// 用户消息附带的图片
+    var attachments: [ChatAttachment]?
+
+    init(
+        id: UUID = UUID(),
+        role: MessageRole,
+        content: String,
+        reasoning: String? = nil,
+        createdAt: Date = Date(),
+        isStreaming: Bool = false,
         errorText: String? = nil,
         model: String? = nil,
         promptTokens: Int? = nil,
