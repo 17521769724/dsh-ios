@@ -325,10 +325,13 @@ struct SidebarView: View {
         .padding(.bottom, DSHTheme.Spacing.small)
     }
 
-    /// 侧栏展示的版本号，例如 V1.0.1
+    /// 侧栏展示的版本，例如 V1.2.4 (76)：带上构建号，
+    /// 手机上不用进设置就能确认装的是哪一次构建（避免装到旧包却看不出来）
     private static var appVersionText: String {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
-        return "V\(version)"
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let build = info?["CFBundleVersion"] as? String ?? "1"
+        return "V\(version) (\(build))"
     }
 
     private func entryRow(
