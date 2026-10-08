@@ -96,6 +96,8 @@ struct ChatProcess: Equatable {
                 return Form(key: "github", title: "GitHub 操作", icon: "chevron.left.forwardslash.chevron.right", verb: "调用", unit: "次 GitHub")
             case AgentToolCatalog.giteeName:
                 return Form(key: "gitee", title: "Gitee 操作", icon: "chevron.left.forwardslash.chevron.right", verb: "调用", unit: "次 Gitee")
+            case AgentToolCatalog.skillName:
+                return Form(key: "skill", title: "调用技能", icon: "sparkles", verb: "调用", unit: "个技能")
             default:
                 return Form(key: toolName, title: "工具调用", icon: "wrench.and.screwdriver", verb: "调用", unit: "次工具")
             }
@@ -115,6 +117,8 @@ struct ChatProcess: Equatable {
                 return "\(action) · \(path)"
             }
             return action
+        case AgentToolCatalog.skillName:
+            return ToolArguments.string("name", in: call.arguments) ?? call.arguments
         default:
             return call.arguments
         }
