@@ -191,6 +191,7 @@ struct MCPServerDetailView: View {
 
     @EnvironmentObject private var mcpStore: MCPStore
     @EnvironmentObject private var engine: ChatEngine
+    @Environment(\.dismiss) private var dismiss
 
     @State private var showDeleteConfirm = false
     @State private var loadingPrompt: String?
