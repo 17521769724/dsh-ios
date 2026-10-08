@@ -675,4 +675,46 @@ final class DSHiOSUITests: XCTestCase {
         )
         capture("19-cleared-apikey-onboarding")
     }
+
+    // MARK: - 技能（自行添加 / 删除）
+
+    func test18_技能可自行添加并删除() {
+        launchApp(configured: true, seed: false)
+
+        element("topbar.sidebar").tap()
+        let entry = element("sidebar.skills")
+        XCTAssertTrue(entry.waitForExistence(timeout: 5), "抽屉缺少技能入口")
+        entry.tap()
+
+        XCTAssertTrue(app.navigationBars["技能"].waitForExistence(timeout: 5), "技能页未打开")
+
+        element("skills.add").tap()
+        let nameField = element("skills.editor.name")
+        XCTAssertTrue(nameField.waitForExistence(timeout: 5), "新建技能页未打开")
+        nameField.tap()
+        nameField.typeText("UI Test Skill")
+
+        let contentField = element("skills.editor.content")
+        contentField.tap()
+        contentField.typeText("Step 1: check\nStep 2: report")
+
+        element("skills.editor.save").tap()
+
+        let row = app.staticTexts["UI Test Skill"]
+        XCTAssertTrue(row.waitForExistence(timeout: 5), "新增的技能未出现在列表里")
+        capture("20-skill-added")
+
+        // 左滑删除：技能应立即消失并回到空态
+        row.swipeLeft()
+        let deleteButton = app.buttons
+            .matching(NSPredicate(format: "label == %@", "删除"))
+            .firstMatch
+        XCTAssertTrue(deleteButton.waitForExistence(timeout: 5), "左滑未出现删除按钮")
+        deleteButton.tap()
+
+        XCTAssertTrue(
+            element("skills.empty").waitForExistence(timeout: 5),
+            "删除后技能列表未立即回到空态"
+        )
+    }
 }
