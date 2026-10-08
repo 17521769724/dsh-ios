@@ -8,7 +8,7 @@ options:
 
 settings:
   base:
-    MARKETING_VERSION: "1.2.1"
+    MARKETING_VERSION: "1.2.2"
     # CI 打包时会用 run 序号覆盖（见 .github/workflows/ios.yml），使应用内版本号与 release 编号一致
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "5.9"
