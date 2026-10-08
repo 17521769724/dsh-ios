@@ -263,12 +263,42 @@ final class ChatEngine: ObservableObject {
     func deleteMessage(_ message: ChatMessage) {
         guard var conversation = currentConversation, !isStreaming else { return }
         guard conversation.messages.contains(where: { $0.id == message.id }) else { return }
-        conversation.messages.removeAll { $0.id == message.id }
+
+        let removingIDs = Self.deletionIDs(for: message, in: conversation.messages)
+        let removed = conversation.messages.filter { removingIDs.contains($0.id) }
+        conversation.messages.removeAll { removingIDs.contains($0.id) }
         conversation.updatedAt = Date()
         currentConversation = conversation
         conversationStore.upsert(conversation)
         // 消息没了，附带的图片文件也一起删掉，否则会长期留在磁盘上
-        ChatAttachment.delete(message.attachments ?? [])
+        ChatAttachment.delete(removed.flatMap { $0.attachments ?? [] })
+    }
+
+    /// 删除某条消息时需要连带删除的消息 id（纯函数，便于单测）：
+    /// - 删除用户消息：连同它的回复一起删（直到下一条用户消息之前）。
+    ///   只删提问却留下回答，会让对话上下文前后错位。
+    /// - 删除助手回复：连同它调用工具产生的工具结果一起删，
+    ///   否则会留下没有对应 tool_calls 的孤立 tool 消息，后续请求会被服务端拒绝。
+    static func deletionIDs(for message: ChatMessage, in messages: [ChatMessage]) -> Set<UUID> {
+        var removingIDs: Set<UUID> = [message.id]
+        guard let index = messages.firstIndex(where: { $0.id == message.id }) else { return removingIDs }
+
+        if message.role == .user {
+            for next in messages[(index + 1)...] {
+                if next.role == .user { break }
+                removingIDs.insert(next.id)
+            }
+        } else if message.role == .assistant {
+            let callIDs = Set((message.toolCalls ?? []).map(\.id))
+            if !callIDs.isEmpty {
+                for other in messages where other.role == .tool {
+                    if let callID = other.toolCallID, callIDs.contains(callID) {
+                        removingIDs.insert(other.id)
+                    }
+                }
+            }
+        }
+        return removingIDs
     }
 
     /// 移除一张待发送图片（连同磁盘文件）

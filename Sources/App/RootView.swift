@@ -140,6 +140,9 @@ struct RootView: View {
             ChatView()
                 .navigationTitle(navigationTitle)
                 .navigationBarTitleDisplayMode(.inline)
+                // 列表向下滚动时，标题栏固定用页面底色铺底，不再透出下方内容
+                .toolbarBackground(DSHTheme.page, for: .navigationBar)
+                .toolbarBackground(.visible, for: .navigationBar)
                 .toolbar {
                     if !isRegular {
                         ToolbarItem(placement: .navigationBarLeading) {
