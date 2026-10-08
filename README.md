@@ -5,6 +5,12 @@ DeepSeek Harness（DSH）的 **iOS 原生客户端**，使用 Swift + SwiftUI �
 界面、交互与动效对齐桌面端 [anywhere-labs/dsh-desktop](https://github.com/anywhere-labs/dsh-desktop)（DSH Desktop），
 上游为 [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)。
 
+## 项目文档
+
+- 交接说明（给 AI 助手 / 新协作者）：[AGENTS.md](AGENTS.md)
+- 开发历史与需求记录：[docs/CONVERSATION_HISTORY.md](docs/CONVERSATION_HISTORY.md)
+- 最新下载（未签名 IPA）：https://github.com/17521769724/dsh-ios/releases/latest
+
 ## 特性
 
 ### 对话
@@ -29,6 +35,11 @@ DeepSeek Harness（DSH）的 **iOS 原生客户端**，使用 Swift + SwiftUI �
 - 命令面板：输入 `/` 呼出，命令结果回填输入框或提示
 - 插件中心：启停开关、命令清单、实时运行日志、加载错误定位
 
+### 技能（Skill）
+
+- 自行添加 / 编辑 / 启停技能（做事步骤、规范、检查清单），入口在左侧菜单栏「技能」与 设置 → 技能
+- 技能规定「怎么做」，工具负责「执行」；模型需要时通过 skill 工具读取技能全文
+
 ### 界面与动效
 - 品牌色 `#4D6BFE`，深色模式对齐桌面端配色（页面 `#1B1B1B`、侧栏 `#151515`）
 - 底部输入舱：左侧 `+`、内嵌模型 chip、圆形发送/停止按钮、运行指标行
@@ -41,6 +52,7 @@ DeepSeek Harness（DSH）的 **iOS 原生客户端**，使用 Swift + SwiftUI �
 - API Key（Keychain 加密存储）、Base URL（兼容任意 OpenAI 格式接口）
 - 模型选择、温度、系统提示词、流式开关、外观（跟随系统/浅色/深色）
 - 连接测试、用量统计、会话导出 Markdown
+- 清理缓存：一键清理失效图片、临时文件与网络缓存（位于「对话与用量」下方）
 
 ## 构建
 
@@ -77,6 +89,13 @@ iOS 端无法运行 Node 与桌面级进程，因此：
 | 终端 / Worktree / 托盘 / 自动更新 | 有 | 不适用移动端 |
 | 模型接入 | 本地 Host 服务 | 直连 OpenAI 兼容 HTTP 接口 |
 | 会话、Markdown、流式、Think、轨迹 | 有 | 已对齐 |
+
+## 下载与发布
+
+- 每次 push 到 main 后由 GitHub Actions 自动构建未签名 IPA，发布在 Releases 页
+- 资产命名：DSH-iOS-<版本>-build<构建号>.ipa，标题同样带版本与构建号
+- 安装后可在左侧菜单栏底部「设置」一行右侧看到 V<版本> (<构建号>)，用于确认版本
+- 源码打包下载：https://github.com/17521769724/dsh-ios/archive/refs/heads/main.zip
 
 ## 许可与致谢
 
