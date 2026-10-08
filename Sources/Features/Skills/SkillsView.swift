@@ -105,7 +105,6 @@ struct SkillsView: View {
             .background(DSHTheme.page)
             .contentShape(Rectangle())
         }
-        .accessibilityIdentifier("skills.row")
     }
 
     private var editingPresented: Binding<Bool> {
@@ -121,6 +120,9 @@ struct SkillsView: View {
                 Text(skill.name)
                     .font(.system(size: 16))
                     .foregroundStyle(DSHTheme.assistantText)
+                    // 标识放在名字上：若挂在整行容器上，会传播到删除按钮，
+                    // 让系统把它当成整行来点击（点删除变成了只把卡片合上）
+                    .accessibilityIdentifier("skills.row")
                 if !skill.isEnabled {
                     Text("已关闭")
                         .font(.system(size: 10, weight: .semibold))
@@ -198,10 +200,7 @@ struct SwipeToDeleteRow<Content: View>: View {
     var body: some View {
         ZStack(alignment: .trailing) {
             Button {
-                // 记录先删掉，不做多余动画：点了删除应立即消失
-                opened = false
-                offset = 0
-                onDelete()
+                delete()
             } label: {
                 Image(systemName: "trash")
                     .font(.system(size: 16, weight: .semibold))
@@ -226,8 +225,26 @@ struct SwipeToDeleteRow<Content: View>: View {
                         onTap()
                     }
                 }
+
+            // 展开后在整个删除区上再压一层透明点击层：
+            // 不管系统把这次点击派发给谁，点红色区域都等于「删除」
+            if opened {
+                Color.clear
+                    .frame(width: actionWidth)
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .onTapGesture { delete() }
+                    .accessibilityHidden(true)
+            }
         }
         .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous))
+    }
+
+    /// 删除这条记录：立即移除，不做多余动画
+    private func delete() {
+        opened = false
+        offset = 0
+        onDelete()
     }
 
     private func close() {

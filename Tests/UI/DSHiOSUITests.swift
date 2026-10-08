@@ -722,6 +722,8 @@ final class DSHiOSUITests: XCTestCase {
             .firstMatch
         XCTAssertTrue(deleteButton.waitForExistence(timeout: 5), "左滑未出现删除按钮")
         deleteButton.tap()
+        // 留档：点删除后的界面（确认是否真的删掉，而不是只把卡片合上）
+        capture("20c-after-delete-tap")
 
         XCTAssertTrue(
             element("skills.empty").waitForExistence(timeout: 5),
