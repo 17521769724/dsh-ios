@@ -21,9 +21,7 @@ struct SkillsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DSHTheme.Spacing.medium) {
-                // 总开关放在顶部：技能库整体「能不能被智能体调用」只在这里控制
-                agentToggleCard
-
+                // 总开关在「设置 → 技能」，这里只做说明，避免同一个开关出现两处
                 sectionLabel("技能库（\(skillStore.skills.count)）")
                     .padding(.top, DSHTheme.Spacing.small)
 
@@ -64,26 +62,6 @@ struct SkillsView: View {
             }
         }
         .tint(DSHTheme.brand)
-    }
-
-    // MARK: - 顶部开关
-
-    private var agentToggleCard: some View {
-        VStack(alignment: .leading, spacing: DSHTheme.Spacing.small) {
-            Toggle(isOn: $settingsStore.settings.features.skillTool) {
-                SettingsRowLabel(symbol: "sparkles", color: .orange, title: "允许智能体调用技能")
-            }
-            .accessibilityIdentifier("skills.agentToggle")
-            .padding(.horizontal, DSHTheme.Spacing.medium)
-            .padding(.vertical, 8)
-            .background(DSHTheme.page)
-            .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous))
-
-            Text("关闭后技能仍保留在本地，但不会出现在对话中，模型也不会调用。")
-                .font(.system(size: 12))
-                .foregroundStyle(DSHTheme.secondaryText)
-                .padding(.horizontal, DSHTheme.Spacing.small)
-        }
     }
 
     // MARK: - 技能行

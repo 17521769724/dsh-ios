@@ -557,19 +557,6 @@ final class DSHiOSUITests: XCTestCase {
 
     // MARK: - 智能体工具（SSH / 内置浏览器）
 
-    /// 打开「浏览器设置」并把内置浏览器工具开关设为指定值
-    /// （总开关已从设置主页移到配置页，避免两处重复）
-    private func openBrowserSettingsAndToggle(_ on: Bool) {
-        let browserRow = scrollTo("settings.browser")
-        XCTAssertTrue(browserRow.waitForExistence(timeout: 5), "缺少浏览器设置入口")
-        browserRow.tap()
-        XCTAssertTrue(app.navigationBars["浏览器设置"].waitForExistence(timeout: 5), "浏览器设置页未打开")
-        // 复用与其它用例一致的开关切换逻辑（带重试与状态等待，直接 tap 行容器不会切换）
-        toggleFeature("browser.agentTools", on: on)
-        app.navigationBars["浏览器设置"].buttons.firstMatch.tap()
-        XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5), "未返回设置页")
-    }
-
     func test20_SSH设置页与内置浏览器入口() {
         openSettings()
 
@@ -578,7 +565,7 @@ final class DSHiOSUITests: XCTestCase {
         sshRow.tap()
         XCTAssertTrue(app.navigationBars["SSH 云服务器"].waitForExistence(timeout: 5), "SSH 设置页未打开")
         XCTAssertTrue(element("ssh.host").exists, "缺少主机输入框")
-        XCTAssertTrue(element("ssh.agentTools").exists, "缺少智能体工具开关")
+        XCTAssertFalse(element("ssh.agentTools").exists, "SSH 页不应再有重复开关")
         XCTAssertTrue(scrollTo("ssh.command").waitForExistence(timeout: 5), "缺少命令控制台")
         capture("20-ssh-settings")
 
@@ -589,7 +576,7 @@ final class DSHiOSUITests: XCTestCase {
         XCTAssertTrue(scrollTo("settings.ssh").exists, "缺少 SSH 云服务器入口")
         XCTAssertFalse(element("feature.sshTool").exists, "SSH 开关不应再出现在设置主页")
         XCTAssertFalse(element("feature.browserTool").exists, "浏览器开关不应再出现在设置主页")
-        openBrowserSettingsAndToggle(true)
+        toggleFeature("feature.browserTool", on: true)
         closeSettings()
 
         // 开关打开后，菜单里应出现「内置浏览器」入口
@@ -607,7 +594,7 @@ final class DSHiOSUITests: XCTestCase {
 
         // 恢复默认，避免影响其它用例
         openSettings()
-        openBrowserSettingsAndToggle(false)
+        toggleFeature("feature.browserTool", on: false)
         // 智能体工具分组：查看画面 / 工作区文件 / MCP 工具 / MCP 服务器 / 提醒事项 / 剪贴板
         XCTAssertTrue(scrollTo("feature.visionTool").waitForExistence(timeout: 5), "缺少「智能体查看画面」开关")
         XCTAssertTrue(scrollTo("feature.fileTool").waitForExistence(timeout: 5), "缺少「智能体读写工作区文件」开关")
@@ -735,10 +722,8 @@ final class DSHiOSUITests: XCTestCase {
         entry.tap()
 
         XCTAssertTrue(app.navigationBars["技能"].waitForExistence(timeout: 5), "技能页未打开")
-
-        // 总开关已从设置页移到技能库页顶部
-        let agentToggle = element("skills.agentToggle")
-        XCTAssertTrue(agentToggle.waitForExistence(timeout: 5), "技能页顶部缺少总开关")
+        // 总开关统一在设置首页（「技能库」那一行的开关），技能页里不再重复
+        XCTAssertFalse(element("skills.agentToggle").exists, "技能页不应再有总开关")
 
         element("skills.add").tap()
         let nameField = element("skills.editor.name")
@@ -754,8 +739,6 @@ final class DSHiOSUITests: XCTestCase {
 
         let row = app.staticTexts["UI Test Skill"]
         XCTAssertTrue(row.waitForExistence(timeout: 5), "新增的技能未出现在列表里")
-        // 开关应在技能列表上方（用户要求把开关放到顶部）
-        XCTAssertLessThan(agentToggle.frame.minY, row.frame.minY, "总开关应位于技能列表上方")
         capture("20-skill-added")
 
         // 左滑删除：技能应立即消失并回到空态
@@ -888,6 +871,47 @@ final class DSHiOSUITests: XCTestCase {
         app.navigationBars["工具过程"].buttons.firstMatch.tap()
 
         XCTAssertTrue(element("composer.input").waitForExistence(timeout: 5), "关闭弹窗后未回到对话页")
+    }
+
+    // MARK: - 设置里的「开关 + 箭头」行
+
+    /// 开关与配置入口分离：点开关只切换，点这一行的其它位置进入配置页；
+    /// 配置页里不再有重复开关（用户要求）
+    func test26_设置开关行与配置入口分离() {
+        openSettings()
+
+        let sshToggle = scrollTo("feature.sshTool")
+        XCTAssertTrue(sshToggle.waitForExistence(timeout: 5), "缺少 SSH 开关")
+        let before = (sshToggle.value as? String) ?? "0"
+        tapToggle(sshToggle)
+        // 等状态刷新后再判断：开关变了、而且没有跳页
+        Thread.sleep(forTimeInterval: 0.8)
+        XCTAssertEqual(sshToggle.value as? String, before == "1" ? "0" : "1", "点开关应只切换开关")
+        XCTAssertTrue(app.navigationBars["设置"].exists, "点开关不应进入配置页")
+        XCTAssertFalse(app.navigationBars["SSH 云服务器"].exists, "点开关不应进入配置页")
+        capture("33-settings-switch-row")
+        // 恢复原状态，避免影响其它用例
+        tapToggle(sshToggle)
+        Thread.sleep(forTimeInterval: 0.5)
+
+        // 点这一行的其它位置进入配置页
+        let sshRow = scrollTo("settings.ssh")
+        XCTAssertTrue(sshRow.exists, "缺少 SSH 配置入口")
+        sshRow.tap()
+        XCTAssertTrue(app.navigationBars["SSH 云服务器"].waitForExistence(timeout: 8), "点行应进入配置页")
+        XCTAssertFalse(element("ssh.agentTools").exists, "配置页里不应再有开关")
+        app.navigationBars["SSH 云服务器"].buttons.firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5), "未返回设置页")
+
+        // MCP 已合并成一行：开关 + 服务器管理入口
+        XCTAssertTrue(scrollTo("feature.mcpTool").waitForExistence(timeout: 5), "缺少 MCP 开关")
+        XCTAssertTrue(element("settings.mcp").exists, "MCP 行应带进入服务器管理的箭头")
+        XCTAssertTrue(app.staticTexts["智能体 OCR 视觉"].exists, "视觉那一行的文案应为「智能体 OCR 视觉」")
+        XCTAssertTrue(element("feature.skillTool").exists, "技能库那一行应带开关")
+        XCTAssertTrue(element("settings.skills").exists, "技能库那一行应带箭头")
+        capture("34-settings-merged-mcp")
+
+        closeSettings()
     }
 
     // MARK: - 权限（首次引导 + 设置里的权限状态页）

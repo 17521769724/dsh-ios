@@ -15,7 +15,6 @@ struct SSHSettingsView: View {
 
     var body: some View {
         List {
-            agentSection
             serverSection
             testSection
             consoleSection
@@ -24,21 +23,6 @@ struct SSHSettingsView: View {
         .navigationTitle("SSH 云服务器")
         .navigationBarTitleDisplayMode(.inline)
         .tint(DSHTheme.brand)
-    }
-
-    // MARK: - 智能体开关
-
-    private var agentSection: some View {
-        Section {
-            Toggle(isOn: $settingsStore.settings.features.sshTool) {
-                SettingsRowLabel(symbol: "terminal.fill", color: .black, title: "让智能体执行 SSH 命令")
-            }
-            .accessibilityIdentifier("ssh.agentTools")
-        } header: {
-            Text("智能体")
-        } footer: {
-            Text("只控制 SSH：开启后，对话中模型可自主执行命令（需先填好下方服务器信息）；内置浏览器由「设置 → 智能体工具 → 内置浏览器工具」单独开关。每次执行都会在对话里留下记录。")
-        }
     }
 
     // MARK: - 服务器

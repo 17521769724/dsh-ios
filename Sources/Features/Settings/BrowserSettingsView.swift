@@ -11,16 +11,6 @@ struct BrowserSettingsView: View {
     var body: some View {
         List {
             Section {
-                // 内置浏览器总开关从设置主页移到这里：配置页本身就带开关，不再重复两处
-                Toggle(isOn: $settingsStore.settings.features.browserTool) {
-                    SettingsRowLabel(
-                        symbol: "safari.fill",
-                        color: .blue,
-                        title: "内置浏览器工具"
-                    )
-                }
-                .accessibilityIdentifier("browser.agentTools")
-
                 Toggle(isOn: $settingsStore.settings.browser.allowAgentRead) {
                     SettingsRowLabel(
                         symbol: "doc.text.magnifyingglass",
@@ -32,7 +22,7 @@ struct BrowserSettingsView: View {
             } header: {
                 Text("智能体")
             } footer: {
-                Text("「内置浏览器工具」控制智能体能否打开网页（同时决定顶栏菜单里的内置浏览器入口）；开启「读取网页正文」后模型还可调用 browser_read 读取正文纯文本，关闭只影响读取。")
+                Text("「内置浏览器」总开关在 设置 → 智能体工具 里；开启「读取网页正文」后模型还可调用 browser_read 读取正文纯文本，关闭只影响读取。")
             }
 
             Section {

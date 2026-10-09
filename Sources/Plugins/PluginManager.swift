@@ -19,7 +19,10 @@ final class PluginManager: ObservableObject {
 
     /// 由「设置 → 插件 → 回答风格约束」单独管理的内置插件，
     /// 不在插件中心重复展示（避免同一个插件出现两个开关）。
-    static let settingsManagedPluginIDs: Set<String> = ["builtin.prompt-suffix"]
+    static let settingsManagedPluginIDs: Set<String> = [styleSuffixPluginID]
+
+    /// 「回答风格约束」插件：开关与文案编辑都放在设置页里，插件中心列表不再重复显示
+    static let styleSuffixPluginID = "builtin.prompt-suffix"
 
     // MARK: - 宿主设置
 

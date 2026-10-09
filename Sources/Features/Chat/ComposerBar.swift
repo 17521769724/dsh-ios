@@ -347,11 +347,6 @@ struct ComposerBar: View {
                 // 始终打开完整命令列表：输入框里已有内容（例如输入了一半的 /xxx）也能看到全部插件命令
                 showCommandPicker = true
             }
-            if features.browserTool {
-                Button("内置浏览器") {
-                    engine.openBrowser(settings.browser.homeLink)
-                }
-            }
             if !engine.draft.isEmpty || !engine.draftImages.isEmpty {
                 Button("清空输入", role: .destructive) {
                     // 只清空内容，不在这里改动焦点，避免输入卡片高度被异常撑开
@@ -426,7 +421,8 @@ struct ComposerBar: View {
                 Text("上下文 \(contextPercent)%")
             }
             Spacer(minLength: 0)
-            Text(engine.isStreaming ? "生成中" : settings.thinkingEnabled ? "已开启深度思考" : "已关闭深度思考")
+            // 深度思考的开/关状态已经在输入框的胶囊按钮上体现，这里不再重复显示
+            Text(engine.isStreaming ? "生成中" : "")
         }
         .font(.system(size: 11))
         .foregroundStyle(DSHTheme.tertiaryText)

@@ -50,10 +50,6 @@ final class SSHStore: ObservableObject {
         return "\(configuration.username)@\(configuration.host):\(configuration.port)"
     }
 
-    func clearPassword() {
-        password = ""
-    }
-
     private func persist() {
         guard let data = try? JSONEncoder().encode(configuration) else { return }
         UserDefaults.standard.set(data, forKey: Self.configKey)

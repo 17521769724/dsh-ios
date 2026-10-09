@@ -47,7 +47,6 @@ struct GitAccountSettingsView: View {
 
     var body: some View {
         List {
-            agentSection
             accountSection
             if isConnected {
                 repositorySection
@@ -84,21 +83,6 @@ struct GitAccountSettingsView: View {
         ) {
             Button("退出登录", role: .destructive) { signOut() }
             Button("取消", role: .cancel) {}
-        }
-    }
-
-    // MARK: - 智能体开关
-
-    private var agentSection: some View {
-        Section {
-            Toggle(isOn: toolBinding) {
-                SettingsRowLabel(symbol: "wand.and.stars", color: .purple, title: "让智能体操作仓库")
-            }
-            .accessibilityIdentifier("git.agentTools")
-        } header: {
-            Text("智能体")
-        } footer: {
-            Text("开启后模型可调用 \(provider.displayName) 工具查看仓库、读写文件与创建 Issue；需要先登录账号，否则工具不会下发给模型。")
         }
     }
 
@@ -440,13 +424,6 @@ struct GitAccountSettingsView: View {
             .font(.system(size: 13))
             .foregroundStyle(ok ? DSHTheme.success : DSHTheme.danger)
             .accessibilityIdentifier(identifier)
-    }
-
-    private var toolBinding: Binding<Bool> {
-        switch provider {
-        case .github: return $settingsStore.settings.features.githubTool
-        case .gitee: return $settingsStore.settings.features.giteeTool
-        }
     }
 
     private var trimmedToken: String {

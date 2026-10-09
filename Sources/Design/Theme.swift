@@ -182,17 +182,6 @@ func dshApplyAppearanceChange(
 }
 
 extension View {
-    /// 卡片风格：分组底色 + 细描边
-    func dshCard(background: Color = DSHTheme.grouped) -> some View {
-        self
-            .background(background)
-            .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.card, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: DSHTheme.Radius.card, style: .continuous)
-                    .stroke(DSHTheme.separator.opacity(0.6), lineWidth: 0.5)
-            )
-    }
-
     /// 统一应用主题偏好。
     ///
     /// 这里刻意不用 SwiftUI 的 `preferredColorScheme`：它把偏好写进场景后，

@@ -1692,6 +1692,111 @@ final class ContextCompactorTests: XCTestCase {
     }
 }
 
+// MARK: - 工具调用配对修复
+
+final class ToolCallRepairTests: XCTestCase {
+
+    private func assistant(_ text: String, calls: [(String, String)]) -> ChatMessage {
+        ChatMessage(
+            role: .assistant,
+            content: text,
+            toolCalls: calls.map { ToolCall(id: $0.0, name: $0.1, arguments: "{}") }
+        )
+    }
+
+    private func tool(_ callID: String, _ text: String) -> ChatMessage {
+        ChatMessage(role: .tool, content: text, toolCallID: callID, toolName: "workspace")
+    }
+
+    /// 完整的配对保持不变
+    func testCompletePairIsUntouched() {
+        let messages: [ChatMessage] = [
+            ChatMessage(role: .user, content: "查一下"),
+            assistant("先查", calls: [("1", "workspace")]),
+            tool("1", "结果一"),
+            assistant("结论")
+        ]
+        let repaired = ToolCallRepair.repaired(messages)
+        XCTAssertEqual(repaired.count, messages.count)
+        XCTAssertEqual(repaired[1].toolCalls?.count, 1)
+    }
+
+    /// 工具消息为空 → 补占位（否则发送时会被跳过，配对又缺了）
+    func testEmptyToolResultGetsPlaceholder() {
+        let messages: [ChatMessage] = [
+            ChatMessage(role: .user, content: "查一下"),
+            assistant("先查", calls: [("1", "workspace")]),
+            tool("1", "   ")
+        ]
+        let repaired = ToolCallRepair.repaired(messages)
+        XCTAssertEqual(repaired.count, 3)
+        XCTAssertEqual(repaired[2].content, ToolCallRepair.missingResult)
+    }
+
+    /// 调用完全没有结果（中途停止）→ 去掉调用，避免 400
+    func testDanglingCallsAreStripped() {
+        let messages: [ChatMessage] = [
+            ChatMessage(role: .user, content: "查一下"),
+            assistant("先查", calls: [("1", "workspace"), ("2", "workspace")]),
+            ChatMessage(role: .user, content: "继续"),
+            assistant("结论")
+        ]
+        let repaired = ToolCallRepair.repaired(messages)
+        XCTAssertNil(repaired[1].toolCalls, "缺少结果的调用应被移除")
+        XCTAssertFalse(repaired.contains { $0.role == .tool })
+        XCTAssertEqual(repaired.filter { $0.role == .assistant }.count, 2, "助手正文要保留")
+    }
+
+    /// 部分调用有结果 → 只保留有结果的那些
+    func testPartialCallsKeepAnsweredOnes() {
+        let messages: [ChatMessage] = [
+            ChatMessage(role: .user, content: "查一下"),
+            assistant("先查", calls: [("1", "workspace"), ("2", "browser")]),
+            tool("1", "结果一")
+        ]
+        let repaired = ToolCallRepair.repaired(messages)
+        XCTAssertEqual(repaired[1].toolCalls?.map(\.id), ["1"])
+        XCTAssertEqual(repaired.count, 3, "有结果的工具消息保留")
+    }
+
+    /// 孤儿工具消息（前面没有对应调用）直接删除
+    func testOrphanToolMessageIsDropped() {
+        let messages: [ChatMessage] = [
+            ChatMessage(role: .user, content: "你好"),
+            assistant("直接回答，不调用工具", calls: []),
+            tool("9", "不该存在的工具结果")
+        ]
+        let repaired = ToolCallRepair.repaired(messages)
+        XCTAssertEqual(repaired.count, 2)
+        XCTAssertFalse(repaired.contains { $0.role == .tool })
+    }
+
+    /// 用户报错场景的回归：停止过的一轮 + 继续对话，修复后序列里不再有孤立调用
+    func testUserReportedScenarioIsRepaired() {
+        let messages: [ChatMessage] = [
+            ChatMessage(role: .user, content: "看看 gitee 上的项目"),
+            assistant("先读两个网页", calls: [("call-a", "browser"), ("call-b", "browser")]),
+            tool("call-a", "网页一的内容"),
+            // call-b 因用户点了停止而没有结果
+            ChatMessage(role: .user, content: "你好"),
+            assistant("你好，有什么可以帮你？")
+        ]
+        let repaired = ToolCallRepair.repaired(messages)
+        let assistantWithCalls = repaired.first { !($0.toolCalls ?? []).isEmpty }
+        XCTAssertEqual(assistantWithCalls?.toolCalls?.map(\.id), ["call-a"], "只保留有结果的调用")
+        // 每个调用都能在紧随其后的工具消息里找到响应
+        for (index, message) in repaired.enumerated() where !(message.toolCalls ?? []).isEmpty {
+            var cursor = index + 1
+            var answered: Set<String> = []
+            while cursor < repaired.count, repaired[cursor].role == .tool {
+                answered.insert(repaired[cursor].toolCallID ?? "")
+                cursor += 1
+            }
+            XCTAssertTrue(Set((message.toolCalls ?? []).map(\.id)).isSubset(of: answered), "配对必须完整")
+        }
+    }
+}
+
 // MARK: - 一轮回复的最终回复判定
 
 final class FinalReplyTests: XCTestCase {

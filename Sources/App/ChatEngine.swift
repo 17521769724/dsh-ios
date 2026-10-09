@@ -819,6 +819,9 @@ final class ChatEngine: ObservableObject {
 
     private func buildAPIMessages(conversationID: UUID, latestUserText: String) -> [APIMessage] {
         guard let conversation = currentConversation else { return [] }
+        // 发送前修复工具调用配对：中途停止过的会话会留下不完整的 tool_calls，
+        // 不修复的话之后每次请求都会被服务端以 400 拒绝
+        let sanitized = ToolCallRepair.repaired(conversation.messages)
         var result: [APIMessage] = []
         /// 工具产生的截图（如「查看画面」）：等这一批工具结果都发完之后再作为一条用户消息附上，
         /// 避免打断「assistant(tool_calls) → tool(tool_call_id)…」的配对顺序
@@ -835,7 +838,7 @@ final class ChatEngine: ObservableObject {
             result.append(APIMessage(role: "system", content: systemPrompt))
         }
 
-        for message in conversation.messages where message.id != lastStreamingAssistantID(in: conversation) {
+        for message in sanitized where message.id != lastStreamingAssistantID(in: conversation) {
             // 遇到非工具消息说明这一批工具结果已经发完，先把截图补上
             if message.role != .tool { flushToolImages() }
             // 压缩摘要：按系统提示注入，让模型知道这是此前的对话

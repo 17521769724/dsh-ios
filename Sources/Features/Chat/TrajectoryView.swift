@@ -52,7 +52,8 @@ struct TrajectoryView: View {
                     id: message.id,
                     icon: "wrench.and.screwdriver",
                     title: "插件执行",
-                    detail: message.content,
+                    // 工具输出可能上万字：这里只留摘要，避免弹窗打开时排版整段长文本（打开很慢的原因之一）
+                    detail: Self.summarized(message.content),
                     timestamp: message.createdAt,
                     tint: DSHTheme.warning
                 ))
@@ -63,9 +64,20 @@ struct TrajectoryView: View {
         return result.sorted { $0.timestamp < $1.timestamp }
     }
 
+    /// 工具输出只取前若干字符做摘要
+    private static let detailLimit = 160
+
+    private static func summarized(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > detailLimit else { return trimmed }
+        return String(trimmed.prefix(detailLimit)) + "…（共 \(trimmed.count) 字）"
+    }
+
     var body: some View {
-        Group {
-            if events.isEmpty {
+        // events 只算一次：此前在 body 里反复读取计算属性，行数一多就是 O(n²) 重建，弹窗迟迟打不开
+        let list = events
+        return Group {
+            if list.isEmpty {
                 VStack(spacing: DSHTheme.Spacing.small) {
                     Image(systemName: "clock.arrow.circlepath")
                         .font(.system(size: 24))
@@ -77,8 +89,9 @@ struct TrajectoryView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
+                    // 只渲染可见的行：会话很长时也能秒开
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(list.enumerated()), id: \.element.id) { index, event in
                             HStack(alignment: .top, spacing: DSHTheme.Spacing.medium) {
                                 VStack(spacing: 0) {
                                     ZStack {
@@ -89,7 +102,7 @@ struct TrajectoryView: View {
                                             .font(.system(size: 12, weight: .semibold))
                                             .foregroundStyle(event.tint)
                                     }
-                                    if index < events.count - 1 {
+                                    if index < list.count - 1 {
                                         Rectangle()
                                             .fill(DSHTheme.separator)
                                             .frame(width: 1)

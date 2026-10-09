@@ -93,76 +93,77 @@ struct SettingsView: View {
 
     private var toolsSection: some View {
         Section {
-            // SSH 与内置浏览器、代码托管的开关都放在各自的配置页里，这里只保留入口与状态
-            NavigationLink {
+            // 每一行：右侧开关控制「智能体能不能调用」，需要配置的功能在开关右边再给一个箭头进配置页
+            SettingsToggleLinkRow(
+                symbol: "server.rack",
+                color: .gray,
+                title: "SSH 云服务器",
+                isOn: $settingsStore.settings.features.sshTool,
+                identifier: "feature.sshTool",
+                linkIdentifier: "settings.ssh"
+            ) {
                 SSHSettingsView()
-            } label: {
-                SettingsValueRow(
-                    symbol: "server.rack",
-                    color: .gray,
-                    title: "SSH 服务器配置",
-                    // 开关在页面里，这里把「配置 + 工具开关」两个状态一起显示
-                    value: "\(sshStore.isConfigured ? "已配置" : "未配置") · \(settings.features.sshTool ? "工具已开" : "工具已关")"
-                )
             }
-            .accessibilityIdentifier("settings.ssh")
 
-            NavigationLink {
+            SettingsToggleLinkRow(
+                symbol: "globe",
+                color: .teal,
+                title: "内置浏览器",
+                isOn: $settingsStore.settings.features.browserTool,
+                identifier: "feature.browserTool",
+                linkIdentifier: "settings.browser"
+            ) {
                 BrowserSettingsView()
-            } label: {
-                SettingsValueRow(
-                    symbol: "globe",
-                    color: .teal,
-                    title: "浏览器设置",
-                    value: "\(settings.browser.desktopSite ? "桌面版网站" : "移动版网站") · \(settings.features.browserTool ? "工具已开" : "工具已关")"
-                )
             }
-            .accessibilityIdentifier("settings.browser")
 
-            Toggle(isOn: $settingsStore.settings.features.visionTool) {
-                SettingsRowLabel(symbol: "eye.fill", color: .purple, title: "智能体查看画面（截图 + OCR）")
-            }
-            .accessibilityIdentifier("feature.visionTool")
+            SettingsToggleRow(
+                symbol: "eye.fill",
+                color: .purple,
+                title: "智能体 OCR 视觉",
+                isOn: $settingsStore.settings.features.visionTool,
+                identifier: "feature.visionTool"
+            )
 
-            Toggle(isOn: $settingsStore.settings.features.fileTool) {
-                SettingsRowLabel(symbol: "folder.fill", color: .brown, title: "智能体读写工作区文件")
-            }
-            .accessibilityIdentifier("feature.fileTool")
+            SettingsToggleRow(
+                symbol: "folder.fill",
+                color: .brown,
+                title: "智能体读写工作区文件",
+                isOn: $settingsStore.settings.features.fileTool,
+                identifier: "feature.fileTool"
+            )
 
-            Toggle(isOn: $settingsStore.settings.features.mcpTool) {
-                SettingsRowLabel(symbol: "puzzlepiece.extension", color: .green, title: "MCP 工具")
-            }
-            .accessibilityIdentifier("feature.mcpTool")
-
-            // MCP 服务器紧跟在总开关下方：先「是否下发 MCP 工具」，再「有哪些服务器」
-            NavigationLink {
+            // MCP 只保留一行：开关控制「工具是否下发」，箭头进服务器管理
+            SettingsToggleLinkRow(
+                symbol: "puzzlepiece.extension",
+                color: .green,
+                title: "MCP 工具与服务器",
+                isOn: $settingsStore.settings.features.mcpTool,
+                identifier: "feature.mcpTool",
+                linkIdentifier: "settings.mcp"
+            ) {
                 MCPSettingsView()
                     .environmentObject(mcpStore)
-            } label: {
-                SettingsValueRow(
-                    symbol: "server.rack",
-                    color: .green,
-                    title: "MCP 服务器",
-                    value: mcpStore.servers.isEmpty
-                        ? "未添加"
-                        : "\(mcpStore.readyCount)/\(mcpStore.servers.count) 台已就绪"
-                )
             }
-            .accessibilityIdentifier("settings.mcp")
 
-            Toggle(isOn: $settingsStore.settings.features.reminderTool) {
-                SettingsRowLabel(symbol: "calendar", color: .red, title: "提醒事项与日历")
-            }
-            .accessibilityIdentifier("feature.reminderTool")
+            SettingsToggleRow(
+                symbol: "calendar",
+                color: .red,
+                title: "提醒事项与日历",
+                isOn: $settingsStore.settings.features.reminderTool,
+                identifier: "feature.reminderTool"
+            )
 
-            Toggle(isOn: $settingsStore.settings.features.clipboardTool) {
-                SettingsRowLabel(symbol: "doc.on.clipboard", color: .indigo, title: "剪贴板读写")
-            }
-            .accessibilityIdentifier("feature.clipboardTool")
+            SettingsToggleRow(
+                symbol: "doc.on.clipboard",
+                color: .indigo,
+                title: "剪贴板读写",
+                isOn: $settingsStore.settings.features.clipboardTool,
+                identifier: "feature.clipboardTool"
+            )
         } header: {
             Text("智能体工具")
         } footer: {
-            Text("各开关彼此独立：SSH 控制能否在服务器执行命令（需先配置服务器）、浏览器控制能否打开或读取网页、查看画面允许智能体截图并用本地 OCR 识别内容、工作区文件允许智能体读写「文件」页里的代码文件、MCP 控制远程 MCP 服务器的工具是否下发给模型、剪贴板与提醒事项允许智能体读写剪贴板内容与本机待办日程（首次使用会请求系统权限，可在「关于 → 权限状态」里查看）；关闭后模型不会再调用对应工具。")
+            Text("开关控制对应工具是否下发给模型；带箭头的功能可点进去配置（SSH 服务器、浏览器、MCP 服务器）。剪贴板与提醒事项首次使用会请求系统权限，可在「关于 → 权限状态」里查看。")
         }
     }
 
@@ -170,33 +171,31 @@ struct SettingsView: View {
 
     private var gitSection: some View {
         Section {
-            NavigationLink {
+            SettingsToggleLinkRow(
+                symbol: "person.crop.circle.fill",
+                color: .black,
+                title: "GitHub",
+                isOn: $settingsStore.settings.features.githubTool,
+                identifier: "feature.githubTool",
+                linkIdentifier: "settings.githubAccount"
+            ) {
                 GitAccountSettingsView(provider: .github)
-            } label: {
-                SettingsValueRow(
-                    symbol: "person.crop.circle.fill",
-                    color: .black,
-                    title: "GitHub 账号",
-                    value: "\(gitStore.statusText(for: .github)) · \(settings.features.githubTool ? "工具已开" : "工具已关")"
-                )
             }
-            .accessibilityIdentifier("settings.githubAccount")
 
-            NavigationLink {
+            SettingsToggleLinkRow(
+                symbol: "person.crop.circle.fill",
+                color: .red,
+                title: "Gitee",
+                isOn: $settingsStore.settings.features.giteeTool,
+                identifier: "feature.giteeTool",
+                linkIdentifier: "settings.giteeAccount"
+            ) {
                 GitAccountSettingsView(provider: .gitee)
-            } label: {
-                SettingsValueRow(
-                    symbol: "person.crop.circle.fill",
-                    color: .red,
-                    title: "Gitee 账号",
-                    value: "\(gitStore.statusText(for: .gitee)) · \(settings.features.giteeTool ? "工具已开" : "工具已关")"
-                )
             }
-            .accessibilityIdentifier("settings.giteeAccount")
         } header: {
             Text("代码托管")
         } footer: {
-            Text("点进去可登录账号并开关对应的智能体工具；Token 只保存在本机钥匙串，未登录或关闭时对应工具不会下发给模型。")
+            Text("点箭头进去登录账号；Token 只保存在本机钥匙串，未登录或开关关闭时对应工具不会下发给模型。")
         }
     }
 
@@ -326,48 +325,55 @@ struct SettingsView: View {
                 )
             }
 
-            NavigationLink {
+            // 回答风格约束：与其它功能一致，开关在设置首页，箭头进配置
+            SettingsToggleLinkRow(
+                symbol: "text.bubble.fill",
+                color: .indigo,
+                title: "回答风格约束",
+                isOn: styleSuffixEnabled,
+                identifier: "feature.styleSuffix",
+                linkIdentifier: "settings.styleSuffix"
+            ) {
                 StyleSuffixSettingsView()
-            } label: {
-                SettingsValueRow(
-                    symbol: "text.bubble.fill",
-                    color: .indigo,
-                    title: "回答风格约束",
-                    value: settings.styleSuffix.isEmpty ? "未设置" : "已设置"
-                )
             }
-            .accessibilityIdentifier("settings.styleSuffix")
         } header: {
             Text("插件")
         } footer: {
-            Text("「回答风格约束」插件需在插件中心开启；开启后这里编辑的强调指令会追加在每条消息末尾发送给模型。")
+            Text("开关控制「回答风格约束」插件是否生效；开启后这里编辑的强调指令会追加在每条消息末尾发送给模型。")
         }
+    }
+
+    /// 「回答风格约束」插件的开关（设置首页直接控制，插件中心里不重复显示）
+    private var styleSuffixEnabled: Binding<Bool> {
+        Binding(
+            get: {
+                plugins.manifests.first(where: { $0.id == PluginManager.styleSuffixPluginID })?.isEnabled ?? false
+            },
+            set: { plugins.setEnabled($0, for: PluginManager.styleSuffixPluginID) }
+        )
     }
 
     // MARK: - 技能
 
     private var skillsSection: some View {
         Section {
-            // 技能总开关已移到技能库页顶部，这里只保留入口
-            NavigationLink {
+            // 与其它功能一致：开关在设置首页，箭头进技能库
+            SettingsToggleLinkRow(
+                symbol: "text.book.closed.fill",
+                color: .brown,
+                title: "技能库",
+                isOn: $settingsStore.settings.features.skillTool,
+                identifier: "feature.skillTool",
+                linkIdentifier: "settings.skills"
+            ) {
                 SkillsView()
                     .environmentObject(skillStore)
                     .environmentObject(settingsStore)
-            } label: {
-                SettingsValueRow(
-                    symbol: "text.book.closed.fill",
-                    color: .brown,
-                    title: "技能库",
-                    value: skillStore.skills.isEmpty
-                        ? "未添加"
-                        : "\(skillStore.enabledSkills.count)/\(skillStore.skills.count) 个已启用"
-                )
             }
-            .accessibilityIdentifier("settings.skills")
         } header: {
             Text("技能")
         } footer: {
-            Text("技能与工具不重合：工具负责执行操作（执行命令、打开网页、读写仓库），技能负责规定做法（步骤、规范、检查清单）。是否允许智能体调用技能，在技能库页顶部的开关里控制。")
+            Text("技能与工具不重合：工具负责执行操作（执行命令、打开网页、读写仓库），技能负责规定做法（步骤、规范、检查清单）。开关关闭后技能仍保留在本地，但不会出现在对话中。")
         }
     }
 
