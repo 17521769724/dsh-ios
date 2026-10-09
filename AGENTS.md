@@ -89,7 +89,7 @@ xcodebuild test -project DSHiOS.xcodeproj -scheme DSHiOS -destination "platform=
 
 ## 当前状态
 
-- 版本：**1.6.0（build 87）**，已发布的未签名 IPA 见 Releases。
+- 版本：**1.6.0（build 88）**，已发布的未签名 IPA 见 Releases（87 因 `MessageRole.system` 分支漏写导致编译失败，88 为修复后的交付版）。
 - 1.6.0 交付：
   - 侧栏删除最后一条对话后，空状态（图标 +「还没有对话」）延后到 **0.7s** 再淡入：
     长按菜单收起时那段「浮动预览」会在原位停留约半秒，过早显示会与它重叠；
