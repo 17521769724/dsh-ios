@@ -856,7 +856,10 @@ final class DSHiOSUITests: XCTestCase {
         XCTAssertTrue(element("permissions.row.reminders").waitForExistence(timeout: 5), "缺少提醒事项权限行")
         XCTAssertTrue(element("permissions.row.clipboard").exists, "缺少剪贴板权限行")
         capture("27-permissions-primer")
-        element("permissions.done").tap()
+        // 「完成」固定在导航栏右上角
+        let done = element("permissions.done")
+        XCTAssertTrue(done.waitForExistence(timeout: 5), "权限引导页缺少「完成」按钮")
+        done.tap()
 
         // 设置 → 关于 → 权限状态
         openSettings()

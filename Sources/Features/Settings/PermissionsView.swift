@@ -21,7 +21,7 @@ struct PermissionsView: View {
                         Text("为了让智能体能替你办事，需要几分钟把下面这些权限确认一下。")
                             .font(.system(size: 15, weight: .medium))
                             .foregroundStyle(DSHTheme.assistantText)
-                        Text("提醒事项与日历用于读写待办日程；剪贴板用于复制内容；网络与文件不需要授权。随时可以在 设置 → 关于 → 权限状态 里再改。")
+                        Text("提醒事项与日历用于读写待办日程；剪贴板用于复制内容；网络与文件不需要授权。确认完点右上角「完成」，之后可在 设置 → 关于 → 权限状态 里再改。")
                             .font(.system(size: 13))
                             .foregroundStyle(DSHTheme.secondaryText)
                     }
@@ -75,27 +75,24 @@ struct PermissionsView: View {
             } footer: {
                 Text("iOS 的「允许粘贴」每次读取都会再问一次，属于系统行为；在系统设置里能改的是提醒事项与日历。")
             }
-
-            if isPrimer {
-                Section {
-                    Button {
-                        permissions.hasPrimed = true
-                        dismiss()
-                    } label: {
-                        Text("完成，开始使用")
-                            .frame(maxWidth: .infinity)
-                            .font(.system(size: 16, weight: .semibold))
-                    }
-                    .accessibilityIdentifier("permissions.done")
-                } footer: {
-                    Text("点「完成」后不再自动弹出本页，之后可在 设置 → 关于 → 权限状态 里查看。")
-                }
-            }
         }
         .listStyle(.insetGrouped)
         .navigationTitle(isPrimer ? "权限申请" : "权限状态")
         .navigationBarTitleDisplayMode(.inline)
         .tint(DSHTheme.brand)
+        .toolbar {
+            // 「完成」固定在导航栏：清单较长时底部按钮需要滚动才能看到
+            if isPrimer {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("完成") {
+                        permissions.hasPrimed = true
+                        dismiss()
+                    }
+                    .font(.system(size: 16, weight: .semibold))
+                    .accessibilityIdentifier("permissions.done")
+                }
+            }
+        }
         .task {
             // 引导模式：进来就把能申请的走一遍，用户只需在系统弹窗上点允许
             guard isPrimer, PermissionCenter.shouldAutoRequest, !permissions.hasPrimed, banner == nil else { return }

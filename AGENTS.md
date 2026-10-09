@@ -89,7 +89,8 @@ xcodebuild test -project DSHiOS.xcodeproj -scheme DSHiOS -destination "platform=
 
 ## 当前状态
 
-- 版本：**1.7.0（build 91）**，已发布的未签名 IPA 见 Releases。
+- 版本：**1.7.0（build 92）**，已发布的未签名 IPA 见 Releases
+  （91 的构建可用，但权限页 UI 测试失败：清单底部的「完成」按钮在 List 里未实例化，已改为固定在导航栏）。
 - 1.7.0 交付：
   - 「设置 → 智能体工具」顺序调整：SSH/浏览器/画面/工作区 → **MCP 工具 → MCP 服务器 → 提醒事项与日历 → 剪贴板读写**；
   - MCP 服务器卡片支持**左滑删除**（与技能库共用 `Sources/Design/SwipeToDeleteRow.swift`，删除区同高同圆角、固定红色实底），
