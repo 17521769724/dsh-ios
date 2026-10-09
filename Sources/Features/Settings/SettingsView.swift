@@ -111,6 +111,16 @@ struct SettingsView: View {
             ) {
                 BrowserSettingsView()
             }
+            // MCP 只保留一行：开关控制「工具是否下发」，箭头进服务器管理
+            SettingsLinkRow(
+                symbol: "puzzlepiece.extension",
+                color: .green,
+                title: "MCP 工具与服务器",
+                linkIdentifier: "settings.mcp"
+            ) {
+                MCPSettingsView()
+                    .environmentObject(mcpStore)
+            }
 
             SettingsToggleRow(
                 symbol: "eye.fill",
@@ -127,17 +137,6 @@ struct SettingsView: View {
                 isOn: $settingsStore.settings.features.fileTool,
                 identifier: "feature.fileTool"
             )
-
-            // MCP 只保留一行：开关控制「工具是否下发」，箭头进服务器管理
-            SettingsLinkRow(
-                symbol: "puzzlepiece.extension",
-                color: .green,
-                title: "MCP 工具与服务器",
-                linkIdentifier: "settings.mcp"
-            ) {
-                MCPSettingsView()
-                    .environmentObject(mcpStore)
-            }
 
             SettingsToggleRow(
                 symbol: "calendar",

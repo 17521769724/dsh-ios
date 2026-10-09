@@ -89,7 +89,20 @@ xcodebuild test -project DSHiOS.xcodeproj -scheme DSHiOS -destination "platform=
 
 ## 当前状态
 
-- 版本：**2.1.0（build 102）**，已发布的未签名 IPA 见 Releases。
+- 版本：**2.2.0（build 103）**，已发布的未签名 IPA 见 Releases。
+- 2.2.0 交付：
+  - **三点动画兜底**（用户第二次反馈「模型无输出时没有动画，无法判断是否结束」）：
+    `ChatView.showsStreamingIndicator` 改为两条条件——跑工具期间、或「正在生成但最后一条助手消息
+    还没拿到流式缓冲 / 内容为空」时，在对话最下方补一行 `TypingIndicator`；
+    正在输出的气泡自己会显示同一套动画，两处条件互斥，始终只有一行；
+  - **不再留空气泡**：`ChatEngine.markEmptyFinalReplyIfNeeded` 在本轮结束（含达到单轮 6 轮工具上限）
+    或用户手动停止后，若最后一条助手消息一个字都没有，就补一句说明
+    （「（本轮没有返回内容，可以继续提问，或点重新生成。）」/「（已手动停止，本轮没有产生回复。）」）；
+  - **侧栏会话状态点**（`SidebarView.RunStatusDot`）：当前会话标题右侧显示
+    绿色跳动（正在生成）/ 橙色（已手动停止，`ChatEngine.stoppedRun`）/ 红色（本轮失败，看最后一条的 errorText）；
+  - 设置里「MCP 工具与服务器」移到「内置浏览器」下方（顺序：SSH 云服务器 → 内置浏览器 → MCP 工具与服务器
+    → 智能体 OCR 视觉 → 工作区文件 → 提醒事项与日历 → 剪贴板读写）。
+- 2.1.0 交付：工具执行补动画、实时思考弹窗、图片缩小、回到底部、停止后图标、长文卡顿治理、会话日志可展开。
 - 2.1.0 交付：
   - **加载动画**：模型在本地跑工具这一阶段没有任何流式输出，现在会在对话最下方显示三点动画
     （`ChatEngine.runningToolName`）；两处动画共用同一个 `TypingIndicator` 且条件互斥，

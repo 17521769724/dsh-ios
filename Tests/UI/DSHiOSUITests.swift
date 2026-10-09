@@ -607,10 +607,7 @@ final class DSHiOSUITests: XCTestCase {
         // 恢复默认，避免影响其它用例
         openSettings()
         openBrowserSettingsAndToggle(false)
-        // 智能体工具分组：查看画面 / 工作区文件 / MCP 工具与服务器 / 提醒事项 / 剪贴板
-        XCTAssertTrue(scrollTo("feature.visionTool").waitForExistence(timeout: 5), "缺少「智能体查看画面」开关")
-        XCTAssertTrue(scrollTo("feature.fileTool").waitForExistence(timeout: 5), "缺少「智能体读写工作区文件」开关")
-        // MCP 已合并成一行（首页只有箭头，开关在 MCP 页顶部）
+        // 智能体工具分组顺序：SSH → 内置浏览器 → MCP 工具与服务器 → OCR 视觉 → 工作区文件 → 提醒 → 剪贴板
         let mcpRow = scrollTo("settings.mcp")
         XCTAssertTrue(mcpRow.waitForExistence(timeout: 5), "缺少「MCP 服务器」入口")
         mcpRow.tap()
@@ -627,6 +624,9 @@ final class DSHiOSUITests: XCTestCase {
         app.navigationBars.buttons
             .matching(NSPredicate(format: "label IN %@", ["设置", "Back", "返回"]))
             .firstMatch.tap()
+        XCTAssertTrue(element("feature.mcpTool").exists, "MCP 开关应在 MCP 页顶部")
+        XCTAssertTrue(scrollTo("feature.visionTool").waitForExistence(timeout: 5), "缺少「智能体 OCR 视觉」开关")
+        XCTAssertTrue(scrollTo("feature.fileTool").waitForExistence(timeout: 5), "缺少「智能体读写工作区文件」开关")
         XCTAssertTrue(scrollTo("feature.reminderTool").waitForExistence(timeout: 5), "缺少「提醒事项与日历」开关")
         XCTAssertTrue(scrollTo("feature.clipboardTool").waitForExistence(timeout: 5), "缺少「剪贴板读写」开关")
         closeSettings()
@@ -899,10 +899,7 @@ final class DSHiOSUITests: XCTestCase {
         XCTAssertFalse(element("feature.browserTool").exists, "浏览器开关应移到二级页顶部")
         capture("33-settings-link-rows")
 
-        // 无配置页的功能仍然直接显示开关
-        XCTAssertTrue(scrollTo("feature.visionTool").waitForExistence(timeout: 5), "缺少视觉开关")
-        XCTAssertTrue(app.staticTexts["智能体 OCR 视觉"].exists, "视觉那一行文案应为「智能体 OCR 视觉」")
-        // MCP 已合并成一行（只有箭头），开关在 MCP 页顶部
+        // MCP 已合并成一行（紧跟内置浏览器，只有箭头），开关在 MCP 页顶部
         XCTAssertTrue(scrollTo("settings.mcp").waitForExistence(timeout: 5), "缺少 MCP 入口")
         XCTAssertFalse(element("feature.mcpTool").exists, "MCP 开关应移到二级页顶部")
         let mcpRow = element("settings.mcp")
@@ -918,6 +915,9 @@ final class DSHiOSUITests: XCTestCase {
             .firstMatch.tap()
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5), "未返回设置页")
 
+        // 无配置页的功能仍然直接显示开关
+        XCTAssertTrue(scrollTo("feature.visionTool").waitForExistence(timeout: 5), "缺少视觉开关")
+        XCTAssertTrue(app.staticTexts["智能体 OCR 视觉"].exists, "视觉那一行文案应为「智能体 OCR 视觉」")
         // 提醒事项与剪贴板仍直接显示开关
         XCTAssertTrue(scrollTo("feature.reminderTool").waitForExistence(timeout: 5), "缺少提醒事项开关")
         XCTAssertTrue(scrollTo("feature.clipboardTool").waitForExistence(timeout: 5), "缺少剪贴板开关")

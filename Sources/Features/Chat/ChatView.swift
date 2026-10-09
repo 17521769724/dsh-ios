@@ -107,10 +107,10 @@ struct ChatView: View {
                         .transition(.opacity)
                     }
 
-                    // 模型正在本地跑工具（这一阶段没有流式输出）时，在最下方显示三点动画。
-                    // 注意：正在流式输出的那条消息自己会显示同一套三点动画，
-                    // 这里只在「没有任何消息在显示动画」时才补一行，避免出现两行
-                    if showsToolRunningIndicator {
+                    // 生成中如果没有任何一处显示三点动画（跑工具期间、或刚开新一轮还没拿到缓冲），
+                    // 就在最下方补一行，避免用户以为卡住 / 已经结束。
+                    // 正在输出的那条消息自己会显示同一套动画，两处条件互斥，只会有一行
+                    if showsStreamingIndicator {
                         TypingIndicator()
                             .padding(.horizontal, DSHTheme.messageHorizontalPadding)
                             .transition(.opacity)
@@ -180,11 +180,20 @@ struct ChatView: View {
         (engine.currentConversation?.messages.isEmpty ?? true)
     }
 
-    /// 是否在对话最下方补一行三点动画：模型正在本地执行工具。
-    /// 这一段没有任何流式输出（上一轮回复已经写完），补一行动画才不会看起来像卡住；
-    /// 正在流式输出的那条消息自己也会显示同一套三点动画，两处条件互斥，不会同时出现
-    private var showsToolRunningIndicator: Bool {
-        engine.isStreaming && engine.runningToolName != nil
+    /// 是否在对话最下方补一行三点动画。
+    /// 两种情况：
+    /// 1. 模型正在本地执行工具（这一阶段没有任何流式输出，看起来像卡住）；
+    /// 2. 正在生成，但最后一条助手消息还没拿到流式缓冲（例如工具调用后刚开新一轮），
+    ///    此时那条气泡里不会显示动画，必须在最下方补一行，否则用户无法判断是否还在进行。
+    /// 正在输出的那条消息自己会显示同一套 `TypingIndicator`，两处条件互斥，不会同时出现两行。
+    private var showsStreamingIndicator: Bool {
+        guard engine.isStreaming else { return false }
+        if engine.runningToolName != nil { return true }
+        let messages = engine.currentConversation?.messages ?? []
+        guard let lastAssistant = messages.last(where: { $0.role == .assistant }) else { return true }
+        if lastAssistant.isStreaming, engine.streaming?.messageID == lastAssistant.id { return false }
+        // 最后一条助手已经有内容 → 说明这一轮已经写完，不再显示
+        return lastAssistant.content.isEmpty && (lastAssistant.reasoning?.isEmpty ?? true)
     }
 
     /// 每条助手消息的「过程」：把紧随其后的工具结果消息折进来，

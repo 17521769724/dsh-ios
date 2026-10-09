@@ -251,6 +251,12 @@ struct SidebarView: View {
                     .foregroundStyle(selected ? DSHTheme.brand : DSHTheme.assistantText)
                     .lineLimit(1)
 
+                // 当前会话的状态点：进行中（绿色跳动）/ 已停止（橙色）/ 异常（红色），
+                // 让用户一眼看出这轮对话到底还在跑还是已经结束
+                if selected, let status = runStatus(for: conversation) {
+                    RunStatusDot(status: status)
+                }
+
                 Spacer(minLength: 4)
 
                 if conversation.isPinned {
@@ -389,5 +395,69 @@ struct SidebarView: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(identifier)
+    }
+}
+
+// MARK: - 运行状态
+
+/// 会话运行状态：进行中 / 已停止 / 异常
+enum RunStatus: Equatable {
+    case running
+    case stopped
+    case failed
+
+    var color: Color {
+        switch self {
+        case .running: return .green
+        case .stopped: return .orange
+        case .failed: return DSHTheme.danger
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .running: return "模型正在生成"
+        case .stopped: return "已手动停止"
+        case .failed: return "本轮回复失败"
+        }
+    }
+
+    var pulsing: Bool { self == .running }
+}
+
+/// 状态点：进行中是跳动绿点，停止是橙点，异常是红点
+private struct RunStatusDot: View {
+    let status: RunStatus
+    @State private var on = false
+
+    var body: some View {
+        Circle()
+            .fill(status.color)
+            .frame(width: 8, height: 8)
+            .opacity(status.pulsing ? (on ? 1 : 0.3) : 1)
+            .scaleEffect(status.pulsing && on ? 1.2 : 0.85)
+            .animation(
+                status.pulsing
+                    ? .easeInOut(duration: 0.65).repeatForever(autoreverses: true)
+                    : .default,
+                value: on
+            )
+            .onAppear { on = status.pulsing }
+            .accessibilityLabel(status.label)
+            .accessibilityIdentifier("sidebar.runStatus")
+    }
+}
+
+extension SidebarView {
+    /// 当前会话的运行状态：正在生成 / 刚被停止 / 本轮失败
+    func runStatus(for conversation: Conversation) -> RunStatus? {
+        guard engine.currentConversation?.id == conversation.id else { return nil }
+        if engine.isStreaming { return .running }
+        if let last = conversation.messages.last(where: { $0.role == .assistant }),
+           last.errorText != nil {
+            return .failed
+        }
+        if engine.stoppedRun { return .stopped }
+        return nil
     }
 }

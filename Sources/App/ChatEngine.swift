@@ -365,7 +365,29 @@ final class ChatEngine: ObservableObject {
             isStreaming = false
             streaming = nil
             finalizeStreamingMessage()
+            stoppedRun = true
+            // 一个字都没产出时也要留一句话，避免空气泡让人以为还在跑
+            markEmptyFinalReplyIfNeeded(stopped: true)
         }
+    }
+
+    /// 本轮结束但最后一条助手消息是空的（模型没返回内容、或达到单轮工具调用上限）时补一句说明，
+    /// 否则界面会留下一个空气泡，用户无法判断对话是否已经结束
+    private func markEmptyFinalReplyIfNeeded(stopped: Bool = false) {
+        guard var conversation = currentConversation,
+              let index = conversation.messages.lastIndex(where: { $0.role == .assistant })
+        else { return }
+        let message = conversation.messages[index]
+        guard message.content.isEmpty,
+              (message.reasoning?.isEmpty ?? true),
+              (message.toolCalls?.isEmpty ?? true)
+        else { return }
+        conversation.messages[index].content = stopped
+            ? "（已手动停止，本轮没有产生回复。）"
+            : "（本轮没有返回内容，可以继续提问，或点重新生成。）"
+        conversation.updatedAt = Date()
+        currentConversation = conversation
+        conversationStore.upsert(conversation)
     }
 
     /// 重新生成最后一条助手回复
@@ -481,6 +503,7 @@ final class ChatEngine: ObservableObject {
 
         client = DeepSeekClient(timeout: settings.requestTimeout)
         isStreaming = true
+        stoppedRun = false
         streaming = StreamingText(messageID: assistantID)
 
         streamTask = Task { @MainActor [weak self] in
@@ -985,6 +1008,7 @@ final class ChatEngine: ObservableObject {
         streaming = nil
         runningToolName = nil
         endBackgroundAssertion()
+        markEmptyFinalReplyIfNeeded()
 
         var finalUsage = usage
         var estimated = false
