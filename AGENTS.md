@@ -89,7 +89,7 @@ xcodebuild test -project DSHiOS.xcodeproj -scheme DSHiOS -destination "platform=
 
 ## 当前状态
 
-- 版本：**2.0.0（build 98）**，已发布的未签名 IPA 见 Releases。
+- 版本：**2.0.0（build 99）**，已发布的未签名 IPA 见 Releases。
 - 2.0.0 交付：
   - **修复 400「工具调用配对」错误**：中途停止过的会话会留下不完整的 `tool_calls`，
     之后每次请求都会被服务端拒绝（`An assistant message with 'tool_calls' must be followed by

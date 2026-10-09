@@ -1696,7 +1696,7 @@ final class ContextCompactorTests: XCTestCase {
 
 final class ToolCallRepairTests: XCTestCase {
 
-    private func assistant(_ text: String, calls: [(String, String)]) -> ChatMessage {
+    private func assistant(_ text: String, calls: [(String, String)] = []) -> ChatMessage {
         ChatMessage(
             role: .assistant,
             content: text,
