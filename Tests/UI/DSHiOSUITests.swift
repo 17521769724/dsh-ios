@@ -572,10 +572,10 @@ final class DSHiOSUITests: XCTestCase {
         // 返回设置主页（必须点 SSH 页自己的返回按钮，避免误点到根导航栏的「完成」把设置关掉）
         app.navigationBars["SSH 云服务器"].buttons.firstMatch.tap()
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5), "未返回设置页")
-        // 工具开关都在各自配置页里：设置主页只保留入口（不再有重复开关）
+        // 开关在设置首页那一行上，箭头负责进配置页
         XCTAssertTrue(scrollTo("settings.ssh").exists, "缺少 SSH 云服务器入口")
-        XCTAssertFalse(element("feature.sshTool").exists, "SSH 开关不应再出现在设置主页")
-        XCTAssertFalse(element("feature.browserTool").exists, "浏览器开关不应再出现在设置主页")
+        XCTAssertTrue(element("feature.sshTool").exists, "SSH 那一行应带开关")
+        XCTAssertTrue(element("feature.browserTool").exists, "浏览器那一行应带开关")
         toggleFeature("feature.browserTool", on: true)
         closeSettings()
 
@@ -907,7 +907,7 @@ final class DSHiOSUITests: XCTestCase {
         XCTAssertTrue(scrollTo("feature.mcpTool").waitForExistence(timeout: 5), "缺少 MCP 开关")
         XCTAssertTrue(element("settings.mcp").exists, "MCP 行应带进入服务器管理的箭头")
         XCTAssertTrue(app.staticTexts["智能体 OCR 视觉"].exists, "视觉那一行的文案应为「智能体 OCR 视觉」")
-        XCTAssertTrue(element("feature.skillTool").exists, "技能库那一行应带开关")
+        XCTAssertTrue(scrollTo("feature.skillTool").waitForExistence(timeout: 5), "技能库那一行应带开关")
         XCTAssertTrue(element("settings.skills").exists, "技能库那一行应带箭头")
         capture("34-settings-merged-mcp")
 
