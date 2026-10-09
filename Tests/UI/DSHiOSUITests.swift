@@ -563,11 +563,8 @@ final class DSHiOSUITests: XCTestCase {
         XCTAssertTrue(scrollTo("settings.browser").waitForExistence(timeout: 5), "缺少浏览器设置入口")
         element("settings.browser").tap()
         XCTAssertTrue(app.navigationBars["浏览器设置"].waitForExistence(timeout: 5), "浏览器设置页未打开")
-        let toggle = element("browser.agentTools")
-        XCTAssertTrue(toggle.waitForExistence(timeout: 5), "缺少内置浏览器工具开关")
-        if (toggle.value as? String) != (on ? "1" : "0") {
-            toggle.tap()
-        }
+        // 复用与其它用例一致的开关切换逻辑（带重试与状态等待，直接 tap 行容器不会切换）
+        toggleFeature("browser.agentTools", on: on)
         app.navigationBars["浏览器设置"].buttons.firstMatch.tap()
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5), "未返回设置页")
     }

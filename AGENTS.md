@@ -89,7 +89,7 @@ xcodebuild test -project DSHiOS.xcodeproj -scheme DSHiOS -destination "platform=
 
 ## 当前状态
 
-- 版本：**1.9.0（build 95）**，已发布的未签名 IPA 见 Releases。
+- 版本：**1.9.0（build 96）**，已发布的未签名 IPA 见 Releases。
 - 1.9.0 交付：
   - 对话页操作图标（复制 / 点赞 / 重新生成）只在「这一轮的**最终回复** + 生成已完全停止」时出现：
     工具调用过程中的中间回复不再冒图标（`Array<ChatMessage>.finalReplyIDs`，带单测）；
