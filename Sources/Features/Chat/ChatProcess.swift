@@ -163,3 +163,29 @@ struct ChatProcess: Equatable {
         }
     }
 }
+// MARK: - 一轮回复里的「最终回复」
+
+extension Array where Element == ChatMessage {
+    /// 一轮对话里「最终回复」的 id 集合。
+    /// 工具调用过程中会有多条中间的助手消息（每条只写一句话就接着调工具），
+    /// 复制 / 点赞 / 重新生成这些操作图标只应出现在这一轮的**最后一条**助手上：
+    /// 否则生成过程中每条中间回复下面都会冒出图标（用户反馈的观感问题）。
+    var finalReplyIDs: Set<UUID> {
+        var result: Set<UUID> = []
+        var pending: UUID?
+        for message in self {
+            switch message.role {
+            case .user:
+                if let pending { result.insert(pending) }
+                pending = nil
+            case .assistant:
+                // 上一条助手后面又出现助手 → 上一条是中间回复，不算最终回复
+                pending = message.id
+            case .tool, .system:
+                continue
+            }
+        }
+        if let pending { result.insert(pending) }
+        return result
+    }
+}

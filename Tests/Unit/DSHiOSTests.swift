@@ -1692,6 +1692,61 @@ final class ContextCompactorTests: XCTestCase {
     }
 }
 
+// MARK: - 一轮回复的最终回复判定
+
+final class FinalReplyTests: XCTestCase {
+
+    private func assistant(_ text: String, calls: [ToolCall]? = nil) -> ChatMessage {
+        ChatMessage(role: .assistant, content: text, toolCalls: calls)
+    }
+
+    /// 普通一轮：唯一的助手回复就是最终回复
+    func testSingleReplyIsFinal() {
+        let messages: [ChatMessage] = [
+            ChatMessage(role: .user, content: "你好"),
+            assistant("你好，有什么可以帮你？")
+        ]
+        XCTAssertEqual(messages.finalReplyIDs, [messages[1].id])
+    }
+
+    /// 工具调用轮：中间回复不算最终回复，只有最后一条助手才是
+    func testToolRoundsOnlyLastAssistantIsFinal() {
+        let intermediate = assistant("先查一下", calls: [ToolCall(id: "1", name: "workspace", arguments: "{}")])
+        let final = assistant("结论如下")
+        let messages: [ChatMessage] = [
+            ChatMessage(role: .user, content: "查一下"),
+            intermediate,
+            ChatMessage(role: .tool, content: "结果", toolCallID: "1", toolName: "workspace"),
+            final
+        ]
+        XCTAssertEqual(messages.finalReplyIDs, [final.id], "中间回复不应算最终回复")
+        XCTAssertFalse(messages.finalReplyIDs.contains(intermediate.id))
+    }
+
+    /// 多轮对话：每一轮的最终回复都保留（历史回复仍可复制/点赞）
+    func testEachTurnKeepsItsFinalReply() {
+        let first = assistant("第一轮回答")
+        let second = assistant("第二轮回答")
+        let messages: [ChatMessage] = [
+            ChatMessage(role: .user, content: "Q1"),
+            first,
+            ChatMessage(role: .user, content: "Q2"),
+            second
+        ]
+        XCTAssertEqual(messages.finalReplyIDs, [first.id, second.id])
+    }
+
+    /// 正在生成的空助手消息不算最终回复（要等生成结束）
+    func testStreamingPlaceholderIsNotFinal() {
+        var placeholder = assistant("")
+        placeholder.isStreaming = true
+        let messages: [ChatMessage] = [ChatMessage(role: .user, content: "Q"), placeholder]
+        // 算法本身只看角色顺序，界面再叠加「生成已停止」的判断
+        XCTAssertEqual(messages.finalReplyIDs, [placeholder.id])
+        XCTAssertTrue(placeholder.isStreaming)
+    }
+}
+
 // MARK: - 权限中心
 
 final class PermissionCenterTests: XCTestCase {

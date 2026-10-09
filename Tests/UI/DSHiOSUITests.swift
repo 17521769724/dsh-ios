@@ -557,6 +557,21 @@ final class DSHiOSUITests: XCTestCase {
 
     // MARK: - 智能体工具（SSH / 内置浏览器）
 
+    /// 打开「浏览器设置」并把内置浏览器工具开关设为指定值
+    /// （总开关已从设置主页移到配置页，避免两处重复）
+    private func openBrowserSettingsAndToggle(_ on: Bool) {
+        XCTAssertTrue(scrollTo("settings.browser").waitForExistence(timeout: 5), "缺少浏览器设置入口")
+        element("settings.browser").tap()
+        XCTAssertTrue(app.navigationBars["浏览器设置"].waitForExistence(timeout: 5), "浏览器设置页未打开")
+        let toggle = element("browser.agentTools")
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5), "缺少内置浏览器工具开关")
+        if (toggle.value as? String) != (on ? "1" : "0") {
+            toggle.tap()
+        }
+        app.navigationBars["浏览器设置"].buttons.firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5), "未返回设置页")
+    }
+
     func test20_SSH设置页与内置浏览器入口() {
         openSettings()
 
@@ -572,9 +587,11 @@ final class DSHiOSUITests: XCTestCase {
         // 返回设置主页（必须点 SSH 页自己的返回按钮，避免误点到根导航栏的「完成」把设置关掉）
         app.navigationBars["SSH 云服务器"].buttons.firstMatch.tap()
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5), "未返回设置页")
-        // SSH 与浏览器是两个独立开关：这里只开浏览器
-        XCTAssertTrue(scrollTo("feature.sshTool").exists, "缺少 SSH 工具开关")
-        toggleFeature("feature.browserTool", on: true)
+        // 工具开关都在各自配置页里：设置主页只保留入口（不再有重复开关）
+        XCTAssertTrue(scrollTo("settings.ssh").exists, "缺少 SSH 云服务器入口")
+        XCTAssertFalse(element("feature.sshTool").exists, "SSH 开关不应再出现在设置主页")
+        XCTAssertFalse(element("feature.browserTool").exists, "浏览器开关不应再出现在设置主页")
+        openBrowserSettingsAndToggle(true)
         closeSettings()
 
         // 开关打开后，菜单里应出现「内置浏览器」入口
@@ -592,8 +609,8 @@ final class DSHiOSUITests: XCTestCase {
 
         // 恢复默认，避免影响其它用例
         openSettings()
-        toggleFeature("feature.browserTool", on: false)
-        // 新增的两个智能体工具开关（查看画面 / 工作区文件）在同一分组、位于浏览器开关下方
+        openBrowserSettingsAndToggle(false)
+        // 智能体工具分组：查看画面 / 工作区文件 / MCP 工具 / MCP 服务器 / 提醒事项 / 剪贴板
         XCTAssertTrue(scrollTo("feature.visionTool").waitForExistence(timeout: 5), "缺少「智能体查看画面」开关")
         XCTAssertTrue(scrollTo("feature.fileTool").waitForExistence(timeout: 5), "缺少「智能体读写工作区文件」开关")
         XCTAssertTrue(scrollTo("feature.mcpTool").waitForExistence(timeout: 5), "缺少「MCP 工具」开关")
@@ -844,6 +861,30 @@ final class DSHiOSUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 0.8)
         XCTAssertEqual(menuEarly.minX, menu.frame.minX, accuracy: 0.5, "冷启动后右侧顶栏图标横向位移")
         XCTAssertEqual(menuEarly.minY, menu.frame.minY, accuracy: 0.5, "冷启动后右侧顶栏图标纵向位移")
+    }
+
+    /// 思考过程与工具过程各自打开独立弹窗（用户反馈：两个入口点开内容一模一样）
+    func test25_思考与工具弹窗内容独立() {
+        launchApp(configured: true, seed: true)
+
+        // 演示会话里助手消息带有「思考过程」与「工具过程」两行
+        let thinking = element("message.thinking")
+        XCTAssertTrue(thinking.waitForExistence(timeout: 10), "缺少「思考过程」入口")
+        thinking.tap()
+        XCTAssertTrue(app.navigationBars["思考过程"].waitForExistence(timeout: 5), "思考过程弹窗未打开")
+        capture("31-sheet-reasoning")
+        app.navigationBars["思考过程"].buttons.firstMatch.tap()
+
+        let process = element("message.process")
+        XCTAssertTrue(process.waitForExistence(timeout: 5), "缺少「工具过程」入口")
+        process.tap()
+        XCTAssertTrue(app.navigationBars["工具过程"].waitForExistence(timeout: 5), "工具过程弹窗未打开")
+        // 两个弹窗标题不同，内容也各自独立
+        XCTAssertFalse(app.navigationBars["思考过程"].exists, "工具弹窗不应再显示思考内容")
+        capture("32-sheet-steps")
+        app.navigationBars["工具过程"].buttons.firstMatch.tap()
+
+        XCTAssertTrue(element("composer.input").waitForExistence(timeout: 5), "关闭弹窗后未回到对话页")
     }
 
     // MARK: - 权限（首次引导 + 设置里的权限状态页）

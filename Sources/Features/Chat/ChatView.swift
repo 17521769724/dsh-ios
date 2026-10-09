@@ -29,6 +29,8 @@ struct ChatView: View {
         // 最后一条助手消息、每条助手消息的过程摘要
         let visibleMessages = messages.filter { $0.role != .tool }
         let lastAssistantID = messages.last(where: { $0.role == .assistant })?.id
+        // 操作图标（复制 / 点赞 / 重新生成）只给每一轮的最终回复：工具调用中的中间回复不显示
+        let finalReplies = messages.finalReplyIDs
         let processes = Self.processes(in: messages)
         // 跟随滚动由流式缓冲的版本号驱动：只有真正写入新内容时才滚动，
         // 而且不会让 ChatView 整体重算（onReceive 不触发 body）
@@ -45,6 +47,7 @@ struct ChatView: View {
                         MessageBubble(
                             message: message,
                             isLastAssistant: message.role == .assistant && message.id == lastAssistantID,
+                            showsActions: finalReplies.contains(message.id),
                             streaming: engine.streaming,
                             process: processes[message.id],
                             onCopy: {
@@ -70,6 +73,13 @@ struct ChatView: View {
                             engine.send(prompt)
                         })
                         .transition(.opacity)
+                    }
+
+                    // 模型正在思考（还没有任何可见输出）时，在最下方显示三点加载动画
+                    if isThinking {
+                        TypingDotsView()
+                            .padding(.horizontal, DSHTheme.messageHorizontalPadding)
+                            .transition(.opacity)
                     }
 
                     Color.clear
@@ -103,6 +113,12 @@ struct ChatView: View {
 
     private var isConversationEmpty: Bool {
         (engine.currentConversation?.messages.isEmpty ?? true)
+    }
+
+    /// 是否处于「正在思考」：正在生成但还没有吐字，也没有思考内容
+    private var isThinking: Bool {
+        guard let streaming = engine.streaming else { return false }
+        return !streaming.hasContent && !streaming.hasReasoning
     }
 
     /// 每条助手消息的「过程」：把紧随其后的工具结果消息折进来，
@@ -220,5 +236,31 @@ struct EmptyChatView: View {
         .frame(maxWidth: .infinity)
         .padding(.horizontal, DSHTheme.Spacing.large)
         .padding(.top, 32)
+    }
+}
+// MARK: - 三点加载动画
+
+/// 模型正在思考（还没有可见输出）时，显示在对话最下方的三点动画
+struct TypingDotsView: View {
+    private let timer = Timer.publish(every: 0.33, on: .main, in: .common).autoconnect()
+    @State private var phase = 0
+
+    var body: some View {
+        HStack(spacing: 5) {
+            ForEach(0..<3, id: \.self) { index in
+                Circle()
+                    .fill(DSHTheme.tertiaryText)
+                    .frame(width: 6, height: 6)
+                    .opacity(phase == index ? 1 : 0.3)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onReceive(timer) { _ in
+            withAnimation(.easeInOut(duration: 0.25)) {
+                phase = (phase + 1) % 3
+            }
+        }
+        .accessibilityIdentifier("chat.typing")
+        .accessibilityLabel("正在思考")
     }
 }

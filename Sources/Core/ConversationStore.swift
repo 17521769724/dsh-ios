@@ -106,6 +106,21 @@ final class ConversationStore: ObservableObject {
                 role: .user,
                 content: "用 Swift 写一个防抖函数，并解释它的用途。"
             ),
+            // 工具调用轮的中间回复：带一条工具结果，用来演示「工具过程」，
+            // 同时验证「中间回复不显示复制/点赞图标」这条规则
+            ChatMessage(
+                role: .assistant,
+                content: "先看看项目里有没有现成的防抖实现。",
+                isStreaming: false,
+                model: model,
+                toolCalls: [ToolCall(id: "seed-tool-1", name: "workspace", arguments: #"{"action":"list","path":"."}"#)]
+            ),
+            ChatMessage(
+                role: .tool,
+                content: "工作区里没有防抖相关文件。",
+                toolCallID: "seed-tool-1",
+                toolName: "workspace"
+            ),
             ChatMessage(
                 role: .assistant,
                 content: """

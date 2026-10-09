@@ -61,10 +61,37 @@ struct ProcessRowButton: View {
 
 // MARK: - 过程弹窗
 
-/// 「过程」弹窗：展示这条回复用到的工具步骤与思考内容
+/// 弹窗内容类型：思考过程与工具步骤各自独立展示。
+/// 此前两个入口都打开同一份「过程」，用户点开发现内容一模一样。
+enum ProcessSheetMode: String, Identifiable {
+    /// 只看思考过程
+    case reasoning
+    /// 只看工具步骤
+    case steps
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .reasoning: return "思考过程"
+        case .steps: return "工具过程"
+        }
+    }
+
+    /// 没有对应内容时的说明
+    var emptyHint: String {
+        switch self {
+        case .reasoning: return "这次回复没有思考内容。"
+        case .steps: return "这次回复没有调用工具。"
+        }
+    }
+}
+
+/// 「过程」弹窗：按 `mode` 只展示思考内容或工具步骤
 struct ProcessSheet: View {
-    let steps: [ChatProcessStep]
-    let reasoning: String?
+    let mode: ProcessSheetMode
+    var steps: [ChatProcessStep] = []
+    var reasoning: String?
     /// 生成中的实时思考：弹窗打开期间内容继续增长
     var liveReasoning: StreamingText?
 
@@ -77,16 +104,28 @@ struct ProcessSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: DSHTheme.Spacing.section) {
-                    ForEach(steps) { step in
-                        stepSection(step)
+                    switch mode {
+                    case .steps:
+                        if steps.isEmpty {
+                            emptyHintText
+                        } else {
+                            ForEach(steps) { step in
+                                stepSection(step)
+                            }
+                        }
+                    case .reasoning:
+                        if hasReasoning {
+                            reasoningSection
+                        } else {
+                            emptyHintText
+                        }
                     }
-                    reasoningSection
                 }
                 .padding(DSHTheme.Spacing.large)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .background(DSHTheme.page)
-            .navigationTitle("过程")
+            .navigationTitle(mode.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -102,6 +141,17 @@ struct ProcessSheet: View {
     }
 
     // MARK: 步骤
+
+    /// 是否有思考内容可展示
+    private var hasReasoning: Bool {
+        (reasoning?.isEmpty == false) || liveReasoning != nil
+    }
+
+    private var emptyHintText: some View {
+        Text(mode.emptyHint)
+            .font(.system(size: 13))
+            .foregroundStyle(DSHTheme.tertiaryText)
+    }
 
     private func stepSection(_ step: ChatProcessStep) -> some View {
         VStack(alignment: .leading, spacing: DSHTheme.Spacing.small) {

@@ -93,12 +93,7 @@ struct SettingsView: View {
 
     private var toolsSection: some View {
         Section {
-            // SSH 与内置浏览器各自独立控制，互不影响
-            Toggle(isOn: $settingsStore.settings.features.sshTool) {
-                SettingsRowLabel(symbol: "terminal.fill", color: .black, title: "SSH 云服务器工具")
-            }
-            .accessibilityIdentifier("feature.sshTool")
-
+            // SSH 与内置浏览器、代码托管的开关都放在各自的配置页里，这里只保留入口与状态
             NavigationLink {
                 SSHSettingsView()
             } label: {
@@ -106,16 +101,11 @@ struct SettingsView: View {
                     symbol: "server.rack",
                     color: .gray,
                     title: "SSH 服务器配置",
-                    // 已配置时不暴露主机与用户名等信息
-                    value: sshStore.isConfigured ? "已配置" : "未配置"
+                    // 开关在页面里，这里把「配置 + 工具开关」两个状态一起显示
+                    value: "\(sshStore.isConfigured ? "已配置" : "未配置") · \(features.sshTool ? "工具已开" : "工具已关")"
                 )
             }
             .accessibilityIdentifier("settings.ssh")
-
-            Toggle(isOn: $settingsStore.settings.features.browserTool) {
-                SettingsRowLabel(symbol: "safari.fill", color: .blue, title: "内置浏览器工具")
-            }
-            .accessibilityIdentifier("feature.browserTool")
 
             NavigationLink {
                 BrowserSettingsView()
@@ -124,7 +114,7 @@ struct SettingsView: View {
                     symbol: "globe",
                     color: .teal,
                     title: "浏览器设置",
-                    value: settings.browser.desktopSite ? "桌面版网站" : "移动版网站"
+                    value: "\(settings.browser.desktopSite ? "桌面版网站" : "移动版网站") · \(features.browserTool ? "工具已开" : "工具已关")"
                 )
             }
             .accessibilityIdentifier("settings.browser")
@@ -180,43 +170,33 @@ struct SettingsView: View {
 
     private var gitSection: some View {
         Section {
-            Toggle(isOn: $settingsStore.settings.features.githubTool) {
-                SettingsRowLabel(symbol: "arrow.triangle.branch", color: .black, title: "GitHub 工具")
-            }
-            .accessibilityIdentifier("feature.githubTool")
-
             NavigationLink {
                 GitAccountSettingsView(provider: .github)
             } label: {
                 SettingsValueRow(
                     symbol: "person.crop.circle.fill",
-                    color: .gray,
+                    color: .black,
                     title: "GitHub 账号",
-                    value: gitStore.statusText(for: .github)
+                    value: "\(gitStore.statusText(for: .github)) · \(features.githubTool ? "工具已开" : "工具已关")"
                 )
             }
             .accessibilityIdentifier("settings.githubAccount")
-
-            Toggle(isOn: $settingsStore.settings.features.giteeTool) {
-                SettingsRowLabel(symbol: "arrow.triangle.branch", color: .red, title: "Gitee 工具")
-            }
-            .accessibilityIdentifier("feature.giteeTool")
 
             NavigationLink {
                 GitAccountSettingsView(provider: .gitee)
             } label: {
                 SettingsValueRow(
                     symbol: "person.crop.circle.fill",
-                    color: .gray,
+                    color: .red,
                     title: "Gitee 账号",
-                    value: gitStore.statusText(for: .gitee)
+                    value: "\(gitStore.statusText(for: .gitee)) · \(features.giteeTool ? "工具已开" : "工具已关")"
                 )
             }
             .accessibilityIdentifier("settings.giteeAccount")
         } header: {
             Text("代码托管")
         } footer: {
-            Text("登录后 Token 只保存在本机钥匙串；开启开关后模型可查看仓库、读写仓库文件与创建 Issue，未登录时对应工具不会下发给模型。")
+            Text("点进去可登录账号并开关对应的智能体工具；Token 只保存在本机钥匙串，未登录或关闭时对应工具不会下发给模型。")
         }
     }
 

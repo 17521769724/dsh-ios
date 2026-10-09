@@ -7,6 +7,9 @@ import UIKit
 struct MessageBubble: View, Equatable {
     let message: ChatMessage
     let isLastAssistant: Bool
+    /// 是否显示操作图标（复制 / 点赞 / 重新生成）：仅一轮里的最终回复，
+    /// 且生成已完全停止（用户反馈：生成过程中每条中间回复都冒出图标太吵）
+    let showsActions: Bool
     /// 会话正在生成的缓冲：只有正在输出的那条消息会用到
     let streaming: StreamingText?
     /// 这条消息的「过程」（思考 + 工具步骤），为空时不显示折叠行
@@ -23,11 +26,12 @@ struct MessageBubble: View, Equatable {
     static func == (lhs: MessageBubble, rhs: MessageBubble) -> Bool {
         lhs.message == rhs.message
             && lhs.isLastAssistant == rhs.isLastAssistant
+            && lhs.showsActions == rhs.showsActions
             && lhs.process == rhs.process
             && lhs.streaming === rhs.streaming
     }
 
-    @State private var showProcess = false
+    @State private var processSheet: ProcessSheetMode?
     /// 上下文压缩摘要默认折叠，点标题展开看全文
     @State private var summaryExpanded = false
 
@@ -117,15 +121,16 @@ struct MessageBubble: View, Equatable {
                 assistantHeader
 
                 if let buffer = liveBuffer {
-                    StreamingAssistantBody(buffer: buffer, onOpenProcess: { showProcess = true })
+                    StreamingAssistantBody(buffer: buffer, onOpenProcess: { processSheet = .reasoning })
                 } else {
-                    // 过程行放在正文之前：先「怎么想的 / 做了什么」，再给结果
+                    // 过程行放在正文之前：先「怎么想的 / 做了什么」，再给结果。
+                    // 两个入口各自打开自己的弹窗，内容互不混淆
                     if process?.hasReasoning == true {
                         ProcessRowButton(
                             icon: "brain.head.profile",
                             text: "思考过程",
                             identifier: "message.thinking"
-                        ) { showProcess = true }
+                        ) { processSheet = .reasoning }
                     }
 
                     if let process, process.hasSteps {
@@ -133,7 +138,7 @@ struct MessageBubble: View, Equatable {
                             icon: "wrench.and.screwdriver",
                             text: process.summary,
                             identifier: "message.process"
-                        ) { showProcess = true }
+                        ) { processSheet = .steps }
                     }
 
                     if !message.content.isEmpty {
@@ -144,18 +149,21 @@ struct MessageBubble: View, Equatable {
                         errorView(error)
                     }
 
-                    if !message.isStreaming && !message.content.isEmpty {
+                    // 操作图标只在「这一轮的最终回复 + 生成已完全停止」时出现
+                    if showsActions, !message.isStreaming, streaming == nil, !message.content.isEmpty {
                         actionRow
                     }
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .sheet(isPresented: $showProcess) {
+        // 「思考过程」与「已读取 N 个网页」各自打开独立弹窗，内容不再重复
+        .sheet(item: $processSheet) { mode in
             ProcessSheet(
+                mode: mode,
                 steps: process?.steps ?? [],
                 reasoning: process?.reasoning,
-                liveReasoning: liveBuffer
+                liveReasoning: mode == .reasoning ? liveBuffer : nil
             )
         }
     }
