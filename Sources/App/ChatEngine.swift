@@ -37,6 +37,9 @@ final class ChatEngine: ObservableObject {
     @Published private(set) var streaming: StreamingText?
     /// 正在压缩上下文：此时不接受新的发送，界面显示「正在压缩上下文…」
     @Published private(set) var compacting = false
+    /// 正在本地执行的工具名：这一阶段没有流式输出，界面据此在对话最下方显示三点动画
+    /// （否则模型跑工具时看起来像卡住）
+    @Published private(set) var runningToolName: String?
     /// 可用模型列表（可来自服务端 /models，失败时回退内置列表）
     @Published var availableModels: [DSHModel] = DSHModel.catalog
     @Published var isRefreshingModels: Bool = false
@@ -354,6 +357,7 @@ final class ChatEngine: ObservableObject {
     func stopStreaming() {
         streamTask?.cancel()
         streamTask = nil
+        runningToolName = nil
         endBackgroundAssertion()
         if isStreaming {
             // 先把缓冲里的文字落进消息，停止时不会丢内容
@@ -532,7 +536,9 @@ final class ChatEngine: ObservableObject {
                     for call in pendingToolCalls {
                         if Task.isCancelled { break }
                         self.ensureToolMessagePlaceholder(call: call, model: model)
+                        self.runningToolName = call.name
                         let output = await self.run(toolCall: call)
+                        self.runningToolName = nil
                         self.completeToolMessage(output, call: call)
                     }
 
@@ -977,6 +983,7 @@ final class ChatEngine: ObservableObject {
         // 收尾前先把缓冲里的完整内容落进消息，否则最后几十毫秒的内容会丢
         commitStreamingBuffer(to: assistantID)
         streaming = nil
+        runningToolName = nil
         endBackgroundAssertion()
 
         var finalUsage = usage

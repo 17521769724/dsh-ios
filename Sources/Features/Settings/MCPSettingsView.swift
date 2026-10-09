@@ -6,6 +6,7 @@ struct MCPSettingsView: View {
     @EnvironmentObject private var mcpStore: MCPStore
     @EnvironmentObject private var gitStore: GitAccountStore
     @EnvironmentObject private var engine: ChatEngine
+    @EnvironmentObject private var settingsStore: SettingsStore
 
     @State private var refreshingAll = false
     /// 点开的服务器（用于推入详情页）
@@ -29,6 +30,18 @@ struct MCPSettingsView: View {
 
     var body: some View {
         List {
+            // 总开关在配置页顶部：设置首页那一行只有箭头
+            Section {
+                Toggle(isOn: $settingsStore.settings.features.mcpTool) {
+                    SettingsRowLabel(symbol: "puzzlepiece.extension", color: .green, title: "MCP 工具")
+                }
+                .accessibilityIdentifier("feature.mcpTool")
+            } header: {
+                Text("智能体")
+            } footer: {
+                Text("开启后已连接服务器的工具会随请求下发给模型；关闭只影响下发，不影响这里的服务器配置。")
+            }
+
             Section {
                 ForEach(Self.presets) { preset in
                     Button {

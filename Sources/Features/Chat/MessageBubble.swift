@@ -19,6 +19,9 @@ struct MessageBubble: View, Equatable {
     var onEdit: () -> Void
     var onRegenerate: () -> Void
     var onRate: (Int) -> Void
+    /// 打开「思考过程 / 工具过程」弹窗：由对话页统一持有弹窗，
+    /// 避免生成过程中本条消息频繁重绘时把点击或不稳定的弹窗吞掉
+    var onOpenProcess: (ProcessSheetMode) -> Void
 
     /// 只按「消息内容 + 是否最后一条助手消息 + 过程 + 流式缓冲」判断是否需要重绘：
     /// 生成过程中其它气泡因此完全不参与重绘，是滚动流畅的关键。
@@ -31,8 +34,6 @@ struct MessageBubble: View, Equatable {
             && lhs.streaming === rhs.streaming
     }
 
-    @State private var processSheet: ProcessSheetMode?
-    /// 上下文压缩摘要默认折叠，点标题展开看全文
     @State private var summaryExpanded = false
 
     private var isUser: Bool { message.role == .user }
@@ -88,25 +89,23 @@ struct MessageBubble: View, Equatable {
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
-    /// 用户消息附带的图片：等比展示，限制在气泡宽度内
+    /// 用户消息附带的图片：做成与输入框缩略图相近的小方图（此前最大 220×280，太占地方）
     private func attachmentImage(_ attachment: ChatAttachment) -> some View {
         Group {
-            if let image = AttachmentImageCache.image(for: attachment, maxSide: 720) {
+            if let image = AttachmentImageCache.image(for: attachment, maxSide: 220) {
                 Image(uiImage: image)
                     .resizable()
-                    .scaledToFit()
+                    .scaledToFill()
             } else {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(DSHTheme.chipFill)
-                    .frame(width: 160, height: 120)
+                DSHTheme.chipFill
                     .overlay(
                         Image(systemName: "photo")
-                            .font(.system(size: 20))
+                            .font(.system(size: 18))
                             .foregroundStyle(DSHTheme.secondaryText)
                     )
             }
         }
-        .frame(maxWidth: 220, maxHeight: 280)
+        .frame(width: 96, height: 96)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
@@ -121,7 +120,7 @@ struct MessageBubble: View, Equatable {
                 assistantHeader
 
                 if let buffer = liveBuffer {
-                    StreamingAssistantBody(buffer: buffer, onOpenProcess: { processSheet = .reasoning })
+                    StreamingAssistantBody(buffer: buffer, onOpenProcess: { onOpenProcess(.reasoning) })
                 } else {
                     // 过程行放在正文之前：先「怎么想的 / 做了什么」，再给结果。
                     // 两个入口各自打开自己的弹窗，内容互不混淆
@@ -130,7 +129,7 @@ struct MessageBubble: View, Equatable {
                             icon: "brain.head.profile",
                             text: "思考过程",
                             identifier: "message.thinking"
-                        ) { processSheet = .reasoning }
+                        ) { onOpenProcess(.reasoning) }
                     }
 
                     if let process, process.hasSteps {
@@ -138,7 +137,7 @@ struct MessageBubble: View, Equatable {
                             icon: "wrench.and.screwdriver",
                             text: process.summary,
                             identifier: "message.process"
-                        ) { processSheet = .steps }
+                        ) { onOpenProcess(.steps) }
                     }
 
                     if !message.content.isEmpty {
@@ -149,23 +148,15 @@ struct MessageBubble: View, Equatable {
                         errorView(error)
                     }
 
-                    // 操作图标只在「这一轮的最终回复 + 生成已完全停止」时出现
-                    if showsActions, !message.isStreaming, streaming == nil, !message.content.isEmpty {
+                    // 操作图标：这一轮的最终回复（或最后一条助手消息，例如用户手动停止后）
+                    // 在生成完全停止后显示
+                    if showsActions || isLastAssistant, !message.isStreaming, streaming == nil, !message.content.isEmpty {
                         actionRow
                     }
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        // 「思考过程」与「已读取 N 个网页」各自打开独立弹窗，内容不再重复
-        .sheet(item: $processSheet) { mode in
-            ProcessSheet(
-                mode: mode,
-                steps: process?.steps ?? [],
-                reasoning: process?.reasoning,
-                liveReasoning: mode == .reasoning ? liveBuffer : nil
-            )
-        }
     }
 
     /// 正在输出这条消息时返回它的流式缓冲

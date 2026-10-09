@@ -17,15 +17,12 @@ struct SettingsToggleRow: View {
     }
 }
 
-/// 带配置页的「开关行」：右侧是开关，开关右边再跟一个进入配置的箭头。
-/// 点开关只切换开关，点这一行的其它位置进入配置页。
-struct SettingsToggleLinkRow<Destination: View>: View {
+/// 带配置页的「入口行」：右侧只给一个进入配置的箭头。
+/// 开关统一放在配置页顶部，设置首页不再重复（用户要求）。
+struct SettingsLinkRow<Destination: View>: View {
     let symbol: String
     let color: Color
     let title: String
-    @Binding var isOn: Bool
-    /// 开关的无障碍标识（沿用 feature.xxx）
-    var identifier: String
     /// 入口行的无障碍标识（沿用 settings.xxx）
     var linkIdentifier: String
     @ViewBuilder var destination: Destination
@@ -34,16 +31,7 @@ struct SettingsToggleLinkRow<Destination: View>: View {
         NavigationLink {
             destination
         } label: {
-            HStack(spacing: DSHTheme.Spacing.small) {
-                SettingsRowLabel(symbol: symbol, color: color, title: title)
-                Spacer(minLength: 8)
-                Toggle("", isOn: $isOn)
-                    .labelsHidden()
-                    .accessibilityIdentifier(identifier)
-                    // 开关自己吃掉点击，不会顺带把这一行推进配置页
-                    .contentShape(Rectangle())
-            }
-            .contentShape(Rectangle())
+            SettingsRowLabel(symbol: symbol, color: color, title: title)
         }
         .accessibilityIdentifier(linkIdentifier)
     }

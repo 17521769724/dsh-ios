@@ -94,23 +94,19 @@ struct SettingsView: View {
     private var toolsSection: some View {
         Section {
             // 每一行：右侧开关控制「智能体能不能调用」，需要配置的功能在开关右边再给一个箭头进配置页
-            SettingsToggleLinkRow(
+            SettingsLinkRow(
                 symbol: "server.rack",
                 color: .gray,
                 title: "SSH 云服务器",
-                isOn: $settingsStore.settings.features.sshTool,
-                identifier: "feature.sshTool",
                 linkIdentifier: "settings.ssh"
             ) {
                 SSHSettingsView()
             }
 
-            SettingsToggleLinkRow(
+            SettingsLinkRow(
                 symbol: "globe",
                 color: .teal,
                 title: "内置浏览器",
-                isOn: $settingsStore.settings.features.browserTool,
-                identifier: "feature.browserTool",
                 linkIdentifier: "settings.browser"
             ) {
                 BrowserSettingsView()
@@ -133,12 +129,10 @@ struct SettingsView: View {
             )
 
             // MCP 只保留一行：开关控制「工具是否下发」，箭头进服务器管理
-            SettingsToggleLinkRow(
+            SettingsLinkRow(
                 symbol: "puzzlepiece.extension",
                 color: .green,
                 title: "MCP 工具与服务器",
-                isOn: $settingsStore.settings.features.mcpTool,
-                identifier: "feature.mcpTool",
                 linkIdentifier: "settings.mcp"
             ) {
                 MCPSettingsView()
@@ -163,7 +157,7 @@ struct SettingsView: View {
         } header: {
             Text("智能体工具")
         } footer: {
-            Text("开关控制对应工具是否下发给模型；带箭头的功能可点进去配置（SSH 服务器、浏览器、MCP 服务器）。剪贴板与提醒事项首次使用会请求系统权限，可在「关于 → 权限状态」里查看。")
+            Text("带箭头的功能点进去后，页面顶部有开关控制它是否下发给模型（SSH 服务器、浏览器、MCP 工具与服务器、代码托管、技能、回答风格约束）；其余开关直接在这里控制。剪贴板与提醒事项首次使用会请求系统权限，可在「关于 → 权限状态」里查看。")
         }
     }
 
@@ -171,23 +165,19 @@ struct SettingsView: View {
 
     private var gitSection: some View {
         Section {
-            SettingsToggleLinkRow(
+            SettingsLinkRow(
                 symbol: "person.crop.circle.fill",
                 color: .black,
                 title: "GitHub",
-                isOn: $settingsStore.settings.features.githubTool,
-                identifier: "feature.githubTool",
                 linkIdentifier: "settings.githubAccount"
             ) {
                 GitAccountSettingsView(provider: .github)
             }
 
-            SettingsToggleLinkRow(
+            SettingsLinkRow(
                 symbol: "person.crop.circle.fill",
                 color: .red,
                 title: "Gitee",
-                isOn: $settingsStore.settings.features.giteeTool,
-                identifier: "feature.giteeTool",
                 linkIdentifier: "settings.giteeAccount"
             ) {
                 GitAccountSettingsView(provider: .gitee)
@@ -326,12 +316,10 @@ struct SettingsView: View {
             }
 
             // 回答风格约束：与其它功能一致，开关在设置首页，箭头进配置
-            SettingsToggleLinkRow(
+            SettingsLinkRow(
                 symbol: "text.bubble.fill",
                 color: .indigo,
                 title: "回答风格约束",
-                isOn: styleSuffixEnabled,
-                identifier: "feature.styleSuffix",
                 linkIdentifier: "settings.styleSuffix"
             ) {
                 StyleSuffixSettingsView()
@@ -343,27 +331,15 @@ struct SettingsView: View {
         }
     }
 
-    /// 「回答风格约束」插件的开关（设置首页直接控制，插件中心里不重复显示）
-    private var styleSuffixEnabled: Binding<Bool> {
-        Binding(
-            get: {
-                plugins.manifests.first(where: { $0.id == PluginManager.styleSuffixPluginID })?.isEnabled ?? false
-            },
-            set: { plugins.setEnabled($0, for: PluginManager.styleSuffixPluginID) }
-        )
-    }
-
     // MARK: - 技能
 
     private var skillsSection: some View {
         Section {
             // 与其它功能一致：开关在设置首页，箭头进技能库
-            SettingsToggleLinkRow(
+            SettingsLinkRow(
                 symbol: "text.book.closed.fill",
                 color: .brown,
                 title: "技能库",
-                isOn: $settingsStore.settings.features.skillTool,
-                identifier: "feature.skillTool",
                 linkIdentifier: "settings.skills"
             ) {
                 SkillsView()

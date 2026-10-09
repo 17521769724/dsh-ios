@@ -15,6 +15,8 @@ struct SSHSettingsView: View {
 
     var body: some View {
         List {
+            // 开关放在配置页顶部：设置首页那一行只留进入配置的箭头
+            agentSection
             serverSection
             testSection
             consoleSection
@@ -23,6 +25,21 @@ struct SSHSettingsView: View {
         .navigationTitle("SSH 云服务器")
         .navigationBarTitleDisplayMode(.inline)
         .tint(DSHTheme.brand)
+    }
+
+    // MARK: - 智能体开关
+
+    private var agentSection: some View {
+        Section {
+            Toggle(isOn: $settingsStore.settings.features.sshTool) {
+                SettingsRowLabel(symbol: "terminal.fill", color: .black, title: "让智能体执行 SSH 命令")
+            }
+            .accessibilityIdentifier("ssh.agentTools")
+        } header: {
+            Text("智能体")
+        } footer: {
+            Text("开启后模型可自主在下方服务器上执行命令；每次执行都会在对话里留下记录。")
+        }
     }
 
     // MARK: - 服务器
