@@ -86,6 +86,8 @@ final class RemindersService {
                 [.year, .month, .day, .hour, .minute],
                 from: due
             )
+            // 到期时由系统「提醒事项」弹出提醒（本 App 不需要通知权限）
+            reminder.addAlarm(EKAlarm(absoluteDate: due))
             dueText = "，到期 \(Self.format(due))"
         }
 

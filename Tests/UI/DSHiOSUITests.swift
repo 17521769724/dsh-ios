@@ -15,13 +15,19 @@ final class DSHiOSUITests: XCTestCase {
     // MARK: - 工具
 
     @discardableResult
-    private func launchApp(configured: Bool, seed: Bool, serverModels: Bool = false) -> XCUIApplication {
+    private func launchApp(
+        configured: Bool,
+        seed: Bool,
+        serverModels: Bool = false,
+        extraArguments: [String] = []
+    ) -> XCUIApplication {
         if let existing = app, existing.state == .runningForeground { existing.terminate() }
         let instance = XCUIApplication()
         var arguments = ["-uitest-reset"]
         if configured { arguments.append("-uitest-apikey") }
         if seed { arguments.append("-uitest-seed") }
         if serverModels { arguments.append("-uitest-server-models") }
+        arguments.append(contentsOf: extraArguments)
         instance.launchArguments = arguments
         instance.launch()
         app = instance
@@ -586,19 +592,19 @@ final class DSHiOSUITests: XCTestCase {
         XCTAssertTrue(scrollTo("feature.visionTool").waitForExistence(timeout: 5), "缺少「智能体查看画面」开关")
         XCTAssertTrue(scrollTo("feature.fileTool").waitForExistence(timeout: 5), "缺少「智能体读写工作区文件」开关")
         XCTAssertTrue(scrollTo("feature.mcpTool").waitForExistence(timeout: 5), "缺少「MCP 工具」开关")
-        XCTAssertTrue(scrollTo("feature.clipboardTool").waitForExistence(timeout: 5), "缺少「剪贴板读写」开关")
+        // 顺序：MCP 工具 → MCP 服务器 → 提醒事项与日历 → 剪贴板读写
+        XCTAssertTrue(scrollTo("settings.mcp").waitForExistence(timeout: 5), "缺少「MCP 服务器」入口")
+        element("settings.mcp").tap()
+        XCTAssertTrue(app.navigationBars["MCP 服务器"].waitForExistence(timeout: 5), "MCP 服务器页未打开")
+        // 预设服务器（GitHub 官方 MCP / DeepWiki / Context7）应可直接添加
+        XCTAssertTrue(app.staticTexts["GitHub 官方 MCP"].exists, "缺少 GitHub MCP 预设")
+        capture("26-mcp-presets")
+        // 按标题精确定位返回按钮，避免误触右上角「+」
+        app.navigationBars.buttons
+            .matching(NSPredicate(format: "label IN %@", ["设置", "Back", "返回"]))
+            .firstMatch.tap()
         XCTAssertTrue(scrollTo("feature.reminderTool").waitForExistence(timeout: 5), "缺少「提醒事项与日历」开关")
-        if scrollTo("settings.mcp").exists {
-            element("settings.mcp").tap()
-            XCTAssertTrue(app.navigationBars["MCP 服务器"].waitForExistence(timeout: 5), "MCP 服务器页未打开")
-            // 预设服务器（GitHub 官方 MCP / DeepWiki / Context7）应可直接添加
-            XCTAssertTrue(app.staticTexts["GitHub 官方 MCP"].exists, "缺少 GitHub MCP 预设")
-            capture("26-mcp-presets")
-            // 按标题精确定位返回按钮，避免误触右上角「+」
-            app.navigationBars.buttons
-                .matching(NSPredicate(format: "label IN %@", ["设置", "Back", "返回"]))
-                .firstMatch.tap()
-        }
+        XCTAssertTrue(scrollTo("feature.clipboardTool").waitForExistence(timeout: 5), "缺少「剪贴板读写」开关")
         closeSettings()
     }
 
@@ -833,5 +839,83 @@ final class DSHiOSUITests: XCTestCase {
         Thread.sleep(forTimeInterval: 0.8)
         XCTAssertEqual(menuEarly.minX, menu.frame.minX, accuracy: 0.5, "冷启动后右侧顶栏图标横向位移")
         XCTAssertEqual(menuEarly.minY, menu.frame.minY, accuracy: 0.5, "冷启动后右侧顶栏图标纵向位移")
+    }
+
+    // MARK: - 权限（首次引导 + 设置里的权限状态页）
+
+    func test23_首次启动权限引导与权限状态页() {
+        // 强制弹出引导；不带 -uitest-skip-permission-request 之外的干扰参数时此处只跑 UI，
+        // 避免系统授权弹窗挡住用例
+        launchApp(
+            configured: true,
+            seed: false,
+            extraArguments: ["-uitest-permissions-primer", "-uitest-skip-permission-request"]
+        )
+
+        XCTAssertTrue(app.navigationBars["权限申请"].waitForExistence(timeout: 15), "首次启动应弹出权限申请页")
+        XCTAssertTrue(element("permissions.row.reminders").waitForExistence(timeout: 5), "缺少提醒事项权限行")
+        XCTAssertTrue(element("permissions.row.clipboard").exists, "缺少剪贴板权限行")
+        capture("27-permissions-primer")
+        element("permissions.done").tap()
+
+        // 设置 → 关于 → 权限状态
+        openSettings()
+        XCTAssertTrue(scrollTo("settings.permissions").waitForExistence(timeout: 5), "设置里缺少权限状态入口")
+        element("settings.permissions").tap()
+        XCTAssertTrue(app.navigationBars["权限状态"].waitForExistence(timeout: 5), "权限状态页未打开")
+        XCTAssertTrue(element("permissions.row.calendar").waitForExistence(timeout: 5), "权限状态页缺少日历行")
+        capture("28-permissions-status")
+
+        let back = app.navigationBars.buttons
+            .matching(NSPredicate(format: "label IN %@", ["设置", "Back", "返回"]))
+            .firstMatch
+        back.tap()
+        closeSettings()
+    }
+
+    // MARK: - MCP 服务器（未登录校验 + 左滑删除）
+
+    func test24_MCP服务器左滑删除与GitHub未登录提示() {
+        launchApp(configured: true, seed: false)
+        openSettings()
+        XCTAssertTrue(scrollTo("settings.mcp").waitForExistence(timeout: 5), "缺少 MCP 服务器入口")
+        element("settings.mcp").tap()
+        XCTAssertTrue(app.navigationBars["MCP 服务器"].waitForExistence(timeout: 5), "MCP 服务器页未打开")
+
+        // 未登录 GitHub 时点 GitHub 官方 MCP：提示登录，不写入配置
+        app.staticTexts["GitHub 官方 MCP"].firstMatch.tap()
+        let alert = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "GitHub 账号未登录")).firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 5), "未登录时应提示「GitHub 账号未登录」")
+        capture("29-mcp-github-login-required")
+        app.buttons["知道了"].tap()
+        XCTAssertTrue(app.staticTexts["还没有 MCP 服务器，点右上角「+」添加"].exists, "未登录时不应添加服务器")
+
+        // 手动添加一台（地址故意不可达：连接失败不影响列表与删除）
+        element("mcp.add").tap()
+        XCTAssertTrue(app.navigationBars["添加 MCP 服务器"].waitForExistence(timeout: 5))
+        element("mcp.editor.name").tap()
+        element("mcp.editor.name").typeText("测试服务器")
+        element("mcp.editor.url").tap()
+        element("mcp.editor.url").typeText("http://127.0.0.1:1/mcp")
+        element("mcp.editor.save").tap()
+
+        XCTAssertTrue(app.staticTexts["测试服务器"].waitForExistence(timeout: 15), "服务器未出现在列表里")
+
+        // 左滑删除：与技能库同一套逻辑（固定红色删除区）
+        app.staticTexts["测试服务器"].swipeLeft()
+        capture("30-mcp-row-swiped")
+        let deleteButton = app.buttons["删除服务器"].firstMatch
+        XCTAssertTrue(deleteButton.waitForExistence(timeout: 5), "左滑应出现删除按钮")
+        deleteButton.tap()
+        XCTAssertTrue(
+            app.staticTexts["还没有 MCP 服务器，点右上角「+」添加"].waitForExistence(timeout: 5),
+            "删除后应回到空状态"
+        )
+
+        let back = app.navigationBars.buttons
+            .matching(NSPredicate(format: "label IN %@", ["设置", "Back", "返回"]))
+            .firstMatch
+        back.tap()
+        closeSettings()
     }
 }

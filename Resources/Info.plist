@@ -70,5 +70,7 @@
 	<string>用于让智能体查看与新建日程，例如「周五下午三点加一个评审会」。</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>用于让智能体查看与新建日程，例如「周五下午三点加一个评审会」。</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>用于连接局域网内的设备，例如你自己的 SSH 服务器或本机运行的 MCP 服务。</string>
 </dict>
 </plist>

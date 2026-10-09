@@ -8,6 +8,24 @@ struct MCPSettingsView: View {
     @EnvironmentObject private var engine: ChatEngine
 
     @State private var refreshingAll = false
+    /// 点开的服务器（用于推入详情页）
+    @State private var detailServer: MCPServerConfig?
+    /// 添加失败 / 未登录时的提示
+    @State private var alertMessage: String?
+
+    private var detailPresented: Binding<Bool> {
+        Binding(
+            get: { detailServer != nil },
+            set: { if !$0 { detailServer = nil } }
+        )
+    }
+
+    private var alertPresented: Binding<Bool> {
+        Binding(
+            get: { alertMessage != nil },
+            set: { if !$0 { alertMessage = nil } }
+        )
+    }
 
     var body: some View {
         List {
@@ -55,11 +73,27 @@ struct MCPSettingsView: View {
                         .accessibilityIdentifier("mcp.empty")
                 } else {
                     ForEach(mcpStore.servers) { server in
-                        NavigationLink {
-                            MCPServerDetailView(serverID: server.id)
-                        } label: {
-                            row(server)
+                        // 与技能库同一套左滑删除：删除区与卡片同高同圆角、固定红色实底
+                        SwipeToDeleteRow(
+                            onDelete: { mcpStore.delete(id: server.id) },
+                            onTap: { detailServer = server },
+                            tapTitle: "查看详情",
+                            deleteTitle: "删除服务器"
+                        ) {
+                            HStack(spacing: DSHTheme.Spacing.small) {
+                                row(server)
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(DSHTheme.tertiaryText)
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(DSHTheme.page)
+                            .contentShape(Rectangle())
                         }
+                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                        .listRowBackground(Color.clear)
                         .accessibilityIdentifier("mcp.row")
                     }
                 }
@@ -94,6 +128,17 @@ struct MCPSettingsView: View {
         .navigationTitle("MCP 服务器")
         .navigationBarTitleDisplayMode(.inline)
         .tint(DSHTheme.brand)
+        // 服务器详情：卡片不是 NavigationLink（会与左滑抢手势），改为点按后按需推入
+        .navigationDestination(isPresented: detailPresented) {
+            if let server = detailServer {
+                MCPServerDetailView(serverID: server.id)
+            }
+        }
+        .alert("无法添加服务器", isPresented: alertPresented) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(alertMessage ?? "")
+        }
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 NavigationLink {
@@ -174,19 +219,24 @@ struct MCPSettingsView: View {
 
     private var hasGitHubToken: Bool { gitStore.isConnected(.github) }
 
-    /// 添加预设：重复地址会跳过；GitHub 预设自动带上本机已登录的 Token
+    /// 添加预设：重复地址会跳过；需要鉴权的服务器先确认账号已登录
     private func add(_ preset: Preset) {
         guard !mcpStore.servers.contains(where: { $0.urlString == preset.urlString }) else {
             engine.showToast("这台服务器已经添加过了")
             return
         }
-        let token = gitStore.token(for: .github)
-        let headers = (preset.needsToken && !token.isEmpty) ? "Authorization: Bearer \(token)" : ""
-        guard let server = mcpStore.add(name: preset.name, urlString: preset.urlString, headerLines: headers) else {
-            engine.showToast("添加失败：地址不合法")
+        // GitHub 官方 MCP 必须带 Token：未登录时只提示去登录，不写入一份连不上的配置
+        guard !preset.needsToken || hasGitHubToken else {
+            alertMessage = "GitHub 账号未登录，请登录后再添加（设置 → 代码托管 → GitHub 账号）。"
             return
         }
-        engine.showToast(preset.needsToken && token.isEmpty ? "已添加，登录 GitHub 后请到详情页补鉴权头" : "已添加，正在连接…")
+        let token = gitStore.token(for: .github)
+        let headers = preset.needsToken ? "Authorization: Bearer \(token)" : ""
+        guard let server = mcpStore.add(name: preset.name, urlString: preset.urlString, headerLines: headers) else {
+            alertMessage = "添加失败：服务器地址不合法。"
+            return
+        }
+        engine.showToast("已添加，正在连接…")
         Task { await mcpStore.refresh(id: server.id) }
     }
 }
@@ -455,7 +505,14 @@ struct MCPServerDetailView: View {
             Button(role: .destructive) {
                 showDeleteConfirm = true
             } label: {
-                Label("删除服务器", systemImage: "trash")
+                // 图标与文字都用同一个红色，避免出现「蓝图标 + 红文字」的不一致观感
+                HStack(spacing: DSHTheme.Spacing.small) {
+                    Image(systemName: "trash")
+                    Text("删除服务器")
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(DSHTheme.danger)
+                .contentShape(Rectangle())
             }
             .accessibilityIdentifier("mcp.detail.delete")
         }

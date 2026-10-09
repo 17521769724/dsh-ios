@@ -39,6 +39,14 @@ struct DSHiOSApp: App {
         if arguments.contains("-uitest-apikey") {
             settings.apiKey = "sk-uitest-placeholder"
         }
+        // 首次启动权限引导：UI 测试默认跳过（否则会挡住所有用例），
+        // 需要单独验证时用 -uitest-permissions-primer 强制弹出
+        if arguments.contains("-uitest-reset") {
+            UserDefaults.standard.set(true, forKey: PermissionKeys.primerShown)
+        }
+        if arguments.contains("-uitest-permissions-primer") {
+            UserDefaults.standard.set(false, forKey: PermissionKeys.primerShown)
+        }
 
         // 上面可能删除了工作区目录，这里再建实例，保证根目录存在
         let workspaceStore = WorkspaceStore()

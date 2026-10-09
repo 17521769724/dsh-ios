@@ -144,16 +144,7 @@ struct SettingsView: View {
             }
             .accessibilityIdentifier("feature.mcpTool")
 
-            Toggle(isOn: $settingsStore.settings.features.clipboardTool) {
-                SettingsRowLabel(symbol: "doc.on.clipboard", color: .indigo, title: "剪贴板读写")
-            }
-            .accessibilityIdentifier("feature.clipboardTool")
-
-            Toggle(isOn: $settingsStore.settings.features.reminderTool) {
-                SettingsRowLabel(symbol: "calendar", color: .red, title: "提醒事项与日历")
-            }
-            .accessibilityIdentifier("feature.reminderTool")
-
+            // MCP 服务器紧跟在总开关下方：先「是否下发 MCP 工具」，再「有哪些服务器」
             NavigationLink {
                 MCPSettingsView()
                     .environmentObject(mcpStore)
@@ -168,10 +159,20 @@ struct SettingsView: View {
                 )
             }
             .accessibilityIdentifier("settings.mcp")
+
+            Toggle(isOn: $settingsStore.settings.features.reminderTool) {
+                SettingsRowLabel(symbol: "calendar", color: .red, title: "提醒事项与日历")
+            }
+            .accessibilityIdentifier("feature.reminderTool")
+
+            Toggle(isOn: $settingsStore.settings.features.clipboardTool) {
+                SettingsRowLabel(symbol: "doc.on.clipboard", color: .indigo, title: "剪贴板读写")
+            }
+            .accessibilityIdentifier("feature.clipboardTool")
         } header: {
             Text("智能体工具")
         } footer: {
-            Text("各开关彼此独立：SSH 控制能否在服务器执行命令（需先配置服务器）、浏览器控制能否打开或读取网页、查看画面允许智能体截图并用本地 OCR 识别内容、工作区文件允许智能体读写「文件」页里的代码文件、MCP 控制远程 MCP 服务器的工具是否下发给模型、剪贴板与提醒事项允许智能体读写剪贴板内容与本机待办日程（首次使用会请求系统权限）；关闭后模型不会再调用对应工具。")
+            Text("各开关彼此独立：SSH 控制能否在服务器执行命令（需先配置服务器）、浏览器控制能否打开或读取网页、查看画面允许智能体截图并用本地 OCR 识别内容、工作区文件允许智能体读写「文件」页里的代码文件、MCP 控制远程 MCP 服务器的工具是否下发给模型、剪贴板与提醒事项允许智能体读写剪贴板内容与本机待办日程（首次使用会请求系统权限，可在「关于 → 权限状态」里查看）；关闭后模型不会再调用对应工具。")
         }
     }
 
@@ -418,6 +419,13 @@ struct SettingsView: View {
 
     private var aboutSection: some View {
         Section("关于") {
+            NavigationLink {
+                PermissionsView()
+            } label: {
+                SettingsRowLabel(symbol: "checkmark.shield.fill", color: .teal, title: "权限状态")
+            }
+            .accessibilityIdentifier("settings.permissions")
+
             NavigationLink {
                 AboutSettingsView()
             } label: {

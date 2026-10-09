@@ -19,6 +19,9 @@ struct RootView: View {
     @State private var showSkills = false
     @State private var showFiles = false
     @State private var showSessionLog = false
+    /// 首次启动的权限申请引导
+    @State private var showPermissionsPrimer = false
+    @StateObject private var permissions = PermissionCenter()
     /// 启动阶段是否已经稳定：首帧布局就绪前屏蔽隐式动画，
     /// 否则冷启动时（顶栏、抽屉）会播放一次位移动画，看起来就是「图标跳动」
     @State private var hasSettled = false
@@ -53,6 +56,11 @@ struct RootView: View {
         .onAppear {
             guard !hasSettled else { return }
             DispatchQueue.main.async { hasSettled = true }
+        }
+        .task {
+            // 首次启动：进入主界面后弹出权限申请引导（提醒事项 / 日历 / 剪贴板），只弹一次
+            guard settingsStore.isConfigured, !permissions.hasPrimed else { return }
+            showPermissionsPrimer = true
         }
         // 全局：点击空白区域收起键盘（点击输入框内部不收起）
         .background(alignment: .topLeading) {
@@ -116,6 +124,12 @@ struct RootView: View {
                 .environmentObject(plugins)
                 .environmentObject(skillStore)
                 .environmentObject(engine.mcpStore)
+        }
+        // 首次进入主界面：把本 App 需要的系统权限（提醒事项 / 日历 / 剪贴板）走一遍
+        .sheet(isPresented: $showPermissionsPrimer) {
+            NavigationStack {
+                PermissionsView(isPrimer: true)
+            }
         }
         // 内置浏览器：模型工具调用或手动入口触发
         .sheet(item: $engine.browserRequest) { request in

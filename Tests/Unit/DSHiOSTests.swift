@@ -1692,6 +1692,46 @@ final class ContextCompactorTests: XCTestCase {
     }
 }
 
+// MARK: - 权限中心
+
+final class PermissionCenterTests: XCTestCase {
+
+    /// 权限清单覆盖提醒事项 / 日历 / 剪贴板 / 本地网络 / 网络 / 照片 / 文件
+    @MainActor
+    func testPermissionItemsCoverAppNeeds() {
+        let center = PermissionCenter()
+        let ids = center.items.map(\.id)
+        XCTAssertEqual(ids, ["reminders", "calendar", "clipboard", "localNetwork", "internet", "photos", "files"])
+
+        // 只有提醒事项 / 日历 / 剪贴板可以主动申请，其余展示为无需授权或使用时询问
+        let requestable = center.items.filter(\.canRequest).map(\.id)
+        XCTAssertEqual(requestable, ["reminders", "calendar", "clipboard"])
+
+        let notRequired = center.items.filter { $0.status == .notRequired }.map(\.id)
+        XCTAssertEqual(notRequired, ["internet", "photos", "files"])
+
+        // 状态文案与「是否就绪」一一对应
+        XCTAssertTrue(PermissionCenter.Status.granted.isSatisfied)
+        XCTAssertTrue(PermissionCenter.Status.notRequired.isSatisfied)
+        XCTAssertFalse(PermissionCenter.Status.denied.isSatisfied)
+        XCTAssertFalse(PermissionCenter.Status.notDetermined.isSatisfied)
+        XCTAssertEqual(PermissionCenter.Status.systemPrompt.title, "使用时询问")
+    }
+
+    /// 首次启动引导标记可读写（UI 测试用它控制引导是否弹出）
+    @MainActor
+    func testPrimerFlagRoundTrip() {
+        let center = PermissionCenter()
+        let original = center.hasPrimed
+        defer { center.hasPrimed = original }
+
+        center.hasPrimed = false
+        XCTAssertFalse(center.hasPrimed)
+        center.hasPrimed = true
+        XCTAssertTrue(center.hasPrimed)
+    }
+}
+
 // MARK: - MCP 客户端（JSON-RPC over Streamable HTTP）
 
 final class MCPClientTests: XCTestCase {
