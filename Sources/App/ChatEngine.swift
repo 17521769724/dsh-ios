@@ -35,6 +35,8 @@ final class ChatEngine: ObservableObject {
     /// 正在生成的增量缓冲：只有订阅它的那一条消息视图会随生成刷新，
     /// 其余界面（会话列表、输入区、侧栏抽屉、导航栏）在生成期间完全不动，滑动才跟手
     @Published private(set) var streaming: StreamingText?
+    /// 正在压缩上下文：此时不接受新的发送，界面显示「正在压缩上下文…」
+    @Published private(set) var compacting = false
     /// 可用模型列表（可来自服务端 /models，失败时回退内置列表）
     @Published var availableModels: [DSHModel] = DSHModel.catalog
     @Published var isRefreshingModels: Bool = false
@@ -207,7 +209,7 @@ final class ChatEngine: ObservableObject {
         let text = (rawText ?? draft).trimmingCharacters(in: .whitespacesAndNewlines)
         // 只有从输入框直接发送时才带上待发图片（插件改写、编辑重发等走 rawText 的路径不带）
         let attachments = rawText == nil ? draftImages : []
-        guard !text.isEmpty || !attachments.isEmpty, !isStreaming else { return }
+        guard !text.isEmpty || !attachments.isEmpty, !isStreaming, !compacting else { return }
 
         guard settingsStore.isConfigured else {
             presentError(DSHError.missingAPIKey.localizedDescription)
@@ -240,7 +242,115 @@ final class ChatEngine: ObservableObject {
         conversationStore.upsert(conversation)
 
         haptic(.medium)
+        // 上下文接近当前模型的窗口上限时，先把较早的历史压成摘要再生成
+        if settingsStore.settings.features.autoCompact, needsContextCompaction(conversation) {
+            compacting = true
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.performCompaction(conversationID: conversation.id, automatic: true)
+                self.compacting = false
+                guard self.currentConversation?.id == conversation.id, !self.isStreaming else { return }
+                self.startStreaming(conversationID: conversation.id, assistantID: assistantMessage.id, outgoing: outgoing)
+            }
+            return
+        }
         startStreaming(conversationID: conversation.id, assistantID: assistantMessage.id, outgoing: outgoing)
+    }
+
+    // MARK: - 上下文压缩
+
+    /// 估算的上下文占用与模型窗口（界面展示「上下文 xx%」）
+    var contextUsage: (used: Int, limit: Int) {
+        let model = DSHModel.describe(id: activeModelID)
+        let used = currentConversation.map { ContextCompactor.estimatedTokens(for: $0.messages) } ?? 0
+        return (used, model.contextWindow)
+    }
+
+    /// 当前对话是否需要压缩上下文
+    func needsContextCompaction(_ conversation: Conversation) -> Bool {
+        ContextCompactor.needsCompaction(
+            conversation.messages.filter { $0.id != lastStreamingAssistantID(in: conversation) },
+            model: DSHModel.describe(id: activeModelID)
+        )
+    }
+
+    /// 手动压缩上下文（顶栏菜单入口）
+    func compactContext(automatic: Bool = false) async {
+        guard !compacting, !isStreaming else { return }
+        guard settingsStore.isConfigured else {
+            presentError(DSHError.missingAPIKey.localizedDescription)
+            return
+        }
+        guard let conversation = currentConversation else {
+            showToast("当前没有可压缩的对话")
+            return
+        }
+        guard needsContextCompaction(conversation) else {
+            showToast("当前上下文还很空，不需要压缩")
+            return
+        }
+        compacting = true
+        await performCompaction(conversationID: conversation.id, automatic: automatic)
+        compacting = false
+    }
+
+    /// 真正执行一次压缩：较早的历史 → 模型摘要 → 替换成一条摘要消息
+    private func performCompaction(conversationID: UUID, automatic: Bool) async {
+        guard let conversation = conversationStore.conversation(id: conversationID) else { return }
+        let model = DSHModel.describe(id: activeModelID)
+        let visible = conversation.messages.filter { $0.id != lastStreamingAssistantID(in: conversation) }
+        guard let plan = ContextCompactor.plan(
+            for: visible,
+            keepBudget: Int(Double(model.contextWindow) * ContextCompactor.keepRatio)
+        ) else {
+            if !automatic { showToast("当前上下文还很空，不需要压缩") }
+            return
+        }
+
+        let client = DeepSeekClient(timeout: settingsStore.settings.requestTimeout)
+        do {
+            let result = try await client.complete(
+                messages: ContextCompactor.summaryMessages(for: plan.summarized),
+                model: activeModelID,
+                settings: settingsStore.settings,
+                apiKey: settingsStore.apiKey
+            )
+            let summary = ContextCompactor.summaryContent(from: result.text)
+            guard !summary.isEmpty else {
+                if !automatic { showToast("压缩失败：模型没有返回摘要内容") }
+                return
+            }
+            apply(plan: plan, summary: summary, conversationID: conversationID)
+            showToast("已\(automatic ? "自动" : "")压缩上下文：\(plan.summarized.count) 条历史 → 摘要")
+        } catch {
+            // 自动压缩失败不打断本次发送，交由后续请求按原上下文继续
+            if !automatic {
+                presentError("压缩上下文失败：\((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)")
+            }
+        }
+    }
+
+    /// 用摘要替换被压缩的历史消息
+    private func apply(plan: CompactionPlan, summary: String, conversationID: UUID) {
+        guard var conversation = conversationStore.conversation(id: conversationID) else { return }
+        let summarizedIDs = Set(plan.summarized.map(\.id))
+        var messages = conversation.messages.filter { !summarizedIDs.contains($0.id) }
+
+        var summaryMessage = ChatMessage(role: .assistant, content: summary)
+        summaryMessage.model = conversation.model
+        summaryMessage.isContextSummary = true
+        // 时间沿用被压缩的第一条，列表里的顺序与「历史发生时间」一致
+        summaryMessage.createdAt = plan.summarized.first?.createdAt ?? Date()
+        messages.insert(summaryMessage, at: 0)
+
+        conversation.messages = messages
+        conversation.updatedAt = Date()
+        conversationStore.upsert(conversation)
+        if currentConversation?.id == conversationID {
+            currentConversation = conversation
+        }
+        // 被压缩掉的图片文件一并删除，避免长期占磁盘
+        ChatAttachment.delete(plan.summarized.flatMap { $0.attachments ?? [] })
     }
 
     func stopStreaming() {
@@ -730,6 +840,12 @@ final class ChatEngine: ObservableObject {
         for message in conversation.messages where message.id != lastStreamingAssistantID(in: conversation) {
             // 遇到非工具消息说明这一批工具结果已经发完，先把截图补上
             if message.role != .tool { flushToolImages() }
+            // 压缩摘要：按系统提示注入，让模型知道这是此前的对话
+            if message.isContextSummary == true {
+                guard !message.content.isEmpty else { continue }
+                result.append(APIMessage(role: "system", content: ContextCompactor.injectedContent(message.content)))
+                continue
+            }
             switch message.role {
             case .user, .assistant:
                 let toolCalls = message.toolCalls ?? []

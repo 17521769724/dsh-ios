@@ -239,6 +239,16 @@ struct RootView: View {
                                     Label("删除", systemImage: "trash")
                                 }
                                 .accessibilityIdentifier("menu.delete")
+
+                                if !conversation.messages.isEmpty {
+                                    Button {
+                                        Task { await engine.compactContext() }
+                                    } label: {
+                                        Label("压缩上下文", systemImage: "arrow.down.right.and.arrow.up.left")
+                                    }
+                                    .accessibilityIdentifier("menu.compact")
+                                    .disabled(engine.isStreaming || engine.compacting)
+                                }
                             }
 
                             if features.sessionLog {

@@ -1486,6 +1486,7 @@ final class FeatureFlagCompatibilityTests: XCTestCase {
         XCTAssertTrue(decoded.fileTool)
         XCTAssertTrue(decoded.mcpTool)
         XCTAssertTrue(decoded.skillTool)
+        XCTAssertTrue(decoded.autoCompact)
     }
 
     func testMCPToolDefaultsOn() {
@@ -1555,6 +1556,123 @@ final class SystemToolsTests: XCTestCase {
 
         XCTAssertNil(RemindersService.parseDate("明天"))
         XCTAssertNil(RemindersService.parseDate(""))
+    }
+}
+
+// MARK: - 上下文压缩
+
+final class ContextCompactorTests: XCTestCase {
+
+    private func message(_ role: MessageRole, _ text: String) -> ChatMessage {
+        ChatMessage(role: role, content: text)
+    }
+
+    /// 中文按字、英文按 4 字符估算
+    func testTokenEstimator() {
+        XCTAssertEqual(TokenEstimator.estimate("你好世界"), 4)
+        XCTAssertEqual(TokenEstimator.estimate("abcdefgh"), 2)
+        XCTAssertEqual(TokenEstimator.estimate(""), 0)
+        XCTAssertGreaterThan(TokenEstimator.estimate(String(repeating: "字", count: 100)), 90)
+        // 工具调用与图片会额外计入
+        var withCall = message(.assistant, "")
+        withCall.toolCalls = [ToolCall(id: "1", name: "ssh_exec", arguments: #"{"command":"ls"}"#)]
+        XCTAssertGreaterThan(TokenEstimator.estimate(message: withCall), TokenEstimator.messageOverhead)
+    }
+
+    /// 太短的对话不压缩
+    func testShortConversationSkipsCompaction() {
+        let model = DSHModel.catalog[0]
+        let messages = (0..<4).map { message($0 % 2 == 0 ? .user : .assistant, String(repeating: "字", count: 200)) }
+        XCTAssertFalse(ContextCompactor.needsCompaction(messages, model: model))
+    }
+
+    /// 长对话触发压缩：保留最近一段、摘要更早的历史，且保留段从用户消息开始
+    func testCompactionPlanKeepsRecentAndStartsAtUser() throws {
+        let model = DSHModel.catalog[0]
+        var messages: [ChatMessage] = []
+        for index in 0..<40 {
+            messages.append(message(index % 2 == 0 ? .user : .assistant, String(repeating: "字", count: 5_000)))
+        }
+        XCTAssertTrue(ContextCompactor.needsCompaction(messages, model: model))
+
+        let plan = try XCTUnwrap(ContextCompactor.plan(for: messages, keepBudget: 20_000))
+        XCTAssertFalse(plan.summarized.isEmpty)
+        XCTAssertFalse(plan.kept.isEmpty)
+        XCTAssertEqual(plan.kept.first?.role, .user, "保留段必须从用户消息开始")
+        XCTAssertEqual(plan.kept.last?.id, messages.last?.id, "最后一条必须保留")
+        XCTAssertGreaterThan(plan.freedTokens, 0)
+        // 压缩后总量应明显小于压缩前
+        let after = TokenEstimator.estimate(messages: plan.kept) + ContextCompactor.summaryTokens
+        XCTAssertLessThan(after, TokenEstimator.estimate(messages: messages))
+    }
+
+    /// 保留段不会以工具结果开头（工具调用与它的结果不能被拆开）
+    func testPlanNeverStartsKeptPartWithToolMessage() throws {
+        var messages: [ChatMessage] = []
+        for index in 0..<10 {
+            messages.append(message(.user, String(repeating: "字", count: 2_000) + "\(index)"))
+            var assistant = message(.assistant, "")
+            assistant.toolCalls = [ToolCall(id: "call-\(index)", name: "ssh_exec", arguments: "{}")]
+            messages.append(assistant)
+            var tool = message(.tool, "结果 \(index)")
+            tool.toolCallID = "call-\(index)"
+            tool.toolName = "ssh_exec"
+            messages.append(tool)
+        }
+        let plan = try XCTUnwrap(ContextCompactor.plan(for: messages, keepBudget: 4_000))
+        XCTAssertEqual(plan.kept.first?.role, .user)
+        // 被压缩的那一段可以以工具结果结尾（整段都不会再进上下文），保留段则以用户消息开头
+        XCTAssertLessThanOrEqual(plan.kept.count, 6)
+    }
+
+    /// 摘要请求与注入文本
+    func testSummaryMessagesAndInjection() {
+        let messages = [
+            message(.user, "帮我读一下 README"),
+            message(.assistant, "读完了，内容是 DSH iOS 客户端")
+        ]
+        let request = ContextCompactor.summaryMessages(for: messages)
+        XCTAssertEqual(request.count, 2)
+        XCTAssertEqual(request.first?.role, "system")
+        XCTAssertTrue(request.last?.content.contains("用户：帮我读一下 README") == true)
+        XCTAssertTrue(request.last?.content.contains("助手：读完了") == true)
+
+        let injected = ContextCompactor.injectedContent("要点一")
+        XCTAssertTrue(injected.contains(ContextCompactor.summaryHeader))
+        XCTAssertTrue(injected.hasSuffix("要点一"))
+    }
+
+    /// 模型返回带外壳时要去掉，卡片里只显示正文
+    func testSummaryContentTrimsHeader() {
+        let raw = ContextCompactor.summaryHeader + "\n\n- 要点一\n- 要点二"
+        XCTAssertEqual(ContextCompactor.summaryContent(from: raw), "- 要点一\n- 要点二")
+        XCTAssertEqual(ContextCompactor.summaryContent(from: "  直接给摘要  "), "直接给摘要")
+    }
+
+    /// 摘要标记能过一遍 Codable；老数据没有该字段时不影响解码
+    func testSummaryFlagRoundTrip() throws {
+        var summary = ChatMessage(role: .assistant, content: "摘要")
+        summary.isContextSummary = true
+        let decoded = try JSONDecoder().decode(ChatMessage.self, from: try JSONEncoder().encode(summary))
+        XCTAssertEqual(decoded.isContextSummary, true)
+
+        let legacy = #"{"id":"\#(UUID().uuidString)","role":"assistant","content":"旧消息","createdAt":0,"isStreaming":false}"#
+        let old = try JSONDecoder().decode(ChatMessage.self, from: Data(legacy.utf8))
+        XCTAssertNil(old.isContextSummary)
+        XCTAssertEqual(old.content, "旧消息")
+    }
+
+    /// 窗口越大越不容易触发压缩；模型窗口按模型区分
+    func testLargerWindowDelaysCompaction() {
+        var messages: [ChatMessage] = []
+        for index in 0..<20 {
+            messages.append(message(index % 2 == 0 ? .user : .assistant, String(repeating: "字", count: 4_000)))
+        }
+        let small = DSHModel(id: "small", name: "Small", contextWindow: 32_768)
+        let large = DSHModel(id: "large", name: "Large", contextWindow: 262_144)
+        XCTAssertTrue(ContextCompactor.needsCompaction(messages, model: small))
+        XCTAssertFalse(ContextCompactor.needsCompaction(messages, model: large))
+        XCTAssertEqual(DSHModel.describe(id: "deepseek-flash").contextWindow, 131_072)
     }
 }
 

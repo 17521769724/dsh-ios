@@ -89,16 +89,16 @@ xcodebuild test -project DSHiOS.xcodeproj -scheme DSHiOS -destination "platform=
 
 ## 当前状态
 
-- 版本：**1.5.0（build 86）**，已发布的未签名 IPA 见 Releases。
-- 1.5.0 交付：
-  - 技能页左滑删除进一步加固：删除区改用固定鲜红实底（`DSHTheme.dangerSolid`，不随深浅色变化）、
-    滑开阈值放宽到 1/4 宽度并加入惯性预测（快速轻扫不会闪一下就弹回），
-    另外补了「长按菜单」兜底（编辑技能 / 删除），个别机型手势不跟手时也能删；
-  - 新增智能体工具 **`clipboard`**：读写系统剪贴板（读取时 iOS 会弹「允许粘贴」确认）；
-  - 新增智能体工具 **`reminder`**：读写系统「提醒事项」与「日历」（本机 EventKit，
-    支持 list_reminders / create_reminder / list_events / create_event，首次使用请求系统权限）；
-  - MCP 服务器页新增**推荐服务器一键添加**：GitHub 官方 MCP（`https://api.githubcopilot.com/mcp/`，
-    自动带上「代码托管」里已登录的 GitHub Token）、DeepWiki、Context7——都是官方托管的远程服务器，免本地安装。
+- 版本：**1.6.0（build 87）**，已发布的未签名 IPA 见 Releases。
+- 1.6.0 交付：
+  - 侧栏删除最后一条对话后，空状态（图标 +「还没有对话」）延后到 **0.7s** 再淡入：
+    长按菜单收起时那段「浮动预览」会在原位停留约半秒，过早显示会与它重叠；
+  - 新增**自动压缩上下文**（按模型上下文窗口）：`DSHModel.contextWindow`（Flash / V4-Pro 均 128k）+
+    `Sources/Core/ContextCompactor.swift`——估算用量达到窗口 75% 时，把较早的历史交给模型压成摘要，
+    用一条摘要消息替换它们（保留段从用户消息开始，避免拆开「工具调用 + 工具结果」）；
+    摘要以系统提示注入后续请求，界面显示为可展开的「已压缩的历史上下文」卡片；
+    顶栏菜单可手动「压缩上下文」，输入区指标行显示「上下文 xx%」，开关在设置 → 主页功能。
+- 1.5.0 交付：技能左滑加固（鲜红实底 + 惯性阈值 + 长按菜单）、剪贴板与提醒事项/日历工具、MCP 推荐服务器一键添加。
 - 1.4.0 交付：技能页左滑自绘删除、侧栏删除过渡、对话页输出样式对齐、滚动卡顿治理、完整 MCP 协议支持。
 - 1.3.0 交付：冷启动顶栏稳定、消息长按圆角、技能开关归位、智能体「查看画面」（截图 + OCR）、内置文件管理器与 IDE。
 - 历史需求与逐版交付记录见 [`docs/CONVERSATION_HISTORY.md`](docs/CONVERSATION_HISTORY.md)。

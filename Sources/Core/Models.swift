@@ -151,6 +151,8 @@ struct ChatMessage: Identifiable, Codable, Hashable {
     var toolName: String?
     /// 用户消息附带的图片
     var attachments: [ChatAttachment]?
+    /// 上下文压缩摘要（历史消息被压成这一条时置 true，发送时按系统提示注入）
+    var isContextSummary: Bool?
 
     init(
         id: UUID = UUID(),
@@ -168,7 +170,8 @@ struct ChatMessage: Identifiable, Codable, Hashable {
         toolCalls: [ToolCall]? = nil,
         toolCallID: String? = nil,
         toolName: String? = nil,
-        attachments: [ChatAttachment]? = nil
+        attachments: [ChatAttachment]? = nil,
+        isContextSummary: Bool? = nil
     ) {
         self.id = id
         self.role = role
@@ -186,6 +189,7 @@ struct ChatMessage: Identifiable, Codable, Hashable {
         self.toolCallID = toolCallID
         self.toolName = toolName
         self.attachments = attachments
+        self.isContextSummary = isContextSummary
     }
 }
 
@@ -241,17 +245,29 @@ struct DSHModel: Identifiable, Codable, Hashable {
     var id: String
     var name: String
     var supportsThinking: Bool
+    /// 上下文窗口（token）：超过窗口比例上限时会自动压缩历史消息
+    var contextWindow: Int
 
-    init(id: String, name: String, supportsThinking: Bool = true) {
+    init(id: String, name: String, supportsThinking: Bool = true, contextWindow: Int = 65_536) {
         self.id = id
         self.name = name
         self.supportsThinking = supportsThinking
+        self.contextWindow = contextWindow
+    }
+
+    /// 宽容解码：旧数据里没有 contextWindow 字段时用默认值
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.name = try container.decodeIfPresent(String.self, forKey: .name) ?? id
+        self.supportsThinking = try container.decodeIfPresent(Bool.self, forKey: .supportsThinking) ?? true
+        self.contextWindow = try container.decodeIfPresent(Int.self, forKey: .contextWindow) ?? 65_536
     }
 
     /// 内置兜底列表；实际使用时可用「获取模型列表」从服务端拉取真实 ID
     static let catalog: [DSHModel] = [
-        DSHModel(id: "deepseek-flash", name: "DeepSeek-V4.1-Flash"),
-        DSHModel(id: "deepseek-v4-pro", name: "DeepSeek-V4-Pro")
+        DSHModel(id: "deepseek-flash", name: "DeepSeek-V4.1-Flash", contextWindow: 131_072),
+        DSHModel(id: "deepseek-v4-pro", name: "DeepSeek-V4-Pro", contextWindow: 131_072)
     ]
 
     static let defaultModelID = "deepseek-flash"
@@ -330,6 +346,8 @@ struct FeatureFlags: Codable, Equatable {
     var clipboardTool: Bool = true
     /// 提醒事项与日历（智能体可读写待办与日程）
     var reminderTool: Bool = true
+    /// 自动压缩上下文：接近当前模型的上下文窗口上限时，自动把较早的历史压成摘要
+    var autoCompact: Bool = true
 
     init() {}
 
@@ -362,6 +380,7 @@ struct FeatureFlags: Codable, Equatable {
         self.mcpTool = try container.decodeIfPresent(Bool.self, forKey: .mcpTool) ?? fallback.mcpTool
         self.clipboardTool = try container.decodeIfPresent(Bool.self, forKey: .clipboardTool) ?? fallback.clipboardTool
         self.reminderTool = try container.decodeIfPresent(Bool.self, forKey: .reminderTool) ?? fallback.reminderTool
+        self.autoCompact = try container.decodeIfPresent(Bool.self, forKey: .autoCompact) ?? fallback.autoCompact
     }
 
     init(
@@ -380,7 +399,8 @@ struct FeatureFlags: Codable, Equatable {
         fileTool: Bool = true,
         mcpTool: Bool = true,
         clipboardTool: Bool = true,
-        reminderTool: Bool = true
+        reminderTool: Bool = true,
+        autoCompact: Bool = true
     ) {
         self.sessionLog = sessionLog
         self.pluginCommands = pluginCommands
@@ -398,6 +418,7 @@ struct FeatureFlags: Codable, Equatable {
         self.mcpTool = mcpTool
         self.clipboardTool = clipboardTool
         self.reminderTool = reminderTool
+        self.autoCompact = autoCompact
     }
 
     static let allOn = FeatureFlags(
@@ -416,7 +437,8 @@ struct FeatureFlags: Codable, Equatable {
         fileTool: true,
         mcpTool: true,
         clipboardTool: true,
-        reminderTool: true
+        reminderTool: true,
+        autoCompact: true
     )
 }
 

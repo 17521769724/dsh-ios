@@ -28,6 +28,8 @@ struct MessageBubble: View, Equatable {
     }
 
     @State private var showProcess = false
+    /// 上下文压缩摘要默认折叠，点标题展开看全文
+    @State private var summaryExpanded = false
 
     private var isUser: Bool { message.role == .user }
 
@@ -108,45 +110,43 @@ struct MessageBubble: View, Equatable {
 
     private var assistantRow: some View {
         VStack(alignment: .leading, spacing: DSHTheme.Spacing.medium) {
-            // 助手标识行：图标 + 名称，与参考实现一致（每条回复都有）
-            HStack(spacing: DSHTheme.Spacing.small) {
-                DSHAssistantAvatar(size: 22)
-                Text(MessageRole.assistant.displayName)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(DSHTheme.assistantText)
-                Spacer(minLength: 0)
-            }
-
-            if let buffer = liveBuffer {
-                StreamingAssistantBody(buffer: buffer, onOpenProcess: { showProcess = true })
+            if message.isContextSummary == true {
+                // 上下文压缩后的摘要：单独一张可折叠卡片，不走「助手回复」样式
+                contextSummaryCard
             } else {
-                // 过程行放在正文之前：先「怎么想的 / 做了什么」，再给结果
-                if process?.hasReasoning == true {
-                    ProcessRowButton(
-                        icon: "brain.head.profile",
-                        text: "思考过程",
-                        identifier: "message.thinking"
-                    ) { showProcess = true }
-                }
+                assistantHeader
 
-                if let process, process.hasSteps {
-                    ProcessRowButton(
-                        icon: "wrench.and.screwdriver",
-                        text: process.summary,
-                        identifier: "message.process"
-                    ) { showProcess = true }
-                }
+                if let buffer = liveBuffer {
+                    StreamingAssistantBody(buffer: buffer, onOpenProcess: { showProcess = true })
+                } else {
+                    // 过程行放在正文之前：先「怎么想的 / 做了什么」，再给结果
+                    if process?.hasReasoning == true {
+                        ProcessRowButton(
+                            icon: "brain.head.profile",
+                            text: "思考过程",
+                            identifier: "message.thinking"
+                        ) { showProcess = true }
+                    }
 
-                if !message.content.isEmpty {
-                    MarkdownContentView(content: message.content)
-                }
+                    if let process, process.hasSteps {
+                        ProcessRowButton(
+                            icon: "wrench.and.screwdriver",
+                            text: process.summary,
+                            identifier: "message.process"
+                        ) { showProcess = true }
+                    }
 
-                if let error = message.errorText {
-                    errorView(error)
-                }
+                    if !message.content.isEmpty {
+                        MarkdownContentView(content: message.content)
+                    }
 
-                if !message.isStreaming && !message.content.isEmpty {
-                    actionRow
+                    if let error = message.errorText {
+                        errorView(error)
+                    }
+
+                    if !message.isStreaming && !message.content.isEmpty {
+                        actionRow
+                    }
                 }
             }
         }
@@ -164,6 +164,55 @@ struct MessageBubble: View, Equatable {
     private var liveBuffer: StreamingText? {
         guard message.isStreaming, let streaming, streaming.messageID == message.id else { return nil }
         return streaming
+    }
+
+    // MARK: - 助手标识与压缩摘要
+
+    /// 助手标识行：图标 + 名称，与参考实现一致（每条回复都有）
+    private var assistantHeader: some View {
+        HStack(spacing: DSHTheme.Spacing.small) {
+            DSHAssistantAvatar(size: 22)
+            Text(MessageRole.assistant.displayName)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(DSHTheme.assistantText)
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// 上下文压缩摘要卡片：标题行 + 摘要正文（默认折叠 4 行，点标题展开）
+    private var contextSummaryCard: some View {
+        VStack(alignment: .leading, spacing: DSHTheme.Spacing.small) {
+            Button {
+                withAnimation(DSHAnim.list) { summaryExpanded.toggle() }
+            } label: {
+                HStack(spacing: DSHTheme.Spacing.small) {
+                    Image(systemName: "arrow.down.right.and.arrow.up.left")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("已压缩的历史上下文")
+                        .font(.system(size: 13, weight: .medium))
+                    Spacer(minLength: 0)
+                    Image(systemName: summaryExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(DSHTheme.tertiaryText)
+                }
+                .foregroundStyle(DSHTheme.brand)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("message.summary")
+
+            if summaryExpanded {
+                MarkdownContentView(content: message.content)
+            } else {
+                Text(message.content)
+                    .font(.system(size: 13))
+                    .foregroundStyle(DSHTheme.secondaryText)
+                    .lineLimit(4)
+            }
+        }
+        .padding(DSHTheme.Spacing.medium)
+        .background(DSHTheme.brandSoft)
+        .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.card, style: .continuous))
     }
 
     // MARK: - 操作行

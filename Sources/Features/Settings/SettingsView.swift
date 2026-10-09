@@ -316,10 +316,14 @@ struct SettingsView: View {
                 SettingsRowLabel(symbol: "command", color: .purple, title: "插件命令与入口")
             }
             .accessibilityIdentifier("feature.pluginCommands")
+            Toggle(isOn: $settingsStore.settings.features.autoCompact) {
+                SettingsRowLabel(symbol: "arrow.down.right.and.arrow.up.left", color: .teal, title: "自动压缩上下文")
+            }
+            .accessibilityIdentifier("feature.autoCompact")
         } header: {
             Text("主页功能")
         } footer: {
-            Text("默认保持主页简洁，需要的功能在这里开启；关闭只影响入口，不影响已有数据。")
+            Text("默认保持主页简洁，需要的功能在这里开启；关闭只影响入口，不影响已有数据。自动压缩上下文：对话接近当前模型的上下文窗口上限（约 75%）时，会把较早的历史交给模型压成一段摘要后再继续，摘要会显示为一张可展开的卡片；也可以随时在右上角菜单里手动「压缩上下文」。")
         }
     }
 

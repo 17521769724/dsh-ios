@@ -186,8 +186,10 @@ struct SidebarView: View {
                 showEmptyState = false
                 return
             }
-            // 等被删除的行与长按菜单的收起动画走完，再显示空状态
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            // 等被删除的记录与长按菜单的收起动画都走完，再显示空状态：
+            // 菜单收起时那一段「浮动预览」会停留在原位置约半秒，
+            // 过早显示会让「还没有对话」和上面的图标与它重叠（真机截图里很明显）
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
                 guard filtered.isEmpty else { return }
                 withAnimation(DSHAnim.standard) { showEmptyState = true }
             }

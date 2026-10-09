@@ -53,6 +53,19 @@ struct ComposerBar: View {
 
             inputCard
 
+            if engine.compacting {
+                // 上下文压缩中：给一个明确的状态提示，避免看起来像卡住
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("正在压缩上下文…")
+                        .font(.system(size: 12))
+                        .foregroundStyle(DSHTheme.secondaryText)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 6)
+                .accessibilityIdentifier("composer.compacting")
+            }
+
             if features.usageMetrics {
                 metricsLine
             }
@@ -407,6 +420,11 @@ struct ComposerBar: View {
             Text("\(tokensEstimated ? "≈" : "")输入 \(lastPromptTokens) tok")
             Text("·")
             Text("\(tokensEstimated ? "≈" : "")输出 \(lastCompletionTokens) tok")
+            if features.autoCompact {
+                Text("·")
+                // 上下文占用按模型窗口估算，自动压缩就是按这个比例触发的
+                Text("上下文 \(contextPercent)%")
+            }
             Spacer(minLength: 0)
             Text(engine.isStreaming ? "生成中" : settings.thinkingEnabled ? "已开启深度思考" : "已关闭深度思考")
         }
@@ -417,6 +435,13 @@ struct ComposerBar: View {
 
     private var rounds: Int {
         (engine.currentConversation?.messages.filter { $0.role == .user }.count) ?? 0
+    }
+
+    /// 上下文占用比例（估算值，按当前模型的窗口）
+    private var contextPercent: Int {
+        let usage = engine.contextUsage
+        guard usage.limit > 0 else { return 0 }
+        return min(100, Int((Double(usage.used) / Double(usage.limit) * 100).rounded()))
     }
 
     /// 最近一条带用量的消息（生成中会暂时沿用上一轮，不会突然显示 0）
