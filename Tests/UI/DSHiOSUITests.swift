@@ -607,11 +607,10 @@ final class DSHiOSUITests: XCTestCase {
         // 恢复默认，避免影响其它用例
         openSettings()
         openBrowserSettingsAndToggle(false)
-        // 智能体工具分组：查看画面 / 工作区文件 / MCP 工具 / MCP 服务器 / 提醒事项 / 剪贴板
+        // 智能体工具分组：查看画面 / 工作区文件 / MCP 工具与服务器 / 提醒事项 / 剪贴板
         XCTAssertTrue(scrollTo("feature.visionTool").waitForExistence(timeout: 5), "缺少「智能体查看画面」开关")
         XCTAssertTrue(scrollTo("feature.fileTool").waitForExistence(timeout: 5), "缺少「智能体读写工作区文件」开关")
-        XCTAssertTrue(scrollTo("feature.mcpTool").waitForExistence(timeout: 5), "缺少「MCP 工具」开关")
-        // 顺序：MCP 工具 → MCP 服务器 → 提醒事项与日历 → 剪贴板读写
+        // MCP 已合并成一行（首页只有箭头，开关在 MCP 页顶部）
         let mcpRow = scrollTo("settings.mcp")
         XCTAssertTrue(mcpRow.waitForExistence(timeout: 5), "缺少「MCP 服务器」入口")
         mcpRow.tap()
@@ -620,6 +619,7 @@ final class DSHiOSUITests: XCTestCase {
             mcpRow.tap()
         }
         XCTAssertTrue(app.navigationBars["MCP 服务器"].waitForExistence(timeout: 8), "MCP 服务器页未打开")
+        XCTAssertTrue(element("feature.mcpTool").waitForExistence(timeout: 5), "MCP 页顶部缺少总开关")
         // 预设服务器（GitHub 官方 MCP / DeepWiki / Context7）应可直接添加
         XCTAssertTrue(app.staticTexts["GitHub 官方 MCP"].exists, "缺少 GitHub MCP 预设")
         capture("26-mcp-presets")

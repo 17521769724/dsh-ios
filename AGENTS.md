@@ -89,7 +89,7 @@ xcodebuild test -project DSHiOS.xcodeproj -scheme DSHiOS -destination "platform=
 
 ## 当前状态
 
-- 版本：**2.1.0（build 101）**，已发布的未签名 IPA 见 Releases。
+- 版本：**2.1.0（build 102）**，已发布的未签名 IPA 见 Releases。
 - 2.1.0 交付：
   - **加载动画**：模型在本地跑工具这一阶段没有任何流式输出，现在会在对话最下方显示三点动画
     （`ChatEngine.runningToolName`）；两处动画共用同一个 `TypingIndicator` 且条件互斥，
