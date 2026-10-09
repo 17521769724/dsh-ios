@@ -274,7 +274,7 @@ final class ChatEngine: ObservableObject {
         )
     }
 
-    /// 手动压缩上下文（顶栏菜单入口）
+    /// 手动压缩上下文（顶栏菜单入口）：不要求达到自动阈值，只要有足够历史就压
     func compactContext(automatic: Bool = false) async {
         guard !compacting, !isStreaming else { return }
         guard settingsStore.isConfigured else {
@@ -283,10 +283,6 @@ final class ChatEngine: ObservableObject {
         }
         guard let conversation = currentConversation else {
             showToast("当前没有可压缩的对话")
-            return
-        }
-        guard needsContextCompaction(conversation) else {
-            showToast("当前上下文还很空，不需要压缩")
             return
         }
         compacting = true
@@ -301,9 +297,11 @@ final class ChatEngine: ObservableObject {
         let visible = conversation.messages.filter { $0.id != lastStreamingAssistantID(in: conversation) }
         guard let plan = ContextCompactor.plan(
             for: visible,
-            keepBudget: Int(Double(model.contextWindow) * ContextCompactor.keepRatio)
+            keepBudget: Int(Double(model.contextWindow) * ContextCompactor.keepRatio),
+            // 自动压缩要求压掉足够多的历史才划算；手动压缩只要有两轮以上就给压
+            minSummarized: automatic ? nil : 2
         ) else {
-            if !automatic { showToast("当前上下文还很空，不需要压缩") }
+            if !automatic { showToast("当前对话还不够长，没有可压缩的历史") }
             return
         }
 

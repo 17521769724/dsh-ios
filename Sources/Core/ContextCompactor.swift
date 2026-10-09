@@ -125,8 +125,10 @@ enum ContextCompactor {
     /// 生成压缩方案：从末尾往前保留约 keepBudget token 的最近消息，
     /// 其余作为待压缩历史；保留段的开头必须落在一条用户消息上，
     /// 避免把「工具调用」与它的工具结果拆开导致接口配对不上。
-    static func plan(for messages: [ChatMessage], keepBudget: Int) -> CompactionPlan? {
-        guard messages.count > minimumSummarized else { return nil }
+    /// - Parameter minSummarized: 至少要压掉几条历史（手动压缩时可放宽，默认用 `minimumSummarized`）
+    static func plan(for messages: [ChatMessage], keepBudget: Int, minSummarized: Int? = nil) -> CompactionPlan? {
+        let required = minSummarized ?? minimumSummarized
+        guard messages.count > required else { return nil }
 
         var keptCount = 0
         var keptTokens = 0
@@ -143,7 +145,7 @@ enum ContextCompactor {
             startIndex -= 1
         }
         guard startIndex > 0 else { return nil }
-        guard startIndex >= minimumSummarized else { return nil }
+        guard startIndex >= required else { return nil }
 
         let summarized = Array(messages[..<startIndex])
         let kept = Array(messages[startIndex...])

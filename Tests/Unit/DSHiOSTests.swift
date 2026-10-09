@@ -1625,6 +1625,22 @@ final class ContextCompactorTests: XCTestCase {
         XCTAssertLessThanOrEqual(plan.kept.count, 6)
     }
 
+    /// 手动压缩：未达自动阈值时也应给出方案（只压掉较早的几条）
+    func testManualPlanWorksBelowThreshold() throws {
+        let messages = (0..<8).map { message($0 % 2 == 0 ? .user : .assistant, String(repeating: "字", count: 600)) }
+        // 未达阈值：自动压缩不触发
+        XCTAssertFalse(ContextCompactor.needsCompaction(messages, model: DSHModel.catalog[0]))
+
+        let plan = try XCTUnwrap(ContextCompactor.plan(for: messages, keepBudget: 2_000, minSummarized: 2))
+        XCTAssertEqual(plan.kept.first?.role, .user)
+        XCTAssertGreaterThanOrEqual(plan.summarized.count, 2)
+        XCTAssertEqual(plan.kept.last?.id, messages.last?.id)
+
+        // 只有两轮对话时连手动压缩也不做（保留段之外凑不出两条历史）
+        let tiny = (0..<4).map { message($0 % 2 == 0 ? .user : .assistant, String(repeating: "字", count: 600)) }
+        XCTAssertNil(ContextCompactor.plan(for: tiny, keepBudget: 2_000, minSummarized: 2))
+    }
+
     /// 摘要请求与注入文本
     func testSummaryMessagesAndInjection() {
         let messages = [
