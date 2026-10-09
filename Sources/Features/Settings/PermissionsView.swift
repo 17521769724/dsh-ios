@@ -9,9 +9,17 @@ struct PermissionsView: View {
     @StateObject private var permissions = PermissionCenter()
     @Environment(\.dismiss) private var dismiss
 
-    /// 申请结果提示
-    @State private var banner: String?
+    /// 申请结果用弹窗提示（用户反馈：只在页面里显示一行卡片太容易错过）
+    @State private var alertTitle = "权限申请"
+    @State private var alertMessage: String?
     @State private var requesting = false
+
+    private var alertPresented: Binding<Bool> {
+        Binding(
+            get: { alertMessage != nil },
+            set: { if !$0 { alertMessage = nil } }
+        )
+    }
 
     var body: some View {
         List {
@@ -39,25 +47,12 @@ struct PermissionsView: View {
                 Text("提醒事项与日历由智能体按需读写；剪贴板与本地网络会在使用时由系统询问；网络访问、照片与文件不需要单独授权。被拒绝的权限可以到系统设置里开启。")
             }
 
-            if let banner {
-                Section {
-                    Text(banner)
-                        .font(.system(size: 13))
-                        .foregroundStyle(DSHTheme.secondaryText)
-                        .accessibilityIdentifier("permissions.banner")
-                }
-            }
-
             Section {
                 Button {
-                    Task {
-                        requesting = true
-                        banner = await permissions.requestAll()
-                        requesting = false
-                    }
+                    Task { await requestAllPermissions() }
                 } label: {
                     HStack {
-                        Label("一键申请（提醒事项 / 日历 / 剪贴板）", systemImage: "checkmark.shield")
+                        Label("一键申请权限", systemImage: "checkmark.shield")
                         Spacer()
                         if requesting { ProgressView().controlSize(.small) }
                     }
@@ -95,11 +90,41 @@ struct PermissionsView: View {
         }
         .task {
             // 引导模式：进来就把能申请的走一遍，用户只需在系统弹窗上点允许
-            guard isPrimer, PermissionCenter.shouldAutoRequest, !permissions.hasPrimed, banner == nil else { return }
+            // （结果不弹窗，避免叠在系统授权框上；页面里的状态会直接更新）
+            guard isPrimer, PermissionCenter.shouldAutoRequest, !permissions.hasPrimed, alertMessage == nil else { return }
             requesting = true
-            banner = await permissions.requestAll()
+            _ = await permissions.requestAll()
             requesting = false
         }
+        .alert(alertTitle, isPresented: alertPresented) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(alertMessage ?? "")
+        }
+    }
+
+    // MARK: - 申请
+
+    /// 一键申请：已经没有待申请项时用弹窗说明，而不是只在页面里加一行字
+    private func requestAllPermissions() async {
+        let pending = permissions.items.filter { $0.canRequest && !$0.status.isSatisfied }
+        guard !pending.isEmpty else {
+            alertTitle = "无需申请"
+            alertMessage = "提醒事项、日历、剪贴板都已经处理过，不需要再申请。之前拒绝过的权限，请到系统设置里手动开启。"
+            return
+        }
+        requesting = true
+        alertTitle = "权限申请结果"
+        alertMessage = await permissions.requestAll()
+        requesting = false
+    }
+
+    /// 单项申请：同样用弹窗反馈结果
+    private func requestSingle(_ item: PermissionCenter.Item) async {
+        requesting = true
+        alertTitle = "权限申请结果"
+        alertMessage = await item.request?()
+        requesting = false
     }
 
     // MARK: - 单行
@@ -116,11 +141,7 @@ struct PermissionsView: View {
                     .foregroundStyle(item.status.isSatisfied ? DSHTheme.success : DSHTheme.warning)
                 if item.canRequest, !item.status.isSatisfied {
                     Button("申请") {
-                        Task {
-                            requesting = true
-                            banner = await item.request?()
-                            requesting = false
-                        }
+                        Task { await requestSingle(item) }
                     }
                     .font(.system(size: 12))
                     .buttonStyle(.bordered)

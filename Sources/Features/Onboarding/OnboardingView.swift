@@ -47,6 +47,19 @@ struct OnboardingView: View {
             baseURLInput = settingsStore.settings.baseURL
             keyInput = settingsStore.apiKey
         }
+        // 校验失败用弹窗提示（早期是行内红字，容易被忽略）
+        .alert("无法进入", isPresented: errorPresented) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(errorText ?? "")
+        }
+    }
+
+    private var errorPresented: Binding<Bool> {
+        Binding(
+            get: { errorText != nil },
+            set: { if !$0 { errorText = nil } }
+        )
     }
 
     // MARK: - 顶部说明
@@ -126,18 +139,6 @@ struct OnboardingView: View {
                 }
                 .font(.system(size: 12))
             }
-
-            if let errorText {
-                HStack(alignment: .top, spacing: 6) {
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .font(.system(size: 12))
-                    Text(errorText)
-                        .font(.system(size: 13))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .foregroundStyle(DSHTheme.danger)
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
         }
         .padding(DSHTheme.Spacing.large)
         .background(DSHTheme.grouped)
@@ -146,7 +147,6 @@ struct OnboardingView: View {
             RoundedRectangle(cornerRadius: DSHTheme.Radius.card, style: .continuous)
                 .stroke(DSHTheme.separator.opacity(0.4), lineWidth: 0.8)
         )
-        .animation(DSHAnim.standard, value: errorText)
     }
 
     /// 统一的输入分组：小图标 + 标题 + 输入框（+ 可选说明）

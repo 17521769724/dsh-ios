@@ -546,8 +546,13 @@ final class DSHiOSUITests: XCTestCase {
             }
             Thread.sleep(forTimeInterval: 0.5)
         }
-        XCTAssertTrue(submit.exists, "验证失败后「验证并进入」按钮消失了")
+        // 验证失败应弹出提示弹窗（用户反馈：行内红字改为弹窗）
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 30), "验证失败应弹出提示弹窗")
         capture("16-onboarding-validation-failed")
+        XCTAssertTrue(alert.buttons["知道了"].exists, "弹窗缺少「知道了」按钮")
+        alert.buttons["知道了"].tap()
+        XCTAssertTrue(submit.exists, "关闭弹窗后「验证并进入」按钮应仍然存在")
     }
 
     // MARK: - 智能体工具（SSH / 内置浏览器）
@@ -867,6 +872,11 @@ final class DSHiOSUITests: XCTestCase {
         element("settings.permissions").tap()
         XCTAssertTrue(app.navigationBars["权限状态"].waitForExistence(timeout: 5), "权限状态页未打开")
         XCTAssertTrue(element("permissions.row.calendar").waitForExistence(timeout: 5), "权限状态页缺少日历行")
+        // 按钮只保留「一键申请权限」（不带括号说明）
+        XCTAssertTrue(
+            app.buttons["一键申请权限"].waitForExistence(timeout: 5),
+            "缺少「一键申请权限」按钮"
+        )
         capture("28-permissions-status")
 
         let back = app.navigationBars.buttons
