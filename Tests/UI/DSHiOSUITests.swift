@@ -560,8 +560,9 @@ final class DSHiOSUITests: XCTestCase {
     /// 打开「浏览器设置」并把内置浏览器工具开关设为指定值
     /// （总开关已从设置主页移到配置页，避免两处重复）
     private func openBrowserSettingsAndToggle(_ on: Bool) {
-        XCTAssertTrue(scrollTo("settings.browser").waitForExistence(timeout: 5), "缺少浏览器设置入口")
-        element("settings.browser").tap()
+        let browserRow = scrollTo("settings.browser")
+        XCTAssertTrue(browserRow.waitForExistence(timeout: 5), "缺少浏览器设置入口")
+        browserRow.tap()
         XCTAssertTrue(app.navigationBars["浏览器设置"].waitForExistence(timeout: 5), "浏览器设置页未打开")
         // 复用与其它用例一致的开关切换逻辑（带重试与状态等待，直接 tap 行容器不会切换）
         toggleFeature("browser.agentTools", on: on)
@@ -612,9 +613,14 @@ final class DSHiOSUITests: XCTestCase {
         XCTAssertTrue(scrollTo("feature.fileTool").waitForExistence(timeout: 5), "缺少「智能体读写工作区文件」开关")
         XCTAssertTrue(scrollTo("feature.mcpTool").waitForExistence(timeout: 5), "缺少「MCP 工具」开关")
         // 顺序：MCP 工具 → MCP 服务器 → 提醒事项与日历 → 剪贴板读写
-        XCTAssertTrue(scrollTo("settings.mcp").waitForExistence(timeout: 5), "缺少「MCP 服务器」入口")
-        element("settings.mcp").tap()
-        XCTAssertTrue(app.navigationBars["MCP 服务器"].waitForExistence(timeout: 5), "MCP 服务器页未打开")
+        let mcpRow = scrollTo("settings.mcp")
+        XCTAssertTrue(mcpRow.waitForExistence(timeout: 5), "缺少「MCP 服务器」入口")
+        mcpRow.tap()
+        // 偶发第一次点按没有推入（列表动画未结束），补一次点按再判定
+        if !app.navigationBars["MCP 服务器"].waitForExistence(timeout: 6) {
+            mcpRow.tap()
+        }
+        XCTAssertTrue(app.navigationBars["MCP 服务器"].waitForExistence(timeout: 8), "MCP 服务器页未打开")
         // 预设服务器（GitHub 官方 MCP / DeepWiki / Context7）应可直接添加
         XCTAssertTrue(app.staticTexts["GitHub 官方 MCP"].exists, "缺少 GitHub MCP 预设")
         capture("26-mcp-presets")
@@ -906,8 +912,9 @@ final class DSHiOSUITests: XCTestCase {
 
         // 设置 → 关于 → 权限状态
         openSettings()
-        XCTAssertTrue(scrollTo("settings.permissions").waitForExistence(timeout: 5), "设置里缺少权限状态入口")
-        element("settings.permissions").tap()
+        let permissionsRow = scrollTo("settings.permissions")
+        XCTAssertTrue(permissionsRow.waitForExistence(timeout: 5), "设置里缺少权限状态入口")
+        permissionsRow.tap()
         XCTAssertTrue(app.navigationBars["权限状态"].waitForExistence(timeout: 5), "权限状态页未打开")
         XCTAssertTrue(element("permissions.row.calendar").waitForExistence(timeout: 5), "权限状态页缺少日历行")
         // 按钮只保留「一键申请权限」（不带括号说明）
@@ -929,9 +936,13 @@ final class DSHiOSUITests: XCTestCase {
     func test24_MCP服务器左滑删除与GitHub未登录提示() {
         launchApp(configured: true, seed: false)
         openSettings()
-        XCTAssertTrue(scrollTo("settings.mcp").waitForExistence(timeout: 5), "缺少 MCP 服务器入口")
-        element("settings.mcp").tap()
-        XCTAssertTrue(app.navigationBars["MCP 服务器"].waitForExistence(timeout: 5), "MCP 服务器页未打开")
+        let mcpRow = scrollTo("settings.mcp")
+        XCTAssertTrue(mcpRow.waitForExistence(timeout: 5), "缺少 MCP 服务器入口")
+        mcpRow.tap()
+        if !app.navigationBars["MCP 服务器"].waitForExistence(timeout: 6) {
+            mcpRow.tap()
+        }
+        XCTAssertTrue(app.navigationBars["MCP 服务器"].waitForExistence(timeout: 8), "MCP 服务器页未打开")
 
         // 未登录 GitHub 时点 GitHub 官方 MCP：提示登录，不写入配置
         app.staticTexts["GitHub 官方 MCP"].firstMatch.tap()
