@@ -102,7 +102,7 @@ struct SettingsView: View {
                     color: .gray,
                     title: "SSH 服务器配置",
                     // 开关在页面里，这里把「配置 + 工具开关」两个状态一起显示
-                    value: "\(sshStore.isConfigured ? "已配置" : "未配置") · \(features.sshTool ? "工具已开" : "工具已关")"
+                    value: "\(sshStore.isConfigured ? "已配置" : "未配置") · \(settings.features.sshTool ? "工具已开" : "工具已关")"
                 )
             }
             .accessibilityIdentifier("settings.ssh")
@@ -114,7 +114,7 @@ struct SettingsView: View {
                     symbol: "globe",
                     color: .teal,
                     title: "浏览器设置",
-                    value: "\(settings.browser.desktopSite ? "桌面版网站" : "移动版网站") · \(features.browserTool ? "工具已开" : "工具已关")"
+                    value: "\(settings.browser.desktopSite ? "桌面版网站" : "移动版网站") · \(settings.features.browserTool ? "工具已开" : "工具已关")"
                 )
             }
             .accessibilityIdentifier("settings.browser")
@@ -177,7 +177,7 @@ struct SettingsView: View {
                     symbol: "person.crop.circle.fill",
                     color: .black,
                     title: "GitHub 账号",
-                    value: "\(gitStore.statusText(for: .github)) · \(features.githubTool ? "工具已开" : "工具已关")"
+                    value: "\(gitStore.statusText(for: .github)) · \(settings.features.githubTool ? "工具已开" : "工具已关")"
                 )
             }
             .accessibilityIdentifier("settings.githubAccount")
@@ -189,7 +189,7 @@ struct SettingsView: View {
                     symbol: "person.crop.circle.fill",
                     color: .red,
                     title: "Gitee 账号",
-                    value: "\(gitStore.statusText(for: .gitee)) · \(features.giteeTool ? "工具已开" : "工具已关")"
+                    value: "\(gitStore.statusText(for: .gitee)) · \(settings.features.giteeTool ? "工具已开" : "工具已关")"
                 )
             }
             .accessibilityIdentifier("settings.giteeAccount")
