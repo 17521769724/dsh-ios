@@ -190,6 +190,7 @@ enum ContextCompactor {
         for message in messages {
             let who: String
             switch message.role {
+            case .system: who = "系统"
             case .user: who = "用户"
             case .assistant: who = "助手"
             case .tool: who = "工具"
