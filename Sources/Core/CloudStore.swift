@@ -9,8 +9,25 @@ struct CloudConfiguration: Codable, Equatable {
     var port: Int = 8931
     /// 默认使用的沙盒 id；首次发送会话时若不存在会自动创建
     var sandboxID: String = "main"
+    /// 云端推理选用的 SSH 服务器（多台时可选；为空用列表第一台）
+    var sshServerID: UUID?
 
     static let `default` = CloudConfiguration()
+
+    /// 宽容解码：新增字段在旧数据中缺失时取默认值
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = CloudConfiguration.default
+        self.port = try container.decodeIfPresent(Int.self, forKey: .port) ?? fallback.port
+        self.sandboxID = try container.decodeIfPresent(String.self, forKey: .sandboxID) ?? fallback.sandboxID
+        self.sshServerID = try container.decodeIfPresent(UUID.self, forKey: .sshServerID)
+    }
+
+    init(port: Int = 8931, sandboxID: String = "main", sshServerID: UUID? = nil) {
+        self.port = port
+        self.sandboxID = sandboxID
+        self.sshServerID = sshServerID
+    }
 }
 
 /// 云端推理存储：非敏感项存 UserDefaults，Agent 访问令牌存钥匙串。
@@ -26,8 +43,6 @@ final class CloudStore: ObservableObject {
         didSet { Keychain.set(token, for: Self.tokenAccount) }
     }
 
-    /// 最近一次部署/检测的日志（设置页展示）
-    @Published var lastDeployLog: String?
     /// 是否正在部署
     @Published var deploying = false
     /// 最近一次连接检测结果：nil 表示未检测
@@ -57,16 +72,25 @@ final class CloudStore: ObservableObject {
         (0..<32).map { _ in String("0123456789abcdef".randomElement() ?? "0") }.joined()
     }
 
-    /// Agent 服务地址（用 SSH 服务器地址 + 端口拼出）
-    func baseURL(sshHost: String) -> URL? {
-        let host = sshHost.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// 当前选中的云服务器（未选或已删除时回退第一台）
+    func selectedServer(in servers: [SSHServer]) -> SSHServer? {
+        if let id = configuration.sshServerID, let match = servers.first(where: { $0.id == id }) {
+            return match
+        }
+        return servers.first
+    }
+
+    /// Agent 服务地址（用所选服务器的主机 + 端口拼出）
+    func baseURL(for server: SSHServer?) -> URL? {
+        guard let server, server.isFilled else { return nil }
+        let host = server.host.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !host.isEmpty, configuration.port > 0, configuration.port <= 65_535 else { return nil }
         return URL(string: "http://\(host):\(configuration.port)")
     }
 
-    /// 是否具备云端推理条件（有地址与令牌）
-    func isReady(sshHost: String) -> Bool {
-        !token.isEmpty && baseURL(sshHost: sshHost) != nil
+    /// 是否具备云端推理条件（有服务器、有地址与令牌）
+    func isReady(in servers: [SSHServer]) -> Bool {
+        !token.isEmpty && baseURL(for: selectedServer(in: servers)) != nil
     }
 
     private func persist() {

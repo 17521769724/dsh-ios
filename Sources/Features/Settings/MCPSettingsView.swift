@@ -100,12 +100,13 @@ struct MCPSettingsView: View {
                                     .foregroundStyle(DSHTheme.tertiaryText)
                             }
                             .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
+                            .padding(.vertical, 12)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(DSHTheme.page)
                             .contentShape(Rectangle())
                         }
-                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                        // 与其它分组统一内边距、去掉行间分割线：卡片宽度一致，列表中间不再出现杂线
+                        .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
                         .accessibilityIdentifier("mcp.row")
                     }
@@ -348,6 +349,10 @@ struct MCPServerDetailView: View {
 
     @State private var showDeleteConfirm = false
     @State private var loadingPrompt: String?
+    /// 连接并刷新的结果弹窗（成功给工具数量，失败给原因）
+    @State private var showConnectionAlert = false
+    @State private var connectionSucceeded = false
+    @State private var connectionResult: String?
 
     private var server: MCPServerConfig? { mcpStore.server(id: serverID) }
 
@@ -376,6 +381,12 @@ struct MCPServerDetailView: View {
         } message: {
             Text("删除后它的工具不会再出现在对话里。")
         }
+        // 连接并刷新的结果：弹窗提示成功还是失败
+        .alert(connectionSucceeded ? "连接成功" : "连接失败", isPresented: $showConnectionAlert) {
+            Button("好的", role: .cancel) {}
+        } message: {
+            Text(connectionResult ?? "")
+        }
     }
 
     // MARK: 基本信息
@@ -403,7 +414,7 @@ struct MCPServerDetailView: View {
             .accessibilityIdentifier("mcp.detail.enabled")
 
             Button {
-                Task { await mcpStore.refresh(id: serverID) }
+                Task { await refreshAndReport() }
             } label: {
                 HStack {
                     Label("连接并刷新", systemImage: "arrow.triangle.2.circlepath")
@@ -419,14 +430,37 @@ struct MCPServerDetailView: View {
         } header: {
             Text("连接设置")
         } footer: {
-            if let error = server.lastError {
-                Text(error).foregroundStyle(DSHTheme.danger)
-            } else if let connectedAt = server.lastConnectedAt {
-                Text("最近连接：\(Self.formatter.string(from: connectedAt))\(server.serverName.map { " · \($0)" } ?? "")\(server.protocolVersion.map { " · MCP \($0)" } ?? "")")
+            // 卡片下方只显示最近连接时间；连接成功/失败改为弹窗提示
+            if let connectedAt = server.lastConnectedAt {
+                Text("最近连接：\(Self.formatter.string(from: connectedAt))")
             } else {
-                Text("修改后点「连接并刷新」生效。")
+                Text("尚未连接过，点「连接并刷新」试试，结果会以弹窗提示。")
             }
         }
+    }
+
+    /// 连接并刷新：结果以弹窗提示（成功给工具数量，失败给原因）
+    private func refreshAndReport() async {
+        await mcpStore.refresh(id: serverID)
+        guard let server = mcpStore.server(id: serverID) else { return }
+        if let error = server.lastError {
+            connectionSucceeded = false
+            connectionResult = "连接失败：\(error)"
+        } else {
+            connectionSucceeded = true
+            var text = "连接成功：已获取 \(server.tools.count) 个工具"
+            if let name = server.serverName, !name.isEmpty {
+                text += "（\(name)）"
+            }
+            if let version = server.protocolVersion {
+                text += "\n协议版本：MCP \(version)"
+            }
+            if !server.prompts.isEmpty {
+                text += "\n提示模板：\(server.prompts.count) 个"
+            }
+            connectionResult = text
+        }
+        showConnectionAlert = true
     }
 
     // MARK: 工具

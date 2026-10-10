@@ -47,7 +47,7 @@ struct CloudSettingsView: View {
     }
 
     private var client: CloudAgentClient? {
-        guard let baseURL = cloudStore.baseURL(sshHost: sshStore.configuration.host) else { return nil }
+        guard let baseURL = cloudStore.baseURL(for: cloudStore.selectedServer(in: sshStore.servers)) else { return nil }
         return CloudAgentClient(baseURL: baseURL, token: cloudStore.token)
     }
 
@@ -70,9 +70,22 @@ struct CloudSettingsView: View {
 
     private var deploySection: some View {
         Section {
-            LabeledContent("SSH 服务器") {
-                Text(sshStore.configuration.isFilled ? sshStore.displayTarget : "未配置")
-                    .foregroundStyle(sshStore.configuration.isFilled ? Color.secondary : Color.red)
+            if sshStore.servers.isEmpty {
+                LabeledContent("SSH 服务器") {
+                    Text("未配置（先去「SSH 云服务器」添加）")
+                        .foregroundStyle(Color.red)
+                }
+            } else {
+                // 多台服务器时用选择器指定云端推理与部署使用哪一台
+                Picker(selection: serverSelection) {
+                    ForEach(sshStore.servers) { server in
+                        Text("\(server.displayName)（\(server.displayTarget)）")
+                            .tag(server.id)
+                    }
+                } label: {
+                    Text("SSH 服务器")
+                }
+                .accessibilityIdentifier("cloud.serverPicker")
             }
             LabeledContent("服务端口") {
                 TextField("8931", value: $cloudStore.configuration.port, format: .number)
@@ -110,17 +123,19 @@ struct CloudSettingsView: View {
                     Text(health).foregroundStyle(.green)
                 }
             }
-            if let log = cloudStore.lastDeployLog, !log.isEmpty {
-                Text(log)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(6)
-            }
         } header: {
             Text("服务器 Agent")
         } footer: {
-            Text("部署通过 SSH 在服务器上写入并启动一个后台服务（仅你本机的令牌可访问）。缺少 python3 时会尝试自动安装。若「检测连接」失败，请确认服务在运行，并在云服务器安全组放行该端口。模型 Key 不会保存到服务器，每次请求随会话下发。")
+            Text("部署通过 SSH 把 Agent 装到所选服务器上并后台启动（仅你本机的令牌可访问），结果以弹窗提示。缺少 python3 时会尝试自动安装。若「检测连接」失败，请确认服务在运行，并在云服务器安全组放行该端口。模型 Key 不会保存到服务器，每次请求随会话下发。")
         }
+    }
+
+    /// 选中的服务器 id（未选或已删除时回退第一台）
+    private var serverSelection: Binding<UUID> {
+        Binding(
+            get: { selectedServer?.id ?? UUID() },
+            set: { cloudStore.configuration.sshServerID = $0 }
+        )
     }
 
     // MARK: - 沙盒
@@ -193,8 +208,12 @@ struct CloudSettingsView: View {
     }
 
     private func deploy() async {
-        guard sshStore.isConfigured else {
-            errorText = "请先在「设置 → SSH 云服务器」里填写主机、用户名与登录密码。"
+        guard let server = selectedServer, server.isFilled else {
+            errorText = "请先在「设置 → SSH 云服务器」里添加服务器（主机、用户名必填）。"
+            return
+        }
+        guard !sshStore.password(for: server.id).isEmpty else {
+            errorText = "「\(server.displayName)」还没有填写登录密码：请到「SSH 云服务器」里补上。"
             return
         }
         guard let source = CloudDeploy.agentSource() else {
@@ -211,11 +230,10 @@ struct CloudSettingsView: View {
             )
             let output = try await SSHService.execute(
                 command: script,
-                configuration: sshStore.configuration,
-                password: sshStore.password,
+                server: server,
+                password: sshStore.password(for: server.id),
                 timeout: 240
             )
-            cloudStore.lastDeployLog = String(output.suffix(600))
             if CloudDeploy.missingPython(output) {
                 errorText = "服务器上没有 python3，且自动安装失败。请在服务器上手动安装（apt install python3 / yum install python3）后重试。"
                 return
@@ -224,15 +242,16 @@ struct CloudSettingsView: View {
                 errorText = "部署脚本已执行，但服务没有通过自检。请检查服务器上的 ~/.dsh/agent.log。"
                 return
             }
-            await check()
+            await check(afterDeploy: true)
         } catch {
             errorText = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
     }
 
-    private func check() async {
-        guard sshStore.configuration.isFilled else {
-            errorText = "请先在「设置 → SSH 云服务器」里填写主机与用户名。"
+    /// 检测连接：成功与否都以弹窗提示（部署完成后自动调用一次）
+    private func check(afterDeploy: Bool = false) async {
+        guard let server = selectedServer, server.isFilled else {
+            errorText = "请先在「设置 → SSH 云服务器」里添加服务器。"
             return
         }
         guard let client else {
@@ -242,7 +261,9 @@ struct CloudSettingsView: View {
         do {
             let version = try await client.health()
             cloudStore.healthText = "已连接（Agent \(version)）"
-            message = "云端 Agent 连接正常（版本 \(version)）"
+            message = afterDeploy
+                ? "已在「\(server.displayName)」部署并连接正常（版本 \(version)）。\n\n打开顶部「使用云端推理」开关即可开始使用。"
+                : "「\(server.displayName)」连接正常（Agent \(version)）。"
             await refreshSandboxes()
         } catch {
             cloudStore.healthText = nil
@@ -297,7 +318,7 @@ struct CloudSandboxDetailView: View {
     }
 
     private var client: CloudAgentClient? {
-        guard let baseURL = cloudStore.baseURL(sshHost: sshStore.configuration.host) else { return nil }
+        guard let baseURL = cloudStore.baseURL(for: cloudStore.selectedServer(in: sshStore.servers)) else { return nil }
         return CloudAgentClient(baseURL: baseURL, token: cloudStore.token)
     }
 

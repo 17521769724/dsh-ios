@@ -2414,3 +2414,65 @@ final class CloudAgentTests: XCTestCase {
         XCTAssertTrue(source.contains("/sandboxes"))
     }
 }
+
+// MARK: - SSH 多服务器
+
+final class SSHStoreMultiServerTests: XCTestCase {
+
+    override func tearDown() {
+        // 清理测试写入的持久化数据，避免影响其它用例
+        UserDefaults.standard.removeObject(forKey: "dsh.ssh.servers.v2")
+        super.tearDown()
+    }
+
+    /// 多台服务器的增删、按名称/主机解析、密码随删随清
+    func testAddResolveAndDelete() {
+        let store = SSHStore()
+        store.servers = []
+        let tokyo = store.add(SSHServer(name: "东京节点", host: "1.1.1.1", port: 22, username: "root"))
+        let plain = store.add(SSHServer(name: "", host: "2.2.2.2", port: 2222, username: "ubuntu"))
+
+        XCTAssertEqual(store.servers.count, 2)
+        XCTAssertEqual(plain.displayName, "2.2.2.2", "没起名字时用主机地址展示")
+        XCTAssertEqual(tokyo.displayTarget, "root@1.1.1.1:22")
+
+        XCTAssertEqual(store.resolve(name: "东京节点")?.id, tokyo.id)
+        XCTAssertEqual(store.resolve(name: "2.2.2.2")?.id, plain.id)
+        XCTAssertEqual(store.resolve(name: "东京")?.id, tokyo.id, "支持模糊匹配")
+        XCTAssertEqual(store.resolve(name: "")?.id, tokyo.id, "不指定时用第一台")
+        XCTAssertNil(store.resolve(name: "不存在的服务器"))
+
+        store.setPassword("secret", for: tokyo.id)
+        XCTAssertEqual(store.password(for: tokyo.id), "secret")
+        XCTAssertTrue(store.isConfigured, "有完整服务器且带密码时视为可用")
+
+        store.update(id: plain.id) { $0.name = "备用机" }
+        XCTAssertEqual(store.server(id: plain.id)?.name, "备用机")
+
+        store.delete(id: tokyo.id)
+        XCTAssertNil(store.server(id: tokyo.id))
+        XCTAssertEqual(store.password(for: tokyo.id), "", "删除后密码也要从钥匙串清掉")
+        XCTAssertEqual(store.resolve(name: "")?.id, plain.id, "默认服务器回退到剩下的那台")
+
+        store.servers = []
+    }
+
+    /// 旧版单服务器配置会自动迁移成列表里的第一台，并把密码搬到新钥匙串条目
+    func testLegacyMigration() {
+        UserDefaults.standard.removeObject(forKey: "dsh.ssh.servers.v2")
+        let legacy = #"{"host":"9.9.9.9","port":2222,"username":"root"}"#
+        UserDefaults.standard.set(Data(legacy.utf8), forKey: "dsh.ssh.config.v1")
+        Keychain.set("legacy-password", for: "ssh.password")
+
+        let store = SSHStore()
+        XCTAssertEqual(store.servers.count, 1, "旧配置应迁移成一台服务器")
+        XCTAssertEqual(store.servers.first?.host, "9.9.9.9")
+        XCTAssertEqual(store.servers.first?.port, 2222)
+        XCTAssertEqual(store.password(for: store.servers[0].id), "legacy-password", "密码应随迁移搬到新条目")
+        XCTAssertNil(UserDefaults.standard.data(forKey: "dsh.ssh.config.v1"), "迁移后旧配置键应删除")
+
+        store.servers = []
+        UserDefaults.standard.removeObject(forKey: "dsh.ssh.servers.v2")
+        Keychain.remove("ssh.password")
+    }
+}

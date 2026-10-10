@@ -580,12 +580,31 @@ final class DSHiOSUITests: XCTestCase {
         XCTAssertTrue(sshRow.waitForExistence(timeout: 5), "缺少 SSH 云服务器入口")
         sshRow.tap()
         XCTAssertTrue(app.navigationBars["SSH 云服务器"].waitForExistence(timeout: 5), "SSH 设置页未打开")
-        XCTAssertTrue(element("ssh.host").exists, "缺少主机输入框")
         XCTAssertTrue(element("ssh.agentTools").exists, "SSH 页顶部缺少开关")
+        XCTAssertTrue(element("ssh.empty").waitForExistence(timeout: 5), "多服务器列表缺少空态提示")
+
+        // 多服务器：右上角「+」添加一台，主机/端口/用户名/密码都在录入页
+        element("ssh.addServer").tap()
+        XCTAssertTrue(app.navigationBars["添加服务器"].waitForExistence(timeout: 5), "添加服务器页未打开")
+        XCTAssertTrue(element("ssh.host").exists, "缺少主机输入框")
+        element("ssh.host").tap()
+        element("ssh.host").typeText("127.0.0.1")
+        element("ssh.password").tap()
+        element("ssh.password").typeText("demo")
+        element("ssh.save").tap()
+        XCTAssertTrue(app.navigationBars["SSH 云服务器"].waitForExistence(timeout: 6), "保存后未回到服务器列表")
+
+        // 点卡片进详情页：测试连接与命令控制台都在这台服务器的详情里
+        let sshServerRow = element("ssh.row")
+        XCTAssertTrue(sshServerRow.waitForExistence(timeout: 5), "列表里没有刚添加的服务器")
+        sshServerRow.tap()
+        XCTAssertTrue(app.navigationBars["127.0.0.1"].waitForExistence(timeout: 6), "服务器详情页未打开")
+        XCTAssertTrue(scrollTo("ssh.test").waitForExistence(timeout: 5), "缺少测试连接")
         XCTAssertTrue(scrollTo("ssh.command").waitForExistence(timeout: 5), "缺少命令控制台")
         capture("20-ssh-settings")
-
-        // 返回设置主页（必须点 SSH 页自己的返回按钮，避免误点到根导航栏的「完成」把设置关掉）
+        // 返回服务器列表，再返回设置主页（点 SSH 页自己的返回按钮）
+        app.navigationBars["127.0.0.1"].buttons.firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["SSH 云服务器"].waitForExistence(timeout: 5), "未回到服务器列表")
         app.navigationBars["SSH 云服务器"].buttons.firstMatch.tap()
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5), "未返回设置页")
         // 带配置页的功能：设置首页只有箭头，开关在二级页顶部

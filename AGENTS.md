@@ -90,7 +90,23 @@ xcodebuild test -project DSHiOS.xcodeproj -scheme DSHiOS -destination "platform=
 
 ## 当前状态
 
-- 版本：**2.5.0**（构建号由 CI 运行序号决定；2.2.0 = build 106、2.3.0 = 107、2.4.0 = 109）。
+- 版本：**2.6.0**（构建号由 CI 运行序号决定；2.2.0 = 106、2.3.0 = 107、2.4.0 = 109、2.5.0 = 112）。
+- 2.6.0 交付（设置页体验 + SSH 多服务器）：
+  - **SSH 云服务器支持多台**（`SSHStore` 重写）：每台一张卡片（左滑删除、点按进详情），
+    密码按服务器 id 存钥匙串（`ssh.password.<uuid>`）；旧版单台配置在首次读取时自动迁移
+    （旧键 `dsh.ssh.config.v1` + `ssh.password` → 列表第一台），迁移后旧键删除；
+    智能体 `ssh_exec` 新增可选 `server` 参数（名称或主机，支持模糊匹配；不填用第一台），
+    可用服务器名单写进工具描述；
+  - **云端推理服务器多选**（`CloudConfiguration.sshServerID`）：云端页用 Picker 选择部署/推理用哪台，
+    `CloudStore.selectedServer(in:)` / `baseURL(for:)` 统一解析；
+  - **全部结果改弹窗**：模型服务「连接测试」（ConnectionTestRow）、SSH「测试连接」、
+    SSH「命令控制台」输出（sheet 可滚动，替代原来的行内文本块）、MCP「连接并刷新」；
+  - **MCP 服务器列表修复**：去掉自定义 `listRowInsets` + `listRowSeparator(.hidden)`（卡片宽度与其它分组一致、
+    不再出现中间分割线）；详情页「连接并刷新」下方的说明只显示**最近连接时间**（错误不再行内展示）；
+  - **一键部署日志行去除**：部署结果只以弹窗提示（成功含已部署的服务器名与 Agent 版本），
+    不再显示「（命令执行完成，没有输出）」这类 SSH 原始输出（`CloudStore.lastDeployLog` 已删除）；
+  - 单测：`SSHStoreMultiServerTests`（增删/解析/密码清理、旧配置迁移）；
+    UI 用例 test20 改为「添加服务器 → 详情页」新流程；`-uitest-reset` 同时清空 SSH 服务器列表。
 - 2.5.0 交付（**云端推理**：iOS 当遥控器、云服务器执行推理，用户要求新功能要有弹窗告知）：
   - **服务端 Agent**（`Resources/dsh-agent.py`，纯标准库单文件）：HTTP 服务，
     接口 = 健康检查 / 沙盒（自动创建、列表、暂停、恢复、销毁）/ 沙盒文件（列出、上传、下载、删除）/

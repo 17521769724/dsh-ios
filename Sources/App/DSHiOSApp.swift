@@ -29,6 +29,8 @@ struct DSHiOSApp: App {
             skillStore.deleteAll()
             // 工作区（文件 / IDE 的文件夹）也一并清空，保证文件相关用例从空目录开始
             try? FileManager.default.removeItem(at: WorkspaceStore.defaultRoot)
+            // SSH 服务器列表也清空（多服务器用例从空列表开始，避免多次运行后重复累积）
+            sshStore.servers = []
             // Keychain 在模拟器上不会随 App 卸载而清空，需显式清掉 Key，
             // 否则引导页门禁测试会因残留 Key 直接进入主页。
             settings.apiKey = ""

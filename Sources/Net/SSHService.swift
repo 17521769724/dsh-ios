@@ -34,13 +34,13 @@ enum SSHService {
 
     static func execute(
         command: String,
-        configuration: SSHConfiguration,
+        server: SSHServer,
         password: String,
         timeout: Double = 40
     ) async throws -> String {
         try await withThrowingTaskGroup(of: String.self) { group in
             group.addTask {
-                try await run(command: command, configuration: configuration, password: password)
+                try await run(command: command, server: server, password: password)
             }
             group.addTask {
                 try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
@@ -54,19 +54,19 @@ enum SSHService {
 
     private static func run(
         command: String,
-        configuration: SSHConfiguration,
+        server: SSHServer,
         password: String
     ) async throws -> String {
-        guard configuration.isFilled else { throw SSHError.notConfigured }
+        guard server.isFilled else { throw SSHError.notConfigured }
         guard !password.isEmpty else { throw SSHError.noPassword }
 
         let client: SSHClient
         do {
             client = try await SSHClient.connect(
-                host: configuration.host.trimmingCharacters(in: .whitespacesAndNewlines),
-                port: configuration.port,
+                host: server.host.trimmingCharacters(in: .whitespacesAndNewlines),
+                port: server.port,
                 authenticationMethod: .passwordBased(
-                    username: configuration.username.trimmingCharacters(in: .whitespacesAndNewlines),
+                    username: server.username.trimmingCharacters(in: .whitespacesAndNewlines),
                     password: password
                 ),
                 hostKeyValidator: .acceptAnything(),

@@ -578,14 +578,16 @@ struct ModelSettingsView: View {
     }
 }
 
-// MARK: - 连接测试（行内直接测试，不进入二级页面）
+// MARK: - 连接测试（结果以弹窗提示）
 
 struct ConnectionTestRow: View {
     @EnvironmentObject private var settingsStore: SettingsStore
 
     @State private var testing = false
-    @State private var result: String?
+    /// 结果弹窗：成功给模型数量，失败给完整原因
+    @State private var showResult = false
     @State private var succeeded = false
+    @State private var resultMessage = ""
 
     var body: some View {
         Button {
@@ -595,41 +597,34 @@ struct ConnectionTestRow: View {
                 SettingsIcon(symbol: "bolt.horizontal.circle.fill", color: .green)
                 Text("连接测试")
                 Spacer(minLength: DSHTheme.Spacing.small)
-                trailing
+                if testing {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("测试中")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text(settingsStore.isConfigured ? "点击测试" : "未配置 Key")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(testing || !settingsStore.isConfigured)
         .accessibilityIdentifier("settings.connection")
-    }
-
-    @ViewBuilder
-    private var trailing: some View {
-        if testing {
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
-                Text("测试中")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-            }
-        } else if let result {
-            Text(result)
-                .font(.system(size: 13))
-                .foregroundStyle(succeeded ? DSHTheme.success : DSHTheme.danger)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .accessibilityIdentifier("settings.connection.result")
-        } else {
-            Text(settingsStore.isConfigured ? "点击测试" : "未配置 Key")
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
+        // 连接测试结果：弹窗提示成功还是失败
+        .alert(succeeded ? "连接正常" : "连接失败", isPresented: $showResult) {
+            Button("好的", role: .cancel) {}
+        } message: {
+            Text(resultMessage)
         }
     }
 
     private func run() {
         testing = true
-        result = nil
         let client = DeepSeekClient(timeout: 20)
         let settings = settingsStore.settings
         let key = settingsStore.apiKey
@@ -638,24 +633,14 @@ struct ConnectionTestRow: View {
             do {
                 let ids = try await client.fetchModelIDs(settings: settings, apiKey: key)
                 succeeded = true
-                result = "连接正常 · \(ids.count) 个模型"
+                let host = URL(string: settings.baseURL)?.host ?? settings.baseURL
+                resultMessage = "已连接 \(host)\n\n模型列表获取成功，共 \(ids.count) 个模型。"
             } catch {
                 succeeded = false
-                // 行内只显示简短结果，完整信息在无障碍标签中
-                let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                result = Self.short(message)
+                resultMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }
+            showResult = true
         }
-    }
-
-    /// 缩短错误文案，例如「API Key 无效或已失效（401）」→「Key 无效 · 401」
-    private static func short(_ message: String) -> String {
-        if let range = message.range(of: "（") {
-            let head = String(message[..<range.lowerBound])
-            let tail = message[range.upperBound...].replacingOccurrences(of: "）", with: "")
-            return "\(head) · \(tail)"
-        }
-        return message.count > 12 ? String(message.prefix(12)) + "…" : message
     }
 }
 

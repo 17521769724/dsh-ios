@@ -516,7 +516,7 @@ final class ChatEngine: ObservableObject {
     private func startStreaming(conversationID: UUID, assistantID: UUID, outgoing: String) {
         // 云端推理：会话交给服务器 Agent 执行（App 只做遥控与显示，后台不中断）
         if settingsStore.settings.features.cloudInference {
-            guard cloudStore.isReady(sshHost: sshStore.configuration.host) else {
+            guard cloudStore.isReady(in: sshStore.servers) else {
                 fail(assistantID: assistantID, conversationID: conversationID, error: CloudError.badURL)
                 return
             }
@@ -629,7 +629,7 @@ final class ChatEngine: ObservableObject {
     /// 模型 Key 随请求下发、不落盘到服务器。
     private func startCloudStreaming(conversationID: UUID, assistantID: UUID, outgoing: String) {
         let settings = settingsStore.settings
-        guard let baseURL = cloudStore.baseURL(sshHost: sshStore.configuration.host) else {
+        guard let baseURL = cloudStore.baseURL(for: cloudStore.selectedServer(in: sshStore.servers)) else {
             fail(assistantID: assistantID, conversationID: conversationID, error: CloudError.badURL)
             return
         }
@@ -706,7 +706,7 @@ final class ChatEngine: ObservableObject {
     private func stopCloudRunIfNeeded() {
         guard let run = cloudRun else { return }
         cloudRun = nil
-        guard let baseURL = cloudStore.baseURL(sshHost: sshStore.configuration.host) else { return }
+        guard let baseURL = cloudStore.baseURL(for: cloudStore.selectedServer(in: sshStore.servers)) else { return }
         let client = CloudAgentClient(baseURL: baseURL, token: cloudStore.token)
         Task.detached {
             try? await client.stopRun(sandbox: run.sandbox, runID: run.runID)
@@ -834,7 +834,9 @@ final class ChatEngine: ObservableObject {
             clipboardEnabled: features.clipboardTool,
             reminderEnabled: features.reminderTool,
             mcpTools: features.mcpTool ? mcpStore.availableTools() : [],
-            skillNames: activeSkillNames
+            skillNames: activeSkillNames,
+            // 多台服务器时把名字写进工具描述，模型可用 server 参数指定用哪一台
+            sshServers: sshStore.servers.map(\.displayName)
         )
     }
 
@@ -907,11 +909,18 @@ final class ChatEngine: ObservableObject {
             guard let command = ToolArguments.string("command", in: call.arguments) else {
                 return "工具参数错误：缺少 command"
             }
+            // 多台服务器时模型可用 server 参数指定用哪一台（名称或主机地址）
+            let serverName = ToolArguments.string("server", in: call.arguments) ?? ""
+            guard let server = sshStore.resolve(name: serverName) else {
+                return serverName.isEmpty
+                    ? "还没有可用的 SSH 云服务器：请先在「设置 → SSH 云服务器」里添加。"
+                    : "没有找到名为「\(serverName)」的服务器，当前可用：\(sshStore.servers.map(\.displayName).joined(separator: "、"))。"
+            }
             do {
                 return try await SSHService.execute(
                     command: command,
-                    configuration: sshStore.configuration,
-                    password: sshStore.password
+                    server: server,
+                    password: sshStore.password(for: server.id)
                 )
             } catch {
                 return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription

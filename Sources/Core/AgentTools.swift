@@ -39,11 +39,12 @@ enum AgentToolCatalog {
         clipboardEnabled: Bool = false,
         reminderEnabled: Bool = false,
         mcpTools: [APITool] = [],
-        skillNames: [String] = []
+        skillNames: [String] = [],
+        sshServers: [String] = []
     ) -> [APITool] {
         var tools: [APITool] = []
         if sshEnabled {
-            tools.append(sshExec)
+            tools.append(sshExec(servers: sshServers))
         }
         if browserEnabled {
             tools.append(browserOpen)
@@ -78,25 +79,35 @@ enum AgentToolCatalog {
         return tools
     }
 
-    static let sshExec = APITool(
-        name: sshExecName,
-        description: """
-        在用户已配置的云服务器上通过 SSH 执行一条 shell 命令，返回输出（stdout+stderr 合并，超长截断）。\
-        适合查看服务器状态、安装软件、部署代码、修改配置。执行前先用一句话说明你要做什么。
-        """,
-        parameters: schema("""
-        {
-          "type": "object",
-          "properties": {
-            "command": {
-              "type": "string",
-              "description": "要执行的完整 shell 命令，例如 ls -la /var/www"
+    /// SSH 执行工具：可用服务器写进描述，模型可用 server 参数指定用哪一台（不填用第一台）
+    static func sshExec(servers: [String]) -> APITool {
+        let serverNote = servers.isEmpty
+            ? ""
+            : "当前可用服务器：\(servers.joined(separator: "、"))（用 server 参数指定其中一台，省略用第一台）。"
+        return APITool(
+            name: sshExecName,
+            description: """
+            在用户已配置的云服务器上通过 SSH 执行一条 shell 命令，返回输出（stdout+stderr 合并，超长截断）。\
+            适合查看服务器状态、安装软件、部署代码、修改配置。\(serverNote)执行前先用一句话说明你要做什么。
+            """,
+            parameters: schema("""
+            {
+              "type": "object",
+              "properties": {
+                "command": {
+                  "type": "string",
+                  "description": "要执行的完整 shell 命令，例如 ls -la /var/www"
+                },
+                "server": {
+                  "type": "string",
+                  "description": "用哪台服务器（服务器名称或主机地址）；省略用第一台"
+                }
+              },
+              "required": ["command"]
             }
-          },
-          "required": ["command"]
-        }
-        """)
-    )
+            """)
+        )
+    }
 
     static let browserOpen = APITool(
         name: browserOpenName,
