@@ -935,12 +935,17 @@ final class DSHiOSUITests: XCTestCase {
         // MCP 已合并成一行（紧跟内置浏览器，只有箭头），开关在 MCP 页顶部
         XCTAssertTrue(scrollTo("settings.mcp").waitForExistence(timeout: 5), "缺少 MCP 入口")
         XCTAssertFalse(element("feature.mcpTool").exists, "MCP 开关应移到二级页顶部")
-        let mcpRow = element("settings.mcp")
-        mcpRow.tap()
-        if !app.navigationBars["MCP 服务器"].waitForExistence(timeout: 6) {
-            mcpRow.tap()
+        // 列表滚动刚停下时点按偶尔不生效，最多重试三次（每次重试都重新取一遍元素）
+        var mcpOpened = false
+        for _ in 0..<3 {
+            element("settings.mcp").tap()
+            if app.navigationBars["MCP 服务器"].waitForExistence(timeout: 6) {
+                mcpOpened = true
+                break
+            }
+            Thread.sleep(forTimeInterval: 0.6)
         }
-        XCTAssertTrue(app.navigationBars["MCP 服务器"].waitForExistence(timeout: 8), "MCP 服务器页未打开")
+        XCTAssertTrue(mcpOpened, "MCP 服务器页未打开")
         XCTAssertTrue(element("feature.mcpTool").waitForExistence(timeout: 5), "MCP 页顶部缺少开关")
         capture("34-mcp-top-switch")
         app.navigationBars["MCP 服务器"].buttons
