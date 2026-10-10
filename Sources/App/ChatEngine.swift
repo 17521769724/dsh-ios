@@ -264,18 +264,23 @@ final class ChatEngine: ObservableObject {
 
     // MARK: - 上下文压缩
 
-    /// 估算的上下文占用与模型窗口（界面展示「上下文 xx%」）
+    /// 估算的上下文占用与模型窗口（界面展示「上下文 xx%」）。
+    /// 按发送前老化后的消息估算：与实际发给模型的量一致，不会虚高
     var contextUsage: (used: Int, limit: Int) {
         let model = DSHModel.describe(id: activeModelID)
-        let used = currentConversation.map { ContextCompactor.estimatedTokens(for: $0.messages) } ?? 0
+        let used = currentConversation.map {
+            ContextCompactor.estimatedTokens(for: ToolOutputAging.aged($0.messages))
+        } ?? 0
         return (used, model.contextWindow)
     }
 
-    /// 当前对话是否需要压缩上下文
+    /// 当前对话是否需要压缩上下文（按老化后的发送量判断，避免过早压缩）
     func needsContextCompaction(_ conversation: Conversation) -> Bool {
-        ContextCompactor.needsCompaction(
-            conversation.messages.filter { $0.id != lastStreamingAssistantID(in: conversation) },
-            model: DSHModel.describe(id: activeModelID)
+        let visible = conversation.messages.filter { $0.id != lastStreamingAssistantID(in: conversation) }
+        return ContextCompactor.needsCompaction(
+            visible,
+            model: DSHModel.describe(id: activeModelID),
+            sentTokens: ContextCompactor.estimatedTokens(for: ToolOutputAging.aged(visible))
         )
     }
 
@@ -313,7 +318,9 @@ final class ChatEngine: ObservableObject {
         let client = DeepSeekClient(timeout: settingsStore.settings.requestTimeout)
         do {
             let result = try await client.complete(
-                messages: ContextCompactor.summaryMessages(for: plan.summarized),
+                // 摘要请求本身也按老化后的内容发送：压缩目的是提炼对话要点，
+                // 不需要把早年的整段网页正文再发一遍（那会让压缩本身也很贵）
+                messages: ContextCompactor.summaryMessages(for: ToolOutputAging.aged(plan.summarized)),
                 model: activeModelID,
                 settings: settingsStore.settings,
                 apiKey: settingsStore.apiKey
@@ -516,42 +523,15 @@ final class ChatEngine: ObservableObject {
                 for _ in 0..<maxRounds {
                     if Task.isCancelled { break }
                     let messages = self.buildAPIMessages(conversationID: conversationID, latestUserText: outgoing)
-                    var pendingToolCalls: [ToolCall] = []
-
-                    if settings.streamEnabled || !tools.isEmpty {
-                        let stream = self.client.streamChat(
-                            messages: messages,
-                            model: model,
-                            tools: tools,
-                            settings: settings,
-                            apiKey: apiKey
-                        )
-                        for try await event in stream {
-                            if Task.isCancelled { break }
-                            switch event {
-                            case .content(let delta):
-                                self.appendContent(delta, assistantID: currentAssistantID)
-                            case .reasoning(let delta):
-                                self.appendReasoning(delta, assistantID: currentAssistantID)
-                            case .toolCalls(let calls):
-                                pendingToolCalls = calls
-                            case .finished(let tokenUsage):
-                                if let tokenUsage { usage = tokenUsage }
-                            }
-                        }
-                    } else {
-                        let result = try await self.client.complete(
-                            messages: messages,
-                            model: model,
-                            settings: settings,
-                            apiKey: apiKey
-                        )
-                        self.appendContent(result.text, assistantID: currentAssistantID)
-                        if let reasoning = result.reasoning, !reasoning.isEmpty {
-                            self.appendReasoning(reasoning, assistantID: currentAssistantID)
-                        }
-                        if let tokenUsage = result.usage { usage = tokenUsage }
-                    }
+                    let pendingToolCalls = try await self.request(
+                        messages: messages,
+                        tools: tools,
+                        model: model,
+                        settings: settings,
+                        apiKey: apiKey,
+                        assistantID: currentAssistantID,
+                        usage: &usage
+                    )
 
                     if Task.isCancelled { break }
                     guard !pendingToolCalls.isEmpty else { break }
@@ -564,12 +544,29 @@ final class ChatEngine: ObservableObject {
                         self.runningToolName = call.name
                         let output = await self.run(toolCall: call)
                         self.runningToolName = nil
-                        self.completeToolMessage(output, call: call)
+                        self.completeToolMessage(Self.limitedToolOutput(output), call: call)
                     }
 
                     if Task.isCancelled { break }
                     // 下一轮：新建助手占位消息，带上工具结果继续请求
                     currentAssistantID = self.beginAssistantMessage(model: model)
+                }
+
+                // 收尾救场：模型一个字都没产出（工具轮用尽、空响应）时，
+                // 再补一次「禁止调用工具」的收尾请求，逼它用文字给出结论，
+                // 避免用户看到「本轮没有返回内容」却不知道发生了什么
+                if !Task.isCancelled, self.needsFinalRescue(assistantID: currentAssistantID) {
+                    let messages = self.buildAPIMessages(conversationID: conversationID, latestUserText: outgoing)
+                    // 收尾请求失败不升级成报错：仍按空回复的兜底说明收尾
+                    _ = try? await self.request(
+                        messages: messages + [Self.finalRescueMessage],
+                        tools: [],
+                        model: model,
+                        settings: settings,
+                        apiKey: apiKey,
+                        assistantID: currentAssistantID,
+                        usage: &usage
+                    )
                 }
 
                 self.finish(assistantID: currentAssistantID, conversationID: conversationID, usage: usage)
@@ -581,6 +578,85 @@ final class ChatEngine: ObservableObject {
                 }
             }
         }
+    }
+
+    /// 单条工具输出发送给模型前的兜底上限：MCP 大返回、工作区大文件等极端情况下
+    /// 避免一次工具就把上下文塞满（各工具自身的截断更小，这里是最后一道保险）
+    static let maxToolOutputCharacters = 16_000
+
+    /// 兜底截断工具输出
+    static func limitedToolOutput(_ text: String) -> String {
+        guard text.count > maxToolOutputCharacters else { return text }
+        let dropped = text.count - maxToolOutputCharacters
+        return String(text.prefix(maxToolOutputCharacters)) + "\n…（输出过长，已省略 \(dropped) 字）"
+    }
+
+    /// 收尾救场请求的提示：用一条临时的用户消息下发（不写入会话记录），
+    /// 禁止再调工具、必须给出文字结论，避免出现「本轮没有返回内容」的死局
+    private static let finalRescueMessage = APIMessage(
+        role: "user",
+        content: """
+        （系统提示：本轮已经不能再调用工具了。请立刻根据上面的对话与工具执行结果，直接用文字给出最终回答：\
+        先给结论，再给关键依据；如果信息还不完整，就说明已经查到什么、还缺什么，并给出目前能给出的最好结果。）
+        """
+    )
+
+    /// 是否需要「收尾救场」：最后的助手消息一个字都没写出（工具轮用尽、或空响应）时成立
+    private func needsFinalRescue(assistantID: UUID) -> Bool {
+        // 先把缓冲里的内容落进消息，避免刚吐出的字还没写入就被当成空回复
+        commitStreamingBuffer(to: assistantID)
+        guard let message = message(id: assistantID) else { return false }
+        guard message.toolCalls?.isEmpty ?? true else { return false }
+        return message.content.isEmpty
+    }
+
+    /// 发起一次请求并把输出累积到指定助手消息；返回本轮模型要求执行的工具调用。
+    /// 流式开关关闭且没有工具时走一次性 complete，其余情况统一走流式。
+    private func request(
+        messages: [APIMessage],
+        tools: [APITool],
+        model: String,
+        settings: AppSettings,
+        apiKey: String,
+        assistantID: UUID,
+        usage: inout TokenUsage?
+    ) async throws -> [ToolCall] {
+        var pendingToolCalls: [ToolCall] = []
+        if settings.streamEnabled || !tools.isEmpty {
+            let stream = client.streamChat(
+                messages: messages,
+                model: model,
+                tools: tools,
+                settings: settings,
+                apiKey: apiKey
+            )
+            for try await event in stream {
+                if Task.isCancelled { break }
+                switch event {
+                case .content(let delta):
+                    appendContent(delta, assistantID: assistantID)
+                case .reasoning(let delta):
+                    appendReasoning(delta, assistantID: assistantID)
+                case .toolCalls(let calls):
+                    pendingToolCalls = calls
+                case .finished(let tokenUsage):
+                    if let tokenUsage { usage = tokenUsage }
+                }
+            }
+        } else {
+            let result = try await client.complete(
+                messages: messages,
+                model: model,
+                settings: settings,
+                apiKey: apiKey
+            )
+            appendContent(result.text, assistantID: assistantID)
+            if let reasoning = result.reasoning, !reasoning.isEmpty {
+                appendReasoning(reasoning, assistantID: assistantID)
+            }
+            if let tokenUsage = result.usage { usage = tokenUsage }
+        }
+        return pendingToolCalls
     }
 
     // MARK: - 工具调用（Agent）
@@ -851,8 +927,9 @@ final class ChatEngine: ObservableObject {
     private func buildAPIMessages(conversationID: UUID, latestUserText: String) -> [APIMessage] {
         guard let conversation = currentConversation else { return [] }
         // 发送前修复工具调用配对：中途停止过的会话会留下不完整的 tool_calls，
-        // 不修复的话之后每次请求都会被服务端以 400 拒绝
-        let sanitized = ToolCallRepair.repaired(conversation.messages)
+        // 不修复的话之后每次请求都会被服务端以 400 拒绝；
+        // 再把较早轮次的工具结果老化（只留开头摘要、丢弃截图），大幅减少重复计费的 token
+        let sanitized = ToolOutputAging.aged(ToolCallRepair.repaired(conversation.messages))
         var result: [APIMessage] = []
         /// 工具产生的截图（如「查看画面」）：等这一批工具结果都发完之后再作为一条用户消息附上，
         /// 避免打断「assistant(tool_calls) → tool(tool_call_id)…」的配对顺序

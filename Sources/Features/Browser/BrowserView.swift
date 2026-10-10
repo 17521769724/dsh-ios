@@ -284,8 +284,11 @@ final class WebPageReader: NSObject, WKNavigationDelegate {
 
     static let shared = WebPageReader()
 
-    /// 传给模型的正文上限
-    static let maxCharacters = 12_000
+    /// 传给模型的正文上限（12k → 8k：网页正文是上下文膨胀的最大来源，收紧能显著省 token）
+    static let maxCharacters = 8_000
+    /// 截断时保留的开头 / 结尾字符数（结尾常带导航与结论，全部砍掉容易丢关键信息）
+    private static let headCharacters = 5_500
+    private static let tailCharacters = 2_000
 
     private var webView: WKWebView?
     private var continuation: CheckedContinuation<String, Error>?
@@ -356,6 +359,8 @@ final class WebPageReader: NSObject, WKNavigationDelegate {
 
     private static func truncate(_ text: String) -> String {
         guard text.count > maxCharacters else { return text }
-        return String(text.prefix(maxCharacters)) + "\n…（正文过长，已截断）"
+        let head = String(text.prefix(headCharacters))
+        let tail = String(text.suffix(tailCharacters))
+        return head + "\n…（中间省略 \(text.count - headCharacters - tailCharacters) 字）…\n" + tail
     }
 }

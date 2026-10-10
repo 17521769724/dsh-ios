@@ -2208,3 +2208,78 @@ final class MCPAgentIntegrationTests: XCTestCase {
         XCTAssertEqual(process.steps.first?.title, "MCP 工具")
     }
 }
+
+// MARK: - 工具结果老化（省 token）
+
+final class ToolOutputAgingTests: XCTestCase {
+
+    private func message(_ role: MessageRole, _ text: String) -> ChatMessage {
+        ChatMessage(role: role, content: text)
+    }
+
+    /// 较早轮次的工具结果发送前只剩开头摘要；当前轮（最后一条用户消息之后）完整保留
+    func testAgesOnlyPreviousTurns() {
+        let long = String(repeating: "字", count: 1_000)
+        var oldTool = message(.tool, long)
+        oldTool.toolCallID = "old"
+        var newTool = message(.tool, long)
+        newTool.toolCallID = "new"
+        let messages: [ChatMessage] = [
+            message(.user, "第一轮"),
+            oldTool,
+            message(.assistant, "第一轮答复"),
+            message(.user, "第二轮"),
+            newTool,
+            message(.assistant, "")
+        ]
+
+        let aged = ToolOutputAging.aged(messages)
+        // 较早轮次：开头摘要 + 省略说明，长度明显变小
+        XCTAssertTrue(aged[1].content.hasPrefix(String(repeating: "字", count: ToolOutputAging.excerptCharacters)))
+        XCTAssertTrue(aged[1].content.contains("较早的工具结果已省略"))
+        XCTAssertLessThan(aged[1].content.count, long.count)
+        // 当前轮的工具结果完整保留
+        XCTAssertEqual(aged[4].content, long)
+        // 用户与助手消息不受影响
+        XCTAssertEqual(aged[0].content, "第一轮")
+        XCTAssertEqual(aged[2].content, "第一轮答复")
+    }
+
+    /// 较早轮次工具结果上的截图不再重复发送；当前轮的截图保留
+    func testDropsOldToolImages() {
+        let attachment = ChatAttachment(fileName: "shot.jpg")
+        var oldTool = message(.tool, "较早结果")
+        oldTool.attachments = [attachment]
+        var newTool = message(.tool, "当前结果")
+        newTool.attachments = [attachment]
+        let messages: [ChatMessage] = [
+            message(.user, "第一轮"),
+            oldTool,
+            message(.user, "第二轮"),
+            newTool
+        ]
+
+        let aged = ToolOutputAging.aged(messages)
+        XCTAssertNil(aged[1].attachments, "较早轮次工具结果上的截图不应再发送")
+        XCTAssertEqual(aged[3].attachments?.count, 1, "当前轮的截图应保留（视觉模型需要看）")
+        // 老化不改动原数组
+        XCTAssertEqual(messages[1].attachments?.count, 1)
+    }
+
+    /// 没有用户消息时不做任何处理（防御性）
+    func testNoUserMessageIsUntouched() {
+        let messages = [message(.assistant, "你好"), message(.tool, String(repeating: "字", count: 1_000))]
+        XCTAssertEqual(ToolOutputAging.aged(messages).map(\.content), messages.map(\.content))
+    }
+
+    /// 工具输出兜底上限：超长输出会被截断并附说明，短输出原样返回
+    func testLimitedToolOutput() {
+        let short = String(repeating: "a", count: 100)
+        XCTAssertEqual(ChatEngine.limitedToolOutput(short), short)
+
+        let long = String(repeating: "a", count: ChatEngine.maxToolOutputCharacters + 500)
+        let limited = ChatEngine.limitedToolOutput(long)
+        XCTAssertTrue(limited.hasPrefix(String(repeating: "a", count: ChatEngine.maxToolOutputCharacters)))
+        XCTAssertTrue(limited.contains("输出过长，已省略 500 字"))
+    }
+}

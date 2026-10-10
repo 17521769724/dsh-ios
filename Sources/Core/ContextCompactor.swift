@@ -80,10 +80,11 @@ struct CompactionPlan {
 /// 需要时把较早的历史消息交给模型压成一段摘要，再用摘要替换它们。
 enum ContextCompactor {
 
-    /// 触发阈值：估算用量达到模型窗口的这个比例就压缩
-    static let triggerRatio = 0.75
+    /// 触发阈值：估算用量达到模型窗口的这个比例就压缩。
+    /// 相比更晚触发，提前一些压缩能让后续每次请求都少发一截历史（省 token）
+    static let triggerRatio = 0.70
     /// 压缩后保留的最近消息占窗口的比例（其余交给摘要）
-    static let keepRatio = 0.35
+    static let keepRatio = 0.30
     /// 少于这么多条消息时不压缩（压了反而更贵）
     static let minimumMessages = 6
     /// 至少要有这么多条历史值得压成摘要
@@ -114,9 +115,13 @@ enum ContextCompactor {
     }
 
     /// 是否需要压缩
-    static func needsCompaction(_ messages: [ChatMessage], model: DSHModel) -> Bool {
+    /// - Parameter sentTokens: 实际发送前（工具结果老化后）的估算用量；
+    ///   不传则按原始消息估算。按发送量判断可避免过早压缩。
+    static func needsCompaction(_ messages: [ChatMessage], model: DSHModel, sentTokens: Int? = nil) -> Bool {
         guard messages.count >= minimumMessages else { return false }
-        guard usageRatio(for: messages, model: model) >= triggerRatio else { return false }
+        guard model.contextWindow > 0 else { return false }
+        let used = sentTokens ?? estimatedTokens(for: messages)
+        guard Double(used) / Double(model.contextWindow) >= triggerRatio else { return false }
         return plan(for: messages, keepBudget: Int(Double(model.contextWindow) * keepRatio)) != nil
     }
 
