@@ -60,7 +60,10 @@ struct PermissionsView: View {
                 }
                 .disabled(requesting)
                 .accessibilityIdentifier("permissions.requestAll")
+            }
 
+            // 带图标的操作行各自独立成卡，间距与其它操作行一致
+            Section {
                 Button {
                     permissions.openSystemSettings()
                 } label: {

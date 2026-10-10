@@ -3,13 +3,16 @@ import SwiftUI
 /// 自绘的左滑删除行：删除背景与卡片同高、同圆角，颜色固定为红色。
 /// 卡片与删除区共用一个圆角裁剪，滑开时不会露出直角。
 ///
-/// 关键点（修复列表里「红色删除区露出卡片之外」）：删除层不是与卡片并排的兄弟节点，
-/// 而是挂在一份「不可见的内容副本」上作为 overlay——它的尺寸由卡片本身决定（确定的尺寸基准），
-/// 因此在 List 行、ScrollView 等任何父容器里都不会比卡片高出或宽出；静止时不露红。
+/// 关键点（保证列表行里既没有红色残影、又能正常删除）：
+/// - 删除红底挂在 ZStack 的 `background(alignment: .trailing)` 上：尺寸严格等于卡片
+///   （不会像兄弟节点那样在 List 行里被撑高撑宽），且位于卡片**下方**，滑动时逐段露出；
+/// - 红底与「点红色区域 = 删除」的透明点击层都**只在滑动 / 展开时渲染**，静止时完全不绘制，
+///   因此卡片上不会出现任何红色残影；
+/// - 透明点击层挂在最上层：展开后卡片虽然视觉上滑走了，但它的布局仍覆盖整行，
+///   只有最上层的点击层能稳定接住这一区域的点击。
 ///
 /// 技能库、SSH 云服务器、MCP 服务器列表共用这一套左滑逻辑：
 /// - 卡片本体不是 Button（否则会和左滑抢手势），点击与滑动都挂在内容上；
-/// - 展开后再压一层透明点击层，保证「点红色区域 = 删除」；
 /// - 另外提供长按菜单兜底（个别机型手势不跟手时也能删除）。
 struct SwipeToDeleteRow<Content: View>: View {
     let onDelete: () -> Void
@@ -27,41 +30,11 @@ struct SwipeToDeleteRow<Content: View>: View {
     @State private var offset: CGFloat = 0
     @State private var opened = false
 
+    /// 是否已滑开（只要滑开一点就要绘制删除层）
+    private var revealing: Bool { offset < 0 || opened }
+
     var body: some View {
         ZStack(alignment: .trailing) {
-            // 尺寸基准 + 删除层：删除区高度严格等于卡片高度，宽度固定为 actionWidth
-            content
-                .hidden()
-                .accessibilityHidden(true)
-                .overlay(alignment: .trailing) {
-                    ZStack(alignment: .trailing) {
-                        Button {
-                            delete()
-                        } label: {
-                            Image(systemName: "trash")
-                                .font(.system(size: 17, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .frame(width: actionWidth)
-                                .frame(maxHeight: .infinity)
-                                .background(DSHTheme.dangerSolid)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(deleteTitle)
-
-                        // 展开后在整个删除区上再压一层透明点击层：
-                        // 不管系统把这次点击派发给谁，点红色区域都等于「删除」
-                        if opened {
-                            Color.clear
-                                .frame(width: actionWidth)
-                                .frame(maxHeight: .infinity)
-                                .contentShape(Rectangle())
-                                .onTapGesture { delete() }
-                                .accessibilityHidden(true)
-                        }
-                    }
-                }
-
             content
                 .offset(x: offset)
                 // 滑动与点击都挂在卡片本体上：卡片不是 Button，两者不会互相抢手势
@@ -90,6 +63,34 @@ struct SwipeToDeleteRow<Content: View>: View {
         }
         // 横向撑满所在行，卡片宽度与同页其它分组保持一致
         .frame(maxWidth: .infinity)
+        .background(alignment: .trailing) {
+            if revealing {
+                Button {
+                    delete()
+                } label: {
+                    Image(systemName: "trash")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: actionWidth)
+                        .frame(maxHeight: .infinity)
+                        .background(DSHTheme.dangerSolid)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(deleteTitle)
+            }
+        }
+        // 展开后在删除区上压一层透明点击层（最上层）：点红色区域就等于删除
+        .overlay(alignment: .trailing) {
+            if opened {
+                Color.clear
+                    .frame(width: actionWidth)
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .onTapGesture { delete() }
+                    .accessibilityHidden(true)
+            }
+        }
         .clipShape(RoundedRectangle(cornerRadius: DSHTheme.Radius.row, style: .continuous))
     }
 

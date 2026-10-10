@@ -18,6 +18,7 @@ struct SettingsView: View {
         NavigationStack {
             List {
                 serviceSection
+                connectionTestSection
                 conversationSection
                 appearanceSection
                 homeFeaturesSection
@@ -93,12 +94,19 @@ struct SettingsView: View {
                 )
             }
             .accessibilityIdentifier("settings.cloud")
-
-            ConnectionTestRow()
         } header: {
             Text("模型服务")
         } footer: {
             Text("API Key 保存在本机钥匙串。API 地址兼容任意 OpenAI 格式接口。")
+        }
+    }
+
+    /// 连接测试单独一张卡片：带图标的操作行与其它操作行一样独立成卡
+    private var connectionTestSection: some View {
+        Section {
+            ConnectionTestRow()
+        } footer: {
+            Text("测试会向该地址拉取一次模型列表，结果以弹窗提示。")
         }
     }
 

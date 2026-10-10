@@ -35,8 +35,13 @@ struct SSHSettingsView: View {
                             tapTitle: "编辑服务器",
                             deleteTitle: "删除服务器"
                         ) {
+                            // 只显示服务器名称与右侧箭头（名称过长省略，卡片保持单行）
                             HStack(spacing: DSHTheme.Spacing.small) {
-                                row(server)
+                                Text(server.displayName)
+                                    .font(.system(size: 16))
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                Spacer(minLength: DSHTheme.Spacing.small)
                                 Image(systemName: "chevron.right")
                                     .font(.system(size: 12, weight: .semibold))
                                     .foregroundStyle(DSHTheme.tertiaryText)
@@ -94,37 +99,6 @@ struct SSHSettingsView: View {
         } footer: {
             Text("开启后模型可自主在这些服务器上执行命令，可用 server 参数指定用哪一台（不填用第一台）；每次执行都会在对话里留下记录。")
         }
-    }
-
-    private func row(_ server: SSHServer) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 6) {
-                Text(server.displayName)
-                    .font(.system(size: 16))
-                if !server.isFilled {
-                    Text("未填写完整")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(DSHTheme.chipFill)
-                        .clipShape(Capsule())
-                } else if sshStore.password(for: server.id).isEmpty {
-                    Text("缺密码")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(DSHTheme.chipFill)
-                        .clipShape(Capsule())
-                }
-            }
-            Text(server.displayTarget)
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-        }
-        .padding(.vertical, 2)
     }
 }
 

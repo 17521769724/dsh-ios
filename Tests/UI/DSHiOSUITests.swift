@@ -448,7 +448,8 @@ final class DSHiOSUITests: XCTestCase {
 
     func test10_连接测试以弹窗给出结果() {
         openSettings()
-        let row = element("settings.connection")
+        // 连接测试已独立成卡片，先滚到它再点，避免受上方分组高度变化影响
+        let row = scrollTo("settings.connection")
         XCTAssertTrue(row.waitForExistence(timeout: 5), "缺少连接测试行")
         XCTAssertTrue(app.staticTexts["点击测试"].exists, "连接测试行应提示可点击")
         row.tap()

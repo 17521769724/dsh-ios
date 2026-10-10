@@ -116,6 +116,7 @@ struct GitAccountSettingsView: View {
     private var accountSection: some View {
         if isConnected {
             connectedSection
+            signOutSection
         } else {
             // GitHub 走设备码；Gitee 走授权码；两者都保留 Token 登录
             if supportsDeviceFlow {
@@ -134,18 +135,25 @@ struct GitAccountSettingsView: View {
                 .listRowSeparator(.visible)
             LabeledContent("Token", value: "已保存在本机钥匙串")
                 .listRowSeparator(.visible)
+        } header: {
+            Text("账号")
+        } footer: {
+            Text("退出后 Token 会从本机删除，智能体将无法再调用 \(provider.displayName) 工具。")
+        }
+    }
+
+    /// 退出登录单独一张卡片：带图标的操作行与其它操作行一样独立成卡
+    private var signOutSection: some View {
+        Section {
             Button(role: .destructive) {
                 showSignOutConfirm = true
             } label: {
                 // power 是各版本 iOS 都有的退出符号，避免较新的矩形箭头符号在某些机型上渲染异常
                 Label("退出登录", systemImage: "power")
             }
-            .listRowSeparator(.visible)
             .accessibilityIdentifier("git.signOut")
-        } header: {
-            Text("账号")
         } footer: {
-            Text("退出后 Token 会从本机删除，智能体将无法再调用 \(provider.displayName) 工具。")
+            Text("退出后需要重新登录才能继续使用 \(provider.displayName) 工具。")
         }
     }
 

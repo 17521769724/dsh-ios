@@ -93,8 +93,13 @@ struct MCPSettingsView: View {
                             tapTitle: "查看详情",
                             deleteTitle: "删除服务器"
                         ) {
+                            // 只显示服务器名称与右侧箭头（名称过长省略，卡片保持单行）
                             HStack(spacing: DSHTheme.Spacing.small) {
-                                row(server)
+                                Text(server.name)
+                                    .font(.system(size: 16))
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                Spacer(minLength: DSHTheme.Spacing.small)
                                 Image(systemName: "chevron.right")
                                     .font(.system(size: 12, weight: .semibold))
                                     .foregroundStyle(DSHTheme.tertiaryText)
@@ -163,37 +168,6 @@ struct MCPSettingsView: View {
                 .accessibilityLabel("添加服务器")
             }
         }
-    }
-
-    private func row(_ server: MCPServerConfig) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 6) {
-                Text(server.name)
-                    .font(.system(size: 16))
-                if !server.isEnabled {
-                    Text("已关闭")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(DSHTheme.chipFill)
-                        .clipShape(Capsule())
-                }
-            }
-            Text(statusText(server))
-                .font(.system(size: 12))
-                .foregroundStyle(server.lastError == nil ? Color.secondary : DSHTheme.danger)
-                .lineLimit(2)
-        }
-        .padding(.vertical, 2)
-    }
-
-    private func statusText(_ server: MCPServerConfig) -> String {
-        if let error = server.lastError { return error }
-        guard !server.tools.isEmpty else { return "\(server.displayHost) · 未连接" }
-        var text = "\(server.displayHost) · \(server.tools.count) 个工具"
-        if let version = server.protocolVersion { text += " · MCP \(version)" }
-        return text
     }
 
     // MARK: - 推荐服务器
@@ -359,6 +333,7 @@ struct MCPServerDetailView: View {
         List {
             if let server {
                 serverSection(server)
+                refreshSection(server)
                 toolsSection(server)
                 promptsSection(server)
                 dangerSection(server)
@@ -411,7 +386,17 @@ struct MCPServerDetailView: View {
                 Text("启用（工具下发给模型）")
             }
             .accessibilityIdentifier("mcp.detail.enabled")
+        } header: {
+            Text("连接设置")
+        } footer: {
+            Text("修改后点下方「连接并刷新」生效。")
+        }
+    }
 
+    /// 「连接并刷新」单独一张卡片：和「删除服务器」那张卡片一样带间距，
+    /// 卡片下方只显示最近连接时间（结果以弹窗提示）
+    private func refreshSection(_ server: MCPServerConfig) -> some View {
+        Section {
             Button {
                 Task { await refreshAndReport() }
             } label: {
@@ -426,10 +411,7 @@ struct MCPServerDetailView: View {
             }
             .disabled(mcpStore.refreshing.contains(serverID))
             .accessibilityIdentifier("mcp.detail.refresh")
-        } header: {
-            Text("连接设置")
         } footer: {
-            // 卡片下方只显示最近连接时间；连接成功/失败改为弹窗提示
             if let connectedAt = server.lastConnectedAt {
                 Text("最近连接：\(Self.formatter.string(from: connectedAt))")
             } else {

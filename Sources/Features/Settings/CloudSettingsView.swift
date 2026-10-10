@@ -22,6 +22,7 @@ struct CloudSettingsView: View {
         List {
             enableSection
             deploySection
+            deployActionSection
             sandboxSection
         }
         .listStyle(.insetGrouped)
@@ -147,7 +148,16 @@ struct CloudSettingsView: View {
                     .font(.system(.body, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
+        } header: {
+            Text("服务器 Agent")
+        } footer: {
+            Text("云端推理与部署都用这里选择的服务器；密码保存在本机钥匙串，不会上传。")
+        }
+    }
 
+    /// 操作卡片（一键创建 / 检测连接 / 查看部署日志）：单独一张卡片，间距与其它操作行一致
+    private var deployActionSection: some View {
+        Section {
             Button {
                 Task { await deploy() }
             } label: {
@@ -189,9 +199,9 @@ struct CloudSettingsView: View {
                 }
             }
         } header: {
-            Text("服务器 Agent")
+            Text("操作")
         } footer: {
-            Text("部署通过 SSH 把 Agent 装到所选服务器上并后台启动（仅你本机的令牌可访问），结果以弹窗提示。缺少 python3 时会尝试自动安装。若「检测连接」失败，请确认服务在运行，并在云服务器安全组放行该端口。模型 Key 不会保存到服务器，每次请求随会话下发。")
+            Text("部署通过 SSH 把 Agent 装到上面所选服务器上并后台启动（仅你本机的令牌可访问），结果以弹窗提示。缺少 python3 时会尝试自动安装。若「检测连接」失败，请确认服务在运行，并在云服务器安全组放行该端口。模型 Key 不会保存到服务器，每次请求随会话下发。")
         }
     }
 
