@@ -72,7 +72,7 @@ struct CloudSettingsView: View {
         Section {
             LabeledContent("SSH 服务器") {
                 Text(sshStore.configuration.isFilled ? sshStore.displayTarget : "未配置")
-                    .foregroundStyle(sshStore.configuration.isFilled ? .secondary : .red)
+                    .foregroundStyle(sshStore.configuration.isFilled ? Color.secondary : Color.red)
             }
             LabeledContent("服务端口") {
                 TextField("8931", value: $cloudStore.configuration.port, format: .number)
