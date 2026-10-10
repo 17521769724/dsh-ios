@@ -599,6 +599,8 @@ final class DSHiOSUITests: XCTestCase {
         element("ssh.password").typeText("demo")
         element("ssh.save").tap()
         XCTAssertTrue(app.navigationBars["SSH 云服务器"].waitForExistence(timeout: 6), "保存后未回到服务器列表")
+        // 卡片外观（宽度 / 是否露出左滑删除的红底）在这里留证，便于回归时对比
+        capture("20a-ssh-server-list")
 
         // 点卡片进详情页：测试连接与命令控制台都在这台服务器的详情里
         let sshServerRow = element("ssh.row")
@@ -1026,6 +1028,8 @@ final class DSHiOSUITests: XCTestCase {
         element("mcp.editor.save").tap()
 
         XCTAssertTrue(app.staticTexts["测试服务器"].waitForExistence(timeout: 15), "服务器未出现在列表里")
+        // 静止状态的卡片外观（宽度 / 是否露出红色删除底）留证，便于回归对比
+        capture("30a-mcp-row-at-rest")
 
         // 左滑删除：与技能库同一套逻辑（固定红色删除区）
         app.staticTexts["测试服务器"].swipeLeft()
