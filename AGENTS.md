@@ -29,10 +29,11 @@ UI、交互与动效对齐桌面端 [anywhere-labs/dsh-desktop](https://github.c
 
 ```
 Sources/
-  App/          ChatEngine（对话引擎：流式/工具/技能调度）、DSHiOSApp、RootView（抽屉布局）
+  App/          ChatEngine（对话引擎：流式/工具/技能调度、云端推理遥控）、DSHiOSApp、RootView（抽屉布局 + 新功能弹窗）
   Core/         数据层：Models、ConversationStore、SettingsStore、Skill（技能库）、
                 AgentTools（模型可调用工具定义）、WorkspaceStore（工作区文件 / 文件管理器与 IDE）、
                 ScreenVision（截图 + 本地 OCR）、MCP + MCPStore（MCP 协议客户端与服务器管理）、
+                CloudStore（云端推理配置 / 钥匙串令牌 / 一键部署脚本，见 2.5.0）、
                 RemindersService（提醒事项与日历，EventKit）、
                 AppCache（缓存统计/清理）、SSHStore、GitAccountStore、Keychain
   Design/       Theme（配色/间距/圆角/动效）、SecureInputField、TapToDismissKeyboard
@@ -89,8 +90,28 @@ xcodebuild test -project DSHiOS.xcodeproj -scheme DSHiOS -destination "platform=
 
 ## 当前状态
 
-- 版本：**2.4.0**（构建号由 CI 运行序号决定；2.2.0 = build 106、2.3.0 = build 107）。
-- 2.4.0 交付（继续压 token + 新功能）：
+- 版本：**2.5.0**（构建号由 CI 运行序号决定；2.2.0 = build 106、2.3.0 = 107、2.4.0 = 109）。
+- 2.5.0 交付（**云端推理**：iOS 当遥控器、云服务器执行推理，用户要求新功能要有弹窗告知）：
+  - **服务端 Agent**（`Resources/dsh-agent.py`，纯标准库单文件）：HTTP 服务，
+    接口 = 健康检查 / 沙盒（自动创建、列表、暂停、恢复、销毁）/ 沙盒文件（列出、上传、下载、删除）/
+    推理（发起 chat、按游标 `after=N` 长轮询取事件、停止）；推理在服务器后台线程执行，
+    客户端断开（App 后台）不中断，客户端回来按游标补齐全部内容；除 /health 外都要 Bearer 鉴权；
+  - **一键部署**（`CloudDeploy`）：在「设置 → 云端推理」用已有 SSH 配置把 Agent 源码写入服务器、
+    缺 python3 时自动安装、`nohup` 后台启动并自检；部署后用 HTTP 从手机侧再验证一次端口可达性；
+  - **iOS 遥控**（`CloudAgentClient` + `ChatEngine.startCloudStreaming`）：会话消息（纯文本角色）
+    发给服务器推理，事件（content/reasoning/usage）流式写入同一套 `StreamingText` 缓冲；
+    App 退到后台只是停止取事件，回前台自动续取；停止按钮会显式通知服务器 `stop`；
+    模型 Key 保存在本机钥匙串、随请求下发，服务器不落盘；
+  - **设置页**（`CloudSettingsView`）：顶部总开关（`FeatureFlags.cloudInference`）、服务器/端口/令牌、
+    一键部署、检测连接、沙盒列表（创建 / 暂停 / 恢复 / 销毁）、沙盒文件（上传 fileImporter、
+    下载后系统分享保存、左滑删除）；
+  - **新功能弹窗**（`ReleaseNotes`，RootView）：每个版本首次打开主界面弹一次「新功能」说明，
+    可在弹窗里直接跳设置；UI 测试用 `-uitest-release-notes` 强制弹出、默认跳过；
+  - 云端 v1 限制：只发纯文本（图片与智能体工具仍在本机直连模式可用）、Agent 重启会丢进行中的任务；
+  - 单测：`CloudAgentTests`（令牌、部署脚本与结果判定、事件/沙盒解码、老数据兼容、内置脚本可读）。
+- 2.4.0 交付（继续压 token + 新功能）：收尾轮零工具、单轮工具输出预算（3 万字符）、
+  同名网页去重、工具描述精简约三成、新增「工作区检索」（workspace search 动作）。
+  明细：
   - **收尾轮不再下发工具**（`ChatEngine.startStreaming`）：工具轮的第 6 轮（最后一轮）改为「零工具 +
     收尾提示」，直接要结论——既保证一定有最终回答，又省掉一轮「执行工具 + 整段重发」；
     循环结束后的「收尾救场」继续兜底空响应；

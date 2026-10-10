@@ -2340,3 +2340,77 @@ final class ToolOutputAgingTests: XCTestCase {
         XCTAssertEqual(budget.usedCharacters, ToolOutputBudget.totalCharacters + ToolOutputBudget.tightenedCharacters)
     }
 }
+
+// MARK: - 云端推理
+
+final class CloudAgentTests: XCTestCase {
+
+    /// 随机令牌：32 位十六进制且互不相同
+    func testRandomToken() {
+        let token = CloudStore.randomToken()
+        XCTAssertEqual(token.count, 32)
+        XCTAssertTrue(token.allSatisfy { $0.isHexDigit })
+        XCTAssertNotEqual(CloudStore.randomToken(), token)
+    }
+
+    /// 部署脚本：包含源码落盘、python 兜底、端口与令牌、本机健康检查
+    func testDeployScriptContainsEssentials() {
+        let source = "print('hi')\n# 源码里的 DSH_AGENT_EOF 字样不会误结束"
+        let script = CloudDeploy.script(source: source, port: 8931, token: "abc123")
+        XCTAssertTrue(script.contains("mkdir -p $HOME/.dsh/sandboxes"))
+        XCTAssertTrue(script.contains("cat > $HOME/.dsh/dsh-agent.py <<'DSH_AGENT_EOF'"))
+        XCTAssertTrue(script.contains(source))
+        XCTAssertTrue(script.contains("command -v python3"))
+        XCTAssertTrue(script.contains("--port 8931 --token abc123"))
+        XCTAssertTrue(script.contains("http://127.0.0.1:8931/health"))
+    }
+
+    /// 部署结果判定：成功输出 / python 缺失
+    func testDeployResultDetection() {
+        XCTAssertTrue(CloudDeploy.succeeded(#"{"ok": true, "version": "1.0"}"#))
+        XCTAssertFalse(CloudDeploy.succeeded("bash: python: command not found"))
+        XCTAssertTrue(CloudDeploy.missingPython("__DSH_NO_PYTHON__"))
+        XCTAssertFalse(CloudDeploy.missingPython("ok"))
+    }
+
+    /// 事件批次解码（与 Agent 返回格式一致）：事件、状态、用量
+    func testRunBatchDecoding() throws {
+        let json = #"""
+        {"ok": true, "state": "done", "error": null, "usage": {"promptTokens": 12, "completionTokens": 3},
+         "events": [{"i": 0, "type": "reasoning", "text": "想一下"},
+                    {"i": 1, "type": "content", "text": "你好"},
+                    {"i": 2, "type": "usage", "usage": {"promptTokens": 12, "completionTokens": 3}}]}
+        """#
+        let batch = try JSONDecoder().decode(CloudRunBatch.self, from: Data(json.utf8))
+        XCTAssertEqual(batch.state, "done")
+        XCTAssertEqual(batch.events.count, 3)
+        XCTAssertEqual(batch.events[1].text, "你好")
+        XCTAssertEqual(batch.events[2].usage?.promptTokens, 12)
+        XCTAssertTrue(batch.isTerminal)
+    }
+
+    /// 沙盒解码与状态文案
+    func testSandboxDecoding() throws {
+        let json = #"{"id":"main","state":"paused","createdAt":1.0,"runs":2,"files":3}"#
+        let sandbox = try JSONDecoder().decode(CloudSandbox.self, from: Data(json.utf8))
+        XCTAssertEqual(sandbox.id, "main")
+        XCTAssertTrue(sandbox.isPaused)
+        XCTAssertEqual(sandbox.stateText, "已暂停")
+    }
+
+    /// 旧设置数据没有云端开关时解码为关闭（不影响老用户）
+    func testFeatureFlagDecodesCloudOffForLegacyData() throws {
+        let legacy = #"{"sessionLog":false,"pluginCommands":false,"modelPicker":false,"usageMetrics":false,"deepThinkingToggle":true,"examplePrompts":true}"#
+        let flags = try JSONDecoder().decode(FeatureFlags.self, from: Data(legacy.utf8))
+        XCTAssertFalse(flags.cloudInference)
+    }
+
+    /// App 包内置的 Agent 脚本可读取，且包含核心接口（防止打包遗漏）
+    func testBundledAgentSourceAvailable() throws {
+        let source = try XCTUnwrap(CloudDeploy.agentSource(), "App 包内缺少 dsh-agent.py")
+        XCTAssertTrue(source.contains("DSH 云端推理 Agent"))
+        XCTAssertTrue(source.contains("def run_inference"))
+        XCTAssertTrue(source.contains("/chat/completions"))
+        XCTAssertTrue(source.contains("/sandboxes"))
+    }
+}

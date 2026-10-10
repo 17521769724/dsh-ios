@@ -348,6 +348,8 @@ struct FeatureFlags: Codable, Equatable {
     var reminderTool: Bool = true
     /// 自动压缩上下文：接近当前模型的上下文窗口上限时，自动把较早的历史压成摘要
     var autoCompact: Bool = true
+    /// 云端推理：会话交给「设置 → 云端推理」里部署的服务器 Agent 执行，App 只做遥控与显示
+    var cloudInference: Bool = false
 
     init() {}
 
@@ -381,6 +383,7 @@ struct FeatureFlags: Codable, Equatable {
         self.clipboardTool = try container.decodeIfPresent(Bool.self, forKey: .clipboardTool) ?? fallback.clipboardTool
         self.reminderTool = try container.decodeIfPresent(Bool.self, forKey: .reminderTool) ?? fallback.reminderTool
         self.autoCompact = try container.decodeIfPresent(Bool.self, forKey: .autoCompact) ?? fallback.autoCompact
+        self.cloudInference = try container.decodeIfPresent(Bool.self, forKey: .cloudInference) ?? fallback.cloudInference
     }
 
     init(
@@ -400,7 +403,8 @@ struct FeatureFlags: Codable, Equatable {
         mcpTool: Bool = true,
         clipboardTool: Bool = true,
         reminderTool: Bool = true,
-        autoCompact: Bool = true
+        autoCompact: Bool = true,
+        cloudInference: Bool = false
     ) {
         self.sessionLog = sessionLog
         self.pluginCommands = pluginCommands
@@ -419,6 +423,7 @@ struct FeatureFlags: Codable, Equatable {
         self.clipboardTool = clipboardTool
         self.reminderTool = reminderTool
         self.autoCompact = autoCompact
+        self.cloudInference = cloudInference
     }
 
     static let allOn = FeatureFlags(
@@ -438,7 +443,8 @@ struct FeatureFlags: Codable, Equatable {
         mcpTool: true,
         clipboardTool: true,
         reminderTool: true,
-        autoCompact: true
+        autoCompact: true,
+        cloudInference: true
     )
 }
 

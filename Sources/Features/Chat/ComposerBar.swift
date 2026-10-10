@@ -409,6 +409,11 @@ struct ComposerBar: View {
 
     private var metricsLine: some View {
         HStack(spacing: 6) {
+            // 云端推理时先标出模式，避免分不清这条回复是本机直连还是云服务器产出
+            if features.cloudInference {
+                Text("云端")
+                Text("·")
+            }
             Text("\(rounds) 轮")
             Text("·")
             // 服务端未返回 usage 时使用本地估算，用 ≈ 明确标注，不与真实统计混淆

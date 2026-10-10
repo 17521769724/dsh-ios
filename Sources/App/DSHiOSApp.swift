@@ -51,6 +51,7 @@ struct DSHiOSApp: App {
         // 上面可能删除了工作区目录，这里再建实例，保证根目录存在
         let workspaceStore = WorkspaceStore()
         let mcpStore = MCPStore()
+        let cloudStore = CloudStore()
 
         let engine = ChatEngine(
             settingsStore: settings,
@@ -60,7 +61,8 @@ struct DSHiOSApp: App {
             gitStore: gitStore,
             skillStore: skillStore,
             workspaceStore: workspaceStore,
-            mcpStore: mcpStore
+            mcpStore: mcpStore,
+            cloudStore: cloudStore
         )
         // 让插件（如「回答风格约束」）能读到设置里编辑的内容
         pluginManager.configure(settingsStore: settings)
@@ -71,6 +73,14 @@ struct DSHiOSApp: App {
                 "deepseek-v4-pro",
                 "deepseek-vl-experimental"
             ])
+        }
+        // 新功能弹窗：UI 测试默认跳过（否则会挡住用例）；
+        // 需要单独验证时用 -uitest-release-notes 强制弹出
+        if arguments.contains("-uitest-reset") {
+            UserDefaults.standard.set(ReleaseNotes.currentVersion, forKey: ReleaseNotes.seenKey)
+        }
+        if arguments.contains("-uitest-release-notes") {
+            UserDefaults.standard.set("", forKey: ReleaseNotes.seenKey)
         }
 
         _settingsStore = StateObject(wrappedValue: settings)
@@ -96,6 +106,7 @@ struct DSHiOSApp: App {
                 .environmentObject(gitStore)
                 .environmentObject(workspaceStore)
                 .environmentObject(mcpStore)
+                .environmentObject(engine.cloudStore)
                 .tint(DSHTheme.brand)
         }
     }

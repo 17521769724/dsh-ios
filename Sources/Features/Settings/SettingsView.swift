@@ -81,6 +81,19 @@ struct SettingsView: View {
             }
             .accessibilityIdentifier("settings.model")
 
+            // 云端推理：带配置页的功能只显示箭头，开关在配置页顶部（与其它功能一致）
+            NavigationLink {
+                CloudSettingsView()
+            } label: {
+                SettingsValueRow(
+                    symbol: "cloud.fill",
+                    color: .blue,
+                    title: "云端推理",
+                    value: settings.features.cloudInference ? "已开启" : "本机直连"
+                )
+            }
+            .accessibilityIdentifier("settings.cloud")
+
             ConnectionTestRow()
         } header: {
             Text("模型服务")

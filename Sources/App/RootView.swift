@@ -1,6 +1,27 @@
 import SwiftUI
 import UIKit
 
+/// 新功能弹窗：每个版本首次打开主界面时弹一次，告知本次新增能力（用户要求：新增功能要有弹窗提示）
+enum ReleaseNotes {
+    /// 已提示过的版本号（UserDefaults）
+    static let seenKey = "dsh.releaseNotes.seenVersion"
+
+    static var currentVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+    }
+
+    /// 本次更新说明
+    static let message = """
+    「云端推理」已加入（2.5.0）：
+    • 在「设置 → 云端推理」一键把已配置的 SSH 云服务器变成 Agent 工作环境；
+    • 会话交由云服务器推理、流式返回本机显示；App 退到后台推理不会中断，回到前台自动补齐内容；
+    • 云端沙盒自动创建，可暂停 / 恢复 / 销毁，支持文件上传下载；
+    • 模型 Key 只保存在本机钥匙串并随请求下发，服务器不留存。
+
+    本机直连模式保持不变，两个模式可在同一页里随时切换。
+    """
+}
+
 /// 根视图：未配置 API Key 时强制走引导页；配置后进入极简主页。
 /// iPhone 为抽屉式会话列表，iPad 为分栏布局。
 struct RootView: View {
@@ -21,6 +42,8 @@ struct RootView: View {
     @State private var showSessionLog = false
     /// 首次启动的权限申请引导
     @State private var showPermissionsPrimer = false
+    /// 新功能弹窗（每个版本一次）
+    @State private var showReleaseNotes = false
     @StateObject private var permissions = PermissionCenter()
     /// 启动阶段是否已经稳定：首帧布局就绪前屏蔽隐式动画，
     /// 否则冷启动时（顶栏、抽屉）会播放一次位移动画，看起来就是「图标跳动」
@@ -61,6 +84,13 @@ struct RootView: View {
             // 首次启动：进入主界面后弹出权限申请引导（提醒事项 / 日历 / 剪贴板），只弹一次
             guard settingsStore.isConfigured, !permissions.hasPrimed else { return }
             showPermissionsPrimer = true
+        }
+        .task {
+            // 新功能弹窗：每个版本首次打开时弹一次（告知本次新增能力）
+            guard settingsStore.isConfigured else { return }
+            guard UserDefaults.standard.string(forKey: ReleaseNotes.seenKey) != ReleaseNotes.currentVersion else { return }
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            showReleaseNotes = true
         }
         // 全局：点击空白区域收起键盘（点击输入框内部不收起）
         .background(alignment: .topLeading) {
@@ -124,6 +154,7 @@ struct RootView: View {
                 .environmentObject(plugins)
                 .environmentObject(skillStore)
                 .environmentObject(engine.mcpStore)
+                .environmentObject(engine.cloudStore)
         }
         // 首次进入主界面：把本 App 需要的系统权限（提醒事项 / 日历 / 剪贴板）走一遍
         .sheet(isPresented: $showPermissionsPrimer) {
@@ -196,6 +227,18 @@ struct RootView: View {
             Button("好的", role: .cancel) { engine.lastError = nil }
         } message: {
             Text(engine.lastError ?? "")
+        }
+        // 每个版本首次打开时的「新功能」弹窗（用户要求：新增能力要有弹窗告知）
+        .alert("新功能 · 云端推理", isPresented: $showReleaseNotes) {
+            Button("稍后再说", role: .cancel) {
+                UserDefaults.standard.set(ReleaseNotes.currentVersion, forKey: ReleaseNotes.seenKey)
+            }
+            Button("去设置看看") {
+                UserDefaults.standard.set(ReleaseNotes.currentVersion, forKey: ReleaseNotes.seenKey)
+                presentOverlay { showSettings = true }
+            }
+        } message: {
+            Text(ReleaseNotes.message)
         }
     }
 

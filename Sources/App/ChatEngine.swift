@@ -19,6 +19,8 @@ final class ChatEngine: ObservableObject {
     let workspaceStore: WorkspaceStore
     /// MCP 服务器：把远程服务器的工具下发给模型
     let mcpStore: MCPStore
+    /// 云端推理：Agent 部署在用户自己的 SSH 服务器上，App 只做遥控与显示
+    let cloudStore: CloudStore
     /// 系统提醒事项与日历（本机 EventKit）
     private let reminders = RemindersService()
 
@@ -62,6 +64,8 @@ final class ChatEngine: ObservableObject {
     /// 本轮已读取过的网页（url → 正文）：同一轮内重复读取直接返回「同上」，
     /// 避免把同一份大正文反复计入上下文（省 token）
     private var readPagesThisTurn: [URL: String] = [:]
+    /// 正在进行的云端任务（沙盒 + 任务 id）：停止时用它通知服务器别再继续
+    private var cloudRun: (sandbox: String, runID: String)?
 
     init(
         settingsStore: SettingsStore,
@@ -71,7 +75,8 @@ final class ChatEngine: ObservableObject {
         gitStore: GitAccountStore,
         skillStore: SkillStore,
         workspaceStore: WorkspaceStore = WorkspaceStore(),
-        mcpStore: MCPStore = MCPStore()
+        mcpStore: MCPStore = MCPStore(),
+        cloudStore: CloudStore = CloudStore()
     ) {
         self.settingsStore = settingsStore
         self.conversationStore = conversationStore
@@ -81,6 +86,7 @@ final class ChatEngine: ObservableObject {
         self.skillStore = skillStore
         self.workspaceStore = workspaceStore
         self.mcpStore = mcpStore
+        self.cloudStore = cloudStore
         self.client = DeepSeekClient(timeout: settingsStore.settings.requestTimeout)
 
         if let latest = conversationStore.sortedConversations.first {
@@ -367,6 +373,8 @@ final class ChatEngine: ObservableObject {
     }
 
     func stopStreaming() {
+        // 云端任务要显式通知服务器停止（本地只是取消取事件的循环）
+        stopCloudRunIfNeeded()
         streamTask?.cancel()
         streamTask = nil
         runningToolName = nil
@@ -506,6 +514,16 @@ final class ChatEngine: ObservableObject {
     // MARK: - 流式实现
 
     private func startStreaming(conversationID: UUID, assistantID: UUID, outgoing: String) {
+        // 云端推理：会话交给服务器 Agent 执行（App 只做遥控与显示，后台不中断）
+        if settingsStore.settings.features.cloudInference {
+            guard cloudStore.isReady(sshHost: sshStore.configuration.host) else {
+                fail(assistantID: assistantID, conversationID: conversationID, error: CloudError.badURL)
+                return
+            }
+            startCloudStreaming(conversationID: conversationID, assistantID: assistantID, outgoing: outgoing)
+            return
+        }
+
         let model = activeModelID
         let settings = settingsStore.settings
         let apiKey = settingsStore.apiKey
@@ -602,6 +620,132 @@ final class ChatEngine: ObservableObject {
         guard text.count > maxToolOutputCharacters else { return text }
         let dropped = text.count - maxToolOutputCharacters
         return String(text.prefix(maxToolOutputCharacters)) + "\n…（输出过长，已省略 \(dropped) 字）"
+    }
+
+    // MARK: - 云端推理
+
+    /// 云端推理：把会话发给服务器 Agent，按事件游标流式取回内容。
+    /// 推理在服务器上后台执行：App 进入后台只是停止取事件，回到前台从游标续取，内容不丢；
+    /// 模型 Key 随请求下发、不落盘到服务器。
+    private func startCloudStreaming(conversationID: UUID, assistantID: UUID, outgoing: String) {
+        let settings = settingsStore.settings
+        guard let baseURL = cloudStore.baseURL(sshHost: sshStore.configuration.host) else {
+            fail(assistantID: assistantID, conversationID: conversationID, error: CloudError.badURL)
+            return
+        }
+        let client = CloudAgentClient(baseURL: baseURL, token: cloudStore.token)
+        let sandbox = cloudStore.configuration.sandboxID
+        let request = CloudChatRequest(
+            messages: cloudMessages(conversationID: conversationID, latestUserText: outgoing),
+            model: activeModelID,
+            apiKey: settingsStore.apiKey,
+            baseURL: settings.baseURL,
+            temperature: settings.temperature,
+            thinking: settings.thinkingEnabled,
+            reasoningEffort: settings.reasoningEffort.rawValue
+        )
+
+        isStreaming = true
+        stoppedRun = false
+        streaming = StreamingText(messageID: assistantID)
+        // 云端 v1 只支持纯文本：带图片时明确告知，避免用户以为图片没发出去
+        if let conversation = currentConversation,
+           let lastUser = conversation.messages.last(where: { $0.role == .user }),
+           !(lastUser.attachments ?? []).isEmpty {
+            showToast("云端模式暂不支持图片，本条已按纯文本发送")
+        }
+
+        streamTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            var usage: TokenUsage?
+            do {
+                // 沙盒不存在时由服务器自动创建（首次使用无需手动建）
+                try await client.ensureSandbox(sandbox)
+                let runID = try await client.startChat(sandbox: sandbox, request: request)
+                self.cloudRun = (sandbox: sandbox, runID: runID)
+                self.beginBackgroundAssertionIfNeeded()
+
+                var cursor = 0
+                while !Task.isCancelled {
+                    let batch = try await client.runEvents(sandbox: sandbox, runID: runID, after: cursor)
+                    for event in batch.events {
+                        cursor = max(cursor, event.i + 1)
+                        switch event.type {
+                        case "content":
+                            if let text = event.text { self.appendContent(text, assistantID: assistantID) }
+                        case "reasoning":
+                            if let text = event.text { self.appendReasoning(text, assistantID: assistantID) }
+                        case "usage":
+                            if let value = event.usage { usage = value.tokenUsage }
+                        default:
+                            break
+                        }
+                    }
+                    if batch.isTerminal {
+                        if batch.state == "error" {
+                            throw CloudError.server(batch.error ?? "服务器推理失败")
+                        }
+                        if let value = batch.usage { usage = value.tokenUsage }
+                        break
+                    }
+                }
+                self.cloudRun = nil
+                self.finish(assistantID: assistantID, conversationID: conversationID, usage: usage)
+            } catch {
+                self.cloudRun = nil
+                if Task.isCancelled {
+                    self.finish(assistantID: assistantID, conversationID: conversationID, usage: nil)
+                } else {
+                    self.fail(assistantID: assistantID, conversationID: conversationID, error: error)
+                }
+            }
+        }
+    }
+
+    /// 通知云端停止当前任务（本地取消即可，云端要显式停止，避免服务器继续消耗）
+    private func stopCloudRunIfNeeded() {
+        guard let run = cloudRun else { return }
+        cloudRun = nil
+        guard let baseURL = cloudStore.baseURL(sshHost: sshStore.configuration.host) else { return }
+        let client = CloudAgentClient(baseURL: baseURL, token: cloudStore.token)
+        Task.detached {
+            try? await client.stopRun(sandbox: run.sandbox, runID: run.runID)
+        }
+    }
+
+    /// 云端推理发送的消息：只发纯文本角色（云端 v1 不带工具与图片），
+    /// 与本地一致地注入压缩摘要与系统提示（不含技能清单）
+    private func cloudMessages(conversationID: UUID, latestUserText: String) -> [CloudMessage] {
+        _ = conversationID
+        guard let conversation = currentConversation else {
+            return [CloudMessage(role: "user", content: latestUserText)]
+        }
+        var result: [CloudMessage] = []
+        let systemPrompt = Self.systemPrompt(base: settingsStore.settings.systemPrompt, skills: [])
+        if !systemPrompt.isEmpty {
+            result.append(CloudMessage(role: "system", content: systemPrompt))
+        }
+        for message in ToolCallRepair.repaired(conversation.messages) where message.id != lastStreamingAssistantID(in: conversation) {
+            if message.isContextSummary == true {
+                guard !message.content.isEmpty else { continue }
+                result.append(CloudMessage(role: "system", content: ContextCompactor.injectedContent(message.content)))
+                continue
+            }
+            switch message.role {
+            case .user, .assistant:
+                guard !message.content.isEmpty else { continue }
+                result.append(CloudMessage(role: message.role.rawValue, content: message.content))
+            case .tool, .system:
+                continue
+            }
+        }
+        // 最新的用户输入（可能被插件改写）放在最后；改写只影响发送，不动会话记录
+        if result.last?.role == "user" {
+            result[result.count - 1] = CloudMessage(role: "user", content: latestUserText)
+        } else if !latestUserText.isEmpty {
+            result.append(CloudMessage(role: "user", content: latestUserText))
+        }
+        return result
     }
 
     /// 收尾救场请求的提示：用一条临时的用户消息下发（不写入会话记录），
