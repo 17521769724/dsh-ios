@@ -17,3 +17,6 @@ Payload/
 # 依赖
 Pods/
 .swiftpm/
+# Python 编译缓存（Agent 脚本本地预检会产生）
+__pycache__/
+*.pyc
