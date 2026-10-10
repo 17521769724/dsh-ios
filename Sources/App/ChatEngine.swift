@@ -40,6 +40,8 @@ final class ChatEngine: ObservableObject {
     /// 正在本地执行的工具名：这一阶段没有流式输出，界面据此在对话最下方显示三点动画
     /// （否则模型跑工具时看起来像卡住）
     @Published private(set) var runningToolName: String?
+    /// 本轮是否被用户手动停止：侧栏据此显示「已停止」状态点
+    @Published private(set) var stoppedRun = false
     /// 可用模型列表（可来自服务端 /models，失败时回退内置列表）
     @Published var availableModels: [DSHModel] = DSHModel.catalog
     @Published var isRefreshingModels: Bool = false
