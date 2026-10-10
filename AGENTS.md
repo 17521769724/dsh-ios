@@ -89,7 +89,7 @@ xcodebuild test -project DSHiOS.xcodeproj -scheme DSHiOS -destination "platform=
 
 ## 当前状态
 
-- 版本：**2.2.0（build 103）**，已发布的未签名 IPA 见 Releases。
+- 版本：**2.2.0（build 104）**，已发布的未签名 IPA 见 Releases。
 - 2.2.0 交付：
   - **三点动画兜底**（用户第二次反馈「模型无输出时没有动画，无法判断是否结束」）：
     `ChatView.showsStreamingIndicator` 改为两条条件——跑工具期间、或「正在生成但最后一条助手消息
