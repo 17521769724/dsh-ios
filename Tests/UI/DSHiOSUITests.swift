@@ -76,7 +76,11 @@ final class DSHiOSUITests: XCTestCase {
         let entry = element("sidebar.settings")
         XCTAssertTrue(entry.waitForExistence(timeout: 5), "抽屉未打开或缺少设置入口")
         entry.tap()
-        XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5), "设置页未打开")
+        // 抽屉动画未结束时点按偶发不生效（CI 上出现过「设置页未打开」），补一次点按再判定
+        if !app.navigationBars["设置"].waitForExistence(timeout: 4) {
+            entry.tap()
+        }
+        XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 6), "设置页未打开")
     }
 
     private func closeSettings() {
@@ -624,7 +628,8 @@ final class DSHiOSUITests: XCTestCase {
         app.navigationBars.buttons
             .matching(NSPredicate(format: "label IN %@", ["设置", "Back", "返回"]))
             .firstMatch.tap()
-        XCTAssertTrue(element("feature.mcpTool").exists, "MCP 开关应在 MCP 页顶部")
+        // 回到设置首页：MCP 只剩箭头入口（开关在二级页顶部，随页面一起从层级里移除）
+        XCTAssertTrue(scrollTo("settings.mcp").waitForExistence(timeout: 5), "返回设置页后应看到 MCP 工具与服务器入口")
         XCTAssertTrue(scrollTo("feature.visionTool").waitForExistence(timeout: 5), "缺少「智能体 OCR 视觉」开关")
         XCTAssertTrue(scrollTo("feature.fileTool").waitForExistence(timeout: 5), "缺少「智能体读写工作区文件」开关")
         XCTAssertTrue(scrollTo("feature.reminderTool").waitForExistence(timeout: 5), "缺少「提醒事项与日历」开关")
