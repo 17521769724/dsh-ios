@@ -133,7 +133,7 @@ struct PermissionsView: View {
     // MARK: - 单行
 
     private func row(_ item: PermissionCenter.Item) -> some View {
-        HStack(spacing: DSHTheme.Spacing.medium) {
+        HStack(spacing: DSHTheme.Spacing.small) {
             SettingsRowLabel(symbol: item.symbol, color: color(for: item), title: item.title)
 
             Spacer(minLength: 8)

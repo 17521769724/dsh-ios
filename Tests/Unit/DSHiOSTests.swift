@@ -2421,6 +2421,38 @@ final class CloudAgentTests: XCTestCase {
         XCTAssertEqual(22.formatted(.number.grouping(.never)), "22")
         XCTAssertEqual(2222.formatted(.number.grouping(.never)), "2222")
     }
+
+    /// 部署脚本的三个必备条件（修「部署后没有通过自检」）：
+    /// 不能用 pkill -f 脚本名（会杀掉执行脚本的 shell 自己）、不能依赖 curl、安装 python3 必须走国内源
+    func testDeployScriptUsesPidfileMirrorAndPythonHealthCheck() {
+        let script = CloudDeploy.script(source: "# demo", port: 8931, token: "token-1")
+        XCTAssertFalse(script.contains("pkill"), "不能用 pkill -f 匹配脚本名：会杀掉执行本脚本的 shell，导致自检必然失败")
+        XCTAssertTrue(script.contains("agent.pid"), "应改用 pidfile 精确停止旧实例")
+        XCTAssertFalse(script.contains("curl "), "自检不应依赖 curl（精简镜像里常常没有 curl）")
+        XCTAssertTrue(script.contains("urllib.request.urlopen"), "自检应由 python3 自己请求 /health")
+        XCTAssertTrue(script.contains("127.0.0.1:8931/health"), "自检应打到配置的端口")
+        XCTAssertTrue(script.contains("mirrors.aliyun.com"), "安装 python3 应使用国内镜像（阿里云）")
+        XCTAssertTrue(script.contains("mirrors.tuna.tsinghua.edu.cn"), "阿里云不可用时应回退清华镜像")
+        XCTAssertTrue(script.contains("PIP_INDEX_URL=\"https://mirrors.aliyun.com/pypi/simple/\""), "pip 也应统一走国内源")
+        XCTAssertTrue(script.contains("setsid"), "启动应用 setsid/nohup，保证 SSH 断开后继续运行")
+        XCTAssertTrue(script.contains("--token 'token-1'"), "启动参数里应带上访问令牌")
+    }
+
+    /// 部署自检失败时，能从输出里解析出服务器上的 Agent 日志尾部（放进弹窗）
+    func testDeployLogTailExtraction() throws {
+        let output = """
+        __DSH_DEPLOY_DONE__
+        __DSH_HEALTH_FAILED__
+        __DSH_LOG_BEGIN__
+        Traceback (most recent call last):
+        ModuleNotFoundError: No module named 'xyz'
+        __DSH_LOG_END__
+        """
+        let tail = try XCTUnwrap(CloudDeploy.logTail(output))
+        XCTAssertTrue(tail.contains("ModuleNotFoundError"), "应带回日志内容")
+        XCTAssertFalse(tail.contains("__DSH_LOG"), "标记本身不应出现在正文里")
+        XCTAssertNil(CloudDeploy.logTail("没有任何标记的输出"))
+    }
 }
 
 // MARK: - SSH 多服务器

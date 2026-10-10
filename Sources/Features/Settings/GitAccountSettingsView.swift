@@ -434,7 +434,7 @@ struct GitAccountSettingsView: View {
     }
 
     private func capabilityRow(symbol: String, title: String, detail: String) -> some View {
-        HStack(spacing: DSHTheme.Spacing.medium) {
+        HStack(spacing: DSHTheme.Spacing.small) {
             Image(systemName: symbol)
                 .font(.system(size: 14))
                 .foregroundStyle(DSHTheme.brand)

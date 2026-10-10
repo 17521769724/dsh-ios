@@ -18,7 +18,7 @@ struct SettingsView: View {
         NavigationStack {
             List {
                 serviceSection
-                connectionTestSection
+                cloudSection
                 conversationSection
                 appearanceSection
                 homeFeaturesSection
@@ -82,7 +82,18 @@ struct SettingsView: View {
             }
             .accessibilityIdentifier("settings.model")
 
-            // 云端推理：带配置页的功能只显示箭头，开关在配置页顶部（与其它功能一致）
+            // 连接测试紧随「模型」之后（同一张「模型服务」卡片内）
+            ConnectionTestRow()
+        } header: {
+            Text("模型服务")
+        } footer: {
+            Text("API Key 保存在本机钥匙串。API 地址兼容任意 OpenAI 格式接口；连接测试会拉取一次模型列表，结果以弹窗提示。")
+        }
+    }
+
+    /// 云端推理单独一张卡片（不再放在「模型服务」里）
+    private var cloudSection: some View {
+        Section {
             NavigationLink {
                 CloudSettingsView()
             } label: {
@@ -94,19 +105,8 @@ struct SettingsView: View {
                 )
             }
             .accessibilityIdentifier("settings.cloud")
-        } header: {
-            Text("模型服务")
         } footer: {
-            Text("API Key 保存在本机钥匙串。API 地址兼容任意 OpenAI 格式接口。")
-        }
-    }
-
-    /// 连接测试单独一张卡片：带图标的操作行与其它操作行一样独立成卡
-    private var connectionTestSection: some View {
-        Section {
-            ConnectionTestRow()
-        } footer: {
-            Text("测试会向该地址拉取一次模型列表，结果以弹窗提示。")
+            Text("开启后会话交给云服务器上的 Agent 推理、流式返回本机；App 退到后台也不会中断。本机直连模式保持不变。")
         }
     }
 
@@ -601,7 +601,7 @@ struct ConnectionTestRow: View {
         Button {
             run()
         } label: {
-            HStack(spacing: DSHTheme.Spacing.medium) {
+            HStack(spacing: DSHTheme.Spacing.small) {
                 SettingsIcon(symbol: "bolt.horizontal.circle.fill", color: .green)
                 Text("连接测试")
                 Spacer(minLength: DSHTheme.Spacing.small)

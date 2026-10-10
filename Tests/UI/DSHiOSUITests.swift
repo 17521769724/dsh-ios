@@ -600,10 +600,10 @@ final class DSHiOSUITests: XCTestCase {
         element("ssh.password").typeText("demo")
         element("ssh.save").tap()
         XCTAssertTrue(app.navigationBars["SSH 云服务器"].waitForExistence(timeout: 6), "保存后未回到服务器列表")
-        // 卡片外观（宽度 / 是否露出左滑删除的红底）在这里留证，便于回归时对比
+        // 列表行外观（只有服务器名称与右侧箭头）在这里留证，便于回归时对比
         capture("20a-ssh-server-list")
 
-        // 点卡片进详情页：测试连接与命令控制台都在这台服务器的详情里
+        // 点列表行进详情页：测试连接与命令控制台都在这台服务器的详情里
         let sshServerRow = element("ssh.row")
         XCTAssertTrue(sshServerRow.waitForExistence(timeout: 5), "列表里没有刚添加的服务器")
         sshServerRow.tap()
@@ -611,9 +611,14 @@ final class DSHiOSUITests: XCTestCase {
         XCTAssertTrue(scrollTo("ssh.test").waitForExistence(timeout: 5), "缺少测试连接")
         XCTAssertTrue(scrollTo("ssh.command").waitForExistence(timeout: 5), "缺少命令控制台")
         capture("20-ssh-settings")
-        // 返回服务器列表，再返回设置主页（点 SSH 页自己的返回按钮）
+        // 返回服务器列表，再左滑删除刚添加的那台（列表行使用系统左滑删除）
         app.navigationBars["127.0.0.1"].buttons.firstMatch.tap()
         XCTAssertTrue(app.navigationBars["SSH 云服务器"].waitForExistence(timeout: 5), "未回到服务器列表")
+        element("ssh.row").swipeLeft()
+        capture("20b-ssh-row-swiped")
+        let sshDelete = app.buttons["删除服务器"].firstMatch
+        if sshDelete.waitForExistence(timeout: 4) { sshDelete.tap() }
+        XCTAssertTrue(element("ssh.empty").waitForExistence(timeout: 6), "左滑删除后应回到空态")
         app.navigationBars["SSH 云服务器"].buttons.firstMatch.tap()
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5), "未返回设置页")
         // 带配置页的功能：设置首页只有箭头，开关在二级页顶部
@@ -1034,15 +1039,15 @@ final class DSHiOSUITests: XCTestCase {
         element("mcp.editor.save").tap()
 
         XCTAssertTrue(app.staticTexts["测试服务器"].waitForExistence(timeout: 15), "服务器未出现在列表里")
-        // 静止状态的卡片外观（宽度 / 是否露出红色删除底）留证，便于回归对比
+        // 列表行外观（只有名称与右侧箭头）留证，便于回归对比
         capture("30a-mcp-row-at-rest")
 
-        // 左滑删除：与技能库同一套逻辑（固定红色删除区）
+        // 左滑删除：列表行使用系统左滑删除
         app.staticTexts["测试服务器"].swipeLeft()
         capture("30-mcp-row-swiped")
         let deleteButton = app.buttons["删除服务器"].firstMatch
-        XCTAssertTrue(deleteButton.waitForExistence(timeout: 5), "左滑应出现删除按钮")
-        deleteButton.tap()
+        // 系统左滑在 allowsFullSwipe 下可能已经直接删除，此时不再点按钮
+        if deleteButton.waitForExistence(timeout: 5) { deleteButton.tap() }
         XCTAssertTrue(
             app.staticTexts["还没有 MCP 服务器，点右上角「+」添加"].waitForExistence(timeout: 5),
             "删除后应回到空状态"

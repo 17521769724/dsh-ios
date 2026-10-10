@@ -306,7 +306,12 @@ struct CloudSettingsView: View {
                 return
             }
             if !CloudDeploy.succeeded(output) {
-                errorText = "部署脚本已执行，但服务没有通过自检。可点下方「查看部署日志」排查。"
+                // 自检失败时把 Agent 日志尾部直接放进弹窗，省得再去翻日志
+                if let tail = CloudDeploy.logTail(output) {
+                    errorText = "部署脚本已执行，但服务没有通过自检。服务器上的日志：\n\n\(tail)\n\n也可点「查看部署日志」看完整内容。"
+                } else {
+                    errorText = "部署脚本已执行，但服务没有通过自检。可点「查看部署日志」排查。"
+                }
                 return
             }
             await check(afterDeploy: true)

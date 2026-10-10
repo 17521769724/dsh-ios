@@ -117,28 +117,128 @@ enum CloudDeploy {
         return try? String(contentsOf: url, encoding: .utf8)
     }
 
-    /// 部署脚本：建目录 → 写源码 → 确保 python3 → 重启 Agent → 本机健康检查
+    /// 部署脚本：建目录 → 写源码 → 确保 python3（国内源）→ 重启 Agent → 本机健康检查。
+    ///
+    /// 三个关键点（此前「部署脚本已执行，但服务没有通过自检」的原因）：
+    /// 1. 命令是「整段脚本作为参数」交给远端 shell 执行的，脚本正文里出现过的字面量会出现在 shell 自己的
+    ///    命令行里；所以**不能用 `pkill -f dsh-agent.py`**——它会把正在执行本脚本的 shell 一起杀掉，
+    ///    后面的启动与自检都不会再跑。这里改为 pidfile 优先 + 展开后的绝对路径兜底；
+    /// 2. 自检用 python3 自己请求 /health（不依赖 curl，精简镜像里常常没有 curl），并重试等待启动完成；
+    /// 3. 安装 python3 统一走国内镜像（阿里云，失败再试清华），只生成本次安装用的临时源文件，
+    ///    不改动服务器上已有的源配置。
     static func script(source: String, port: Int, token: String) -> String {
         """
-        set -e
-        mkdir -p \(remoteDirectory)/sandboxes
-        cat > \(remoteDirectory)/\(agentFileName) <<'DSH_AGENT_EOF'
+        set -u
+        DSH_DIR="\(remoteDirectory)"
+        AGENT="\(remoteDirectory)/\(agentFileName)"
+        # 环境组件统一下载源：apt / yum / dnf / apk 走阿里云镜像（失败回退清华），
+        # 万一需要 pip 也走阿里云 PyPI 镜像
+        export PIP_INDEX_URL="https://mirrors.aliyun.com/pypi/simple/"
+        export PIP_TRUSTED_HOST="mirrors.aliyun.com"
+        mkdir -p "$DSH_DIR/sandboxes"
+        cat > "$AGENT" <<'DSH_AGENT_EOF'
         \(source)
         DSH_AGENT_EOF
-        command -v python3 >/dev/null 2>&1 || {
-          if command -v apt-get >/dev/null 2>&1; then apt-get update -qq && apt-get install -y -qq python3; fi
-          if command -v yum >/dev/null 2>&1; then yum install -y -q python3; fi
-          if command -v dnf >/dev/null 2>&1; then dnf install -y -q python3; fi
-        }
-        PY="$(command -v python3 || command -v python || true)"
-        [ -n "$PY" ] || { echo "__DSH_NO_PYTHON__"; exit 1; }
-        pkill -f \(agentFileName) >/dev/null 2>&1 || true
+
+        # ---- 1. 准备 python3：优先用系统已有的；缺失时用国内源安装 ----
+        PY="$(command -v python3 2>/dev/null || true)"
+        if [ -z "$PY" ]; then
+          # python 命令存在时也要求是 python3，避免误用 python2
+          if command -v python >/dev/null 2>&1 && python -c 'import sys; sys.exit(0 if sys.version_info[0] >= 3 else 1)' >/dev/null 2>&1; then
+            PY="$(command -v python)"
+          fi
+        fi
+        if [ -z "$PY" ]; then
+          SUDO=""; [ "$(id -u 2>/dev/null)" = "0" ] || SUDO="sudo -n"
+          OSID="$(sed -n 's/^ID=//p' /etc/os-release 2>/dev/null | tr -d '"' | head -n 1)"
+          VER="$(sed -n 's/^VERSION_ID=//p' /etc/os-release 2>/dev/null | tr -d '"' | head -n 1)"
+          CODENAME="$(sed -n 's/^VERSION_CODENAME=//p' /etc/os-release 2>/dev/null | tr -d '"' | head -n 1)"
+          ARCH="$(uname -m)"
+          echo "__DSH_INSTALLING_PYTHON__"
+          for M in mirrors.aliyun.com mirrors.tuna.tsinghua.edu.cn; do
+            if command -v apt-get >/dev/null 2>&1 && [ -n "$CODENAME" ]; then
+              case "$OSID" in
+                ubuntu) DEB="deb https://$M/ubuntu $CODENAME main restricted universe multiverse"
+                        UPD="deb https://$M/ubuntu $CODENAME-updates main restricted universe multiverse"
+                        SEC="deb https://$M/ubuntu $CODENAME-security main restricted universe multiverse" ;;
+                *)      DEB="deb https://$M/debian $CODENAME main contrib non-free"
+                        UPD="deb https://$M/debian $CODENAME-updates main contrib non-free"
+                        SEC="deb https://$M/debian-security $CODENAME-security main contrib non-free" ;;
+              esac
+              printf '%s\\n%s\\n%s\\n' "$DEB" "$UPD" "$SEC" > "$DSH_DIR/sources.cn.list"
+              APT="-o Dir::Etc::sourcelist=$DSH_DIR/sources.cn.list -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 -o Acquire::Retries=2"
+              $SUDO apt-get $APT update -qq >/dev/null 2>&1
+              DEBIAN_FRONTEND=noninteractive $SUDO apt-get $APT install -y -qq --no-install-recommends python3 >/dev/null 2>&1 || true
+            elif command -v dnf >/dev/null 2>&1 || command -v yum >/dev/null 2>&1; then
+              mkdir -p "$DSH_DIR/repos.d"
+              case "$OSID" in
+                fedora)    BASE="https://$M/fedora/releases/$VER/Everything/$ARCH/os/" ;;
+                openeuler) BASE="https://$M/openeuler/$VER/OS/$ARCH/" ;;
+                *)         BASE="https://$M/centos-stream/$VER-stream/BaseOS/$ARCH/os/" ;;
+              esac
+              printf '[dsh-cn]\\nname=DSH CN Mirror\\nbaseurl=%s\\nenabled=1\\ngpgcheck=0\\n' "$BASE" > "$DSH_DIR/repos.d/dsh-cn.repo"
+              OPT="--setopt=reposdir=$DSH_DIR/repos.d --disablerepo=* --enablerepo=dsh-cn"
+              $SUDO dnf -y $OPT install python3 >/dev/null 2>&1 || $SUDO yum -y $OPT install python3 >/dev/null 2>&1 || true
+            elif command -v apk >/dev/null 2>&1; then
+              $SUDO apk add --no-cache --repository=https://$M/alpine/latest-stable/main --repository=https://$M/alpine/latest-stable/community python3 >/dev/null 2>&1 || true
+            fi
+            PY="$(command -v python3 2>/dev/null || true)"
+            [ -n "$PY" ] && break
+          done
+        fi
+        if [ -z "$PY" ]; then
+          echo "__DSH_NO_PYTHON__"
+          exit 0
+        fi
+        echo "__DSH_PYTHON_OK__ $PY"
+
+        # ---- 2. 停掉旧实例：pidfile 优先，绝不用 pkill -f 匹配脚本名（会杀掉执行本脚本的 shell）----
+        if [ -f "$DSH_DIR/agent.pid" ]; then
+          OLD="$(cat "$DSH_DIR/agent.pid" 2>/dev/null || true)"
+          case "$OLD" in
+            ''|*[!0-9]*) ;;
+            *) kill "$OLD" 2>/dev/null || true; sleep 1; kill -9 "$OLD" 2>/dev/null || true ;;
+          esac
+          rm -f "$DSH_DIR/agent.pid"
+        fi
+        for P in $(pgrep -f "$AGENT" 2>/dev/null || true); do
+          [ "$P" = "$$" ] && continue
+          kill "$P" 2>/dev/null || true
+        done
         sleep 1
-        nohup "$PY" \(remoteDirectory)/\(agentFileName) --port \(port) --token \(token) \
-          > \(remoteDirectory)/agent.log 2>&1 < /dev/null &
-        sleep 1
+
+        # ---- 3. 后台启动（setsid + nohup，SSH 断开后继续运行）----
+        : > "$DSH_DIR/agent.log"
+        if command -v setsid >/dev/null 2>&1; then
+          setsid "$PY" "$AGENT" --port \(port) --token '\(token)' --root "$DSH_DIR" >> "$DSH_DIR/agent.log" 2>&1 < /dev/null &
+        else
+          nohup "$PY" "$AGENT" --port \(port) --token '\(token)' --root "$DSH_DIR" >> "$DSH_DIR/agent.log" 2>&1 < /dev/null &
+        fi
+        echo $! > "$DSH_DIR/agent.pid"
         echo "__DSH_DEPLOY_DONE__"
-        curl -s -m 5 http://127.0.0.1:\(port)/health || echo "__DSH_HEALTH_FAILED__"
+
+        # ---- 4. 自检：用 python3 自己请求 /health（不依赖 curl），最多等 20 秒 ----
+        HEALTH=""
+        i=0
+        while [ $i -lt 20 ]; do
+          HEALTH="$("$PY" -c 'import urllib.request,sys
+        try: sys.stdout.write(urllib.request.urlopen("http://127.0.0.1:\(port)/health", timeout=2).read().decode())
+        except Exception: pass' 2>/dev/null || true)"
+          case "$HEALTH" in
+            *'"ok"'*) break ;;
+          esac
+          i=$((i + 1))
+          sleep 1
+        done
+        if [ -n "$HEALTH" ]; then
+          echo "$HEALTH"
+        else
+          echo "__DSH_HEALTH_FAILED__"
+          echo "__DSH_LOG_BEGIN__"
+          tail -n 30 "$DSH_DIR/agent.log" 2>/dev/null || echo "(没有日志文件)"
+          echo "__DSH_LOG_END__"
+        fi
+        exit 0
         """
     }
 
@@ -149,5 +249,17 @@ enum CloudDeploy {
 
     static func missingPython(_ output: String) -> Bool {
         output.contains("__DSH_NO_PYTHON__")
+    }
+
+    /// 自检失败时脚本带回的 Agent 日志尾部（供弹窗直接显示原因）
+    static func logTail(_ output: String) -> String? {
+        guard let begin = output.range(of: "__DSH_LOG_BEGIN__"),
+              let end = output.range(of: "__DSH_LOG_END__", range: begin.upperBound..<output.endIndex)
+        else { return nil }
+        let tail = output[begin.upperBound..<end.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+        if tail.isEmpty { return nil }
+        // 弹窗里放太长会看不全，只保留末尾若干行
+        let lines = tail.split(separator: "\n").suffix(12).joined(separator: "\n")
+        return lines.count > 800 ? String(lines.suffix(800)) : lines
     }
 }

@@ -16,14 +16,15 @@ struct SettingsIcon: View {
     }
 }
 
-/// 带彩色图标的行标题
+/// 带彩色图标的行标题。
+/// 图标与文字的间距统一用 `Spacing.small`（与「删除服务器」那一行一致，全设置页保持同一观感）。
 struct SettingsRowLabel: View {
     let symbol: String
     let color: Color
     let title: String
 
     var body: some View {
-        HStack(spacing: DSHTheme.Spacing.medium) {
+        HStack(spacing: DSHTheme.Spacing.small) {
             SettingsIcon(symbol: symbol, color: color)
             Text(title)
         }
@@ -40,7 +41,7 @@ struct SettingsValueRow: View {
     let value: String
 
     var body: some View {
-        HStack(spacing: DSHTheme.Spacing.medium) {
+        HStack(spacing: DSHTheme.Spacing.small) {
             SettingsIcon(symbol: symbol, color: color)
             Text(title)
             Spacer(minLength: DSHTheme.Spacing.small)

@@ -90,7 +90,28 @@ xcodebuild test -project DSHiOS.xcodeproj -scheme DSHiOS -destination "platform=
 
 ## 当前状态
 
-- 版本：**2.6.2**（构建号由 CI 运行序号决定；2.2.0 = 106、2.3.0 = 107、2.4.0 = 109、2.5.0 = 112、2.6.0 = 114、2.6.1 = 116）。
+- 版本：**2.6.3**（构建号由 CI 运行序号决定；2.4.0 = 109、2.5.0 = 112、2.6.0 = 114、2.6.1 = 116、2.6.2 = 117）。
+- 2.6.3 交付（一键部署修复 + 列表行样式 + 设置页统一）：
+  - **修复「一键创建云端 Agent 工作环境」失败**（用户实测报「部署脚本已执行，但服务没有通过自检」）：
+    旧脚本里的 `pkill -f dsh-agent.py` 会**把正在执行该脚本的 shell 自己一起杀掉**——因为命令是
+    「整段脚本作为参数」交给远端 shell 的（`SSHService` 包成 `( command ) 2>&1`），脚本正文里的
+    `dsh-agent.py` 字面量就出现在 shell 自己的命令行里；shell 被杀后启动与自检都没执行，App 自然判失败。
+    现在：pidfile 精确停止旧实例（`$HOME/.dsh/agent.pid`）+ 展开后的绝对路径兜底（不再用 pkill 名字匹配）；
+    自检改用 python3 自己请求 `/health`（不依赖 curl，精简镜像常没有 curl）并重试 20 秒；启动加 `setsid`；
+    失败时脚本带回 `agent.log` 尾部（`CloudDeploy.logTail`），弹窗里直接显示原因；
+  - **环境组件统一下载源**：apt 用临时 sources.list（阿里云 → 清华，`Dir::Etc::sourcelist` 只影响本次安装）、
+    dnf/yum 用临时 reposdir、apk 用阿里云仓库；同时导出 `PIP_INDEX_URL` 指向阿里云 PyPI；
+    python 命令存在时也校验是 python3，避免误用 python2；
+  - **服务器列表改列表行**（用户要求「取消卡片」）：SSH / MCP 列表用系统 `NavigationLink` 行 + 系统
+    `swipeActions` 左滑删除（彻底告别自绘红底），只显示服务器名称与系统箭头；`SwipeToDeleteRow`
+    仅技能库继续使用；
+  - **设置页间距统一**：`SettingsRowLabel` / `SettingsValueRow` 以及各处手写图标行的间距统一为
+    `Spacing.small`（8pt，与「删除服务器」那一行一致）；
+  - **设置首页分组**：连接测试移回「模型服务」卡片（在「模型」下方），云端推理独立成一张卡片；
+  - 单测：`testDeployScriptUsesPidfileMirrorAndPythonHealthCheck`（脚本不得含 pkill、不得依赖 curl、
+    必须带国内镜像与 pip 源、必须用 setsid 与令牌）、`testDeployLogTailExtraction`；
+    部署脚本另外在本机做过端到端实测（整段脚本经 `sh -c` 执行：写入 → 启动 → 自检 `{"ok": true}`，
+    重复部署也能正确停旧起新）。
 - 2.6.2 交付（列表卡片简化 + 操作行统一成卡）：
   - **卡片只显示名字**：SSH / MCP 服务器列表行改为「名称 + 右箭头」单行（名称过长省略），
     去掉副标题与角标（详情页仍能看到地址、工具数等）；

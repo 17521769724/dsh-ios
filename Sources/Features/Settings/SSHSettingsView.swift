@@ -6,15 +6,6 @@ struct SSHSettingsView: View {
     @EnvironmentObject private var sshStore: SSHStore
     @EnvironmentObject private var settingsStore: SettingsStore
 
-    @State private var detailServer: SSHServer?
-
-    private var detailPresented: Binding<Bool> {
-        Binding(
-            get: { detailServer != nil },
-            set: { if !$0 { detailServer = nil } }
-        )
-    }
-
     var body: some View {
         List {
             // 开关放在配置页顶部：设置首页那一行只留进入配置的箭头
@@ -27,33 +18,22 @@ struct SSHSettingsView: View {
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("ssh.empty")
                 } else {
+                    // 列表行（不是卡片）：只显示服务器名称与系统自带箭头，左滑删除
                     ForEach(sshStore.servers) { server in
-                        // 与技能库同一套左滑删除：删除区与卡片同高同圆角、固定红色实底
-                        SwipeToDeleteRow(
-                            onDelete: { sshStore.delete(id: server.id) },
-                            onTap: { detailServer = server },
-                            tapTitle: "编辑服务器",
-                            deleteTitle: "删除服务器"
-                        ) {
-                            // 只显示服务器名称与右侧箭头（名称过长省略，卡片保持单行）
-                            HStack(spacing: DSHTheme.Spacing.small) {
-                                Text(server.displayName)
-                                    .font(.system(size: 16))
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                Spacer(minLength: DSHTheme.Spacing.small)
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(DSHTheme.tertiaryText)
-                            }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(DSHTheme.page)
-                            .contentShape(Rectangle())
+                        NavigationLink {
+                            SSHServerDetailView(serverID: server.id)
+                        } label: {
+                            Text(server.displayName)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
                         }
-                        // 用系统标准行外观（白底、与同页其它分组同宽）；去掉行间分割线，避免列表中间出现杂线
-                        .listRowSeparator(.hidden)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button(role: .destructive) {
+                                sshStore.delete(id: server.id)
+                            } label: {
+                                Label("删除服务器", systemImage: "trash")
+                            }
+                        }
                         .accessibilityIdentifier("ssh.row")
                     }
                 }
@@ -67,12 +47,6 @@ struct SSHSettingsView: View {
         .navigationTitle("SSH 云服务器")
         .navigationBarTitleDisplayMode(.inline)
         .tint(DSHTheme.brand)
-        // 卡片不是 NavigationLink（会与左滑抢手势），点按后按需推入详情页
-        .navigationDestination(isPresented: detailPresented) {
-            if let server = detailServer {
-                SSHServerDetailView(serverID: server.id)
-            }
-        }
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 NavigationLink {
