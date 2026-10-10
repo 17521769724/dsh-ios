@@ -13,6 +13,10 @@ struct CloudSettingsView: View {
     @State private var newSandboxName = ""
     @State private var message: String?
     @State private var errorText: String?
+    /// 部署日志弹窗
+    @State private var loadingLog = false
+    @State private var showLog = false
+    @State private var logText = ""
 
     var body: some View {
         List {
@@ -35,6 +39,26 @@ struct CloudSettingsView: View {
             Button("好的", role: .cancel) { errorText = nil }
         } message: {
             Text(errorText ?? "")
+        }
+        // 部署日志：可滚动的弹窗，排查部署失败用
+        .sheet(isPresented: $showLog) {
+            NavigationStack {
+                ScrollView {
+                    Text(logText)
+                        .font(.system(size: 12, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                }
+                .background(Color(uiColor: .systemGroupedBackground))
+                .navigationTitle("部署日志")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button("完成") { showLog = false }
+                    }
+                }
+            }
         }
     }
 
@@ -81,19 +105,39 @@ struct CloudSettingsView: View {
                         .foregroundStyle(Color.red)
                 }
             } else {
-                // 多台服务器时用选择器指定云端推理与部署使用哪一台
-                Picker(selection: serverSelection) {
-                    ForEach(sshStore.servers) { server in
-                        Text("\(server.displayName)（\(server.displayTarget)）")
-                            .tag(server.id)
-                    }
-                } label: {
+                // 多台服务器时在这里指定云端推理与部署使用哪一台：
+                // 只显示服务器名称（过长省略），保证这一行不换行
+                HStack(spacing: DSHTheme.Spacing.small) {
                     Text("SSH 服务器")
+                    Spacer(minLength: DSHTheme.Spacing.small)
+                    Menu {
+                        ForEach(sshStore.servers) { server in
+                            Button {
+                                cloudStore.configuration.sshServerID = server.id
+                            } label: {
+                                if server.id == selectedServer?.id {
+                                    Label(server.displayName, systemImage: "checkmark")
+                                } else {
+                                    Text(server.displayName)
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(selectedServer?.displayName ?? "未选择")
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 10, weight: .semibold))
+                        }
+                        .foregroundStyle(DSHTheme.secondaryText)
+                    }
+                    .accessibilityIdentifier("cloud.serverPicker")
                 }
-                .accessibilityIdentifier("cloud.serverPicker")
             }
             LabeledContent("服务端口") {
-                TextField("8931", value: $cloudStore.configuration.port, format: .number)
+                // grouping(.never)：避免显示成 8,931 这种带千位分隔符的写法
+                TextField("8931", value: $cloudStore.configuration.port, format: .number.grouping(.never))
                     .multilineTextAlignment(.trailing)
                     .keyboardType(.numberPad)
                     .accessibilityIdentifier("cloud.port")
@@ -123,6 +167,22 @@ struct CloudSettingsView: View {
             .disabled(cloudStore.deploying)
             .accessibilityIdentifier("cloud.check")
 
+            // 部署失败时用它排查：把服务器上的 Agent 日志取回来弹窗展示
+            Button {
+                Task { await loadLog() }
+            } label: {
+                HStack(spacing: DSHTheme.Spacing.small) {
+                    Label("查看部署日志", systemImage: "doc.text.magnifyingglass")
+                    Spacer(minLength: 0)
+                    if loadingLog {
+                        ProgressView().controlSize(.small)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .disabled(loadingLog || cloudStore.deploying || selectedServer == nil)
+            .accessibilityIdentifier("cloud.log")
+
             if let health = cloudStore.healthText {
                 LabeledContent("连接状态") {
                     Text(health).foregroundStyle(.green)
@@ -133,14 +193,6 @@ struct CloudSettingsView: View {
         } footer: {
             Text("部署通过 SSH 把 Agent 装到所选服务器上并后台启动（仅你本机的令牌可访问），结果以弹窗提示。缺少 python3 时会尝试自动安装。若「检测连接」失败，请确认服务在运行，并在云服务器安全组放行该端口。模型 Key 不会保存到服务器，每次请求随会话下发。")
         }
-    }
-
-    /// 选中的服务器 id（未选或已删除时回退第一台）
-    private var serverSelection: Binding<UUID> {
-        Binding(
-            get: { selectedServer?.id ?? UUID() },
-            set: { cloudStore.configuration.sshServerID = $0 }
-        )
     }
 
     // MARK: - 沙盒
@@ -244,10 +296,32 @@ struct CloudSettingsView: View {
                 return
             }
             if !CloudDeploy.succeeded(output) {
-                errorText = "部署脚本已执行，但服务没有通过自检。请检查服务器上的 ~/.dsh/agent.log。"
+                errorText = "部署脚本已执行，但服务没有通过自检。可点下方「查看部署日志」排查。"
                 return
             }
             await check(afterDeploy: true)
+        } catch {
+            errorText = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    /// 把服务器上的 Agent 日志取回来，以弹窗展示（部署失败时排查用）
+    private func loadLog() async {
+        guard let server = selectedServer, server.isFilled else {
+            errorText = "请先在「设置 → SSH 云服务器」里添加服务器。"
+            return
+        }
+        loadingLog = true
+        defer { loadingLog = false }
+        do {
+            // 日志文件在部署脚本写死的目录下；没有文件时给一句人话提示
+            let output = try await SSHService.execute(
+                command: "tail -n 120 \(CloudDeploy.remoteDirectory)/agent.log 2>/dev/null || echo \"（服务器上还没有日志：可能尚未部署）\"",
+                server: server,
+                password: sshStore.password(for: server.id)
+            )
+            logText = "$ tail -n 120 ~/.dsh/agent.log · \(server.displayTarget)\n\n\(output)"
+            showLog = true
         } catch {
             errorText = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }

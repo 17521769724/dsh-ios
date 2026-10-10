@@ -47,8 +47,8 @@ struct SSHSettingsView: View {
                             .background(DSHTheme.page)
                             .contentShape(Rectangle())
                         }
+                        // 用系统标准行外观（白底、与同页其它分组同宽）；去掉行间分割线，避免列表中间出现杂线
                         .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
                         .accessibilityIdentifier("ssh.row")
                     }
                 }
@@ -167,7 +167,7 @@ struct SSHServerEditorView: View {
                         .accessibilityIdentifier("ssh.host")
                 }
                 LabeledContent("端口") {
-                    TextField("22", value: $port, format: .number)
+                    TextField("22", value: $port, format: .number.grouping(.never))
                         .multilineTextAlignment(.trailing)
                         .keyboardType(.numberPad)
                         .accessibilityIdentifier("ssh.port")
@@ -303,7 +303,7 @@ struct SSHServerDetailView: View {
                     .accessibilityIdentifier("ssh.detail.host")
             }
             LabeledContent("端口") {
-                TextField("22", value: portBinding, format: .number)
+                TextField("22", value: portBinding, format: .number.grouping(.never))
                     .multilineTextAlignment(.trailing)
                     .keyboardType(.numberPad)
                     .accessibilityIdentifier("ssh.detail.port")

@@ -444,20 +444,26 @@ final class DSHiOSUITests: XCTestCase {
         closeSettings()
     }
 
-    // MARK: - 连接测试（行内）
+    // MARK: - 连接测试（弹窗）
 
-    func test10_连接测试在行内完成() {
+    func test10_连接测试以弹窗给出结果() {
         openSettings()
         let row = element("settings.connection")
         XCTAssertTrue(row.waitForExistence(timeout: 5), "缺少连接测试行")
         XCTAssertTrue(app.staticTexts["点击测试"].exists, "连接测试行应提示可点击")
         row.tap()
 
-        // 无网络环境下会给出失败文案，但结果必须出现在行内而不是二级页面
-        let result = element("settings.connection.result")
-        XCTAssertTrue(result.waitForExistence(timeout: 25), "连接测试结果未出现在行内")
-        XCTAssertFalse(app.navigationBars["连接测试"].exists, "连接测试不应进入二级页面")
-        capture("14-connection-inline")
+        // 无网络环境下会给出失败文案，但结果必须出现在弹窗里（不再行内显示）
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 60), "连接测试结果没有以弹窗给出")
+        let title = alert.label
+        XCTAssertTrue(
+            title.contains("连接正常") || title.contains("连接失败"),
+            "弹窗标题应为连接正常/连接失败，实际是「\(title)」"
+        )
+        XCTAssertFalse(element("settings.connection.result").exists, "结果不应再显示在行内")
+        capture("14-connection-alert")
+        alert.buttons["好的"].tap()
         closeSettings()
     }
 

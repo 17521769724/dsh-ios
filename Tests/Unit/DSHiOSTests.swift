@@ -2413,6 +2413,14 @@ final class CloudAgentTests: XCTestCase {
         XCTAssertTrue(source.contains("/chat/completions"))
         XCTAssertTrue(source.contains("/sandboxes"))
     }
+
+    /// 端口输入框不带千位分隔符（8931 而不是 8,931）
+    func testPortFormattingWithoutGrouping() {
+        // 与页面上的 format: .number.grouping(.never) 一致：不能出现分隔符
+        XCTAssertEqual(8931.formatted(.number.grouping(.never)), "8931")
+        XCTAssertEqual(22.formatted(.number.grouping(.never)), "22")
+        XCTAssertEqual(2222.formatted(.number.grouping(.never)), "2222")
+    }
 }
 
 // MARK: - SSH 多服务器

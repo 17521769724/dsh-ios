@@ -105,9 +105,8 @@ struct MCPSettingsView: View {
                             .background(DSHTheme.page)
                             .contentShape(Rectangle())
                         }
-                        // 与其它分组统一内边距、去掉行间分割线：卡片宽度一致，列表中间不再出现杂线
+                        // 用系统标准行外观（白底、与同页分组同宽）；去掉行间分割线，避免列表中间出现杂线
                         .listRowSeparator(.hidden)
-                        .listRowBackground(Color.clear)
                         .accessibilityIdentifier("mcp.row")
                     }
                 }
