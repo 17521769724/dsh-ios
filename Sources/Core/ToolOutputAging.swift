@@ -29,3 +29,32 @@ enum ToolOutputAging {
         }
     }
 }
+
+// MARK: - 单轮工具输出预算
+
+/// 单轮（一次用户请求）内所有工具输出的累计预算。
+/// 工具轮每多一轮，此前全部工具结果都会被重新发送一遍，累计输出越大，
+/// 后续每一次请求都越贵；超出预算后把后续结果的截断长度收紧，压住单轮最坏情况。
+struct ToolOutputBudget {
+
+    /// 单轮累计上限（字符）
+    static let totalCharacters = 30_000
+    /// 超出预算后单条结果的收紧上限
+    static let tightenedCharacters = 2_000
+
+    private(set) var usedCharacters = 0
+
+    /// 按预算截断一条工具输出，并累计实际发送量
+    mutating func limit(_ text: String) -> String {
+        let remaining = max(0, Self.totalCharacters - usedCharacters)
+        guard text.count > remaining else {
+            usedCharacters += text.count
+            return text
+        }
+        let keep = max(Self.tightenedCharacters, remaining)
+        usedCharacters += keep
+        let dropped = text.count - keep
+        return String(text.prefix(keep))
+            + "\n…（本轮工具输出较多，已收紧截断 \(dropped) 字；请基于已有信息继续，必要时改用更精确的查询）"
+    }
+}

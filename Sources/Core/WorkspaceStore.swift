@@ -31,6 +31,11 @@ final class WorkspaceStore: ObservableObject {
     /// 单个文本文件的读取上限 / 写入上限（避免把整个磁盘塞进上下文）
     static let maxReadCharacters = 60_000
     static let maxWriteCharacters = 200_000
+    /// 工作区检索：最多扫描的文件数 / 单文件大小上限 / 返回的匹配条数 / 单行截断长度
+    static let maxSearchFiles = 300
+    static let maxSearchFileBytes = 256 * 1024
+    static let maxSearchMatches = 30
+    static let searchLineCharacters = 120
 
     let root: URL
 
@@ -199,7 +204,7 @@ final class WorkspaceStore: ObservableObject {
 
     /// 把一次文件操作转成给模型的文本结果。
     /// 路径一律按「相对工作区」解析，且必须落在工作区内（拒绝 .. 越界）。
-    func perform(action: String, path: String, content: String) -> String {
+    func perform(action: String, path: String, content: String, query: String = "") -> String {
         switch action {
         case "list":
             guard let url = Self.resolve(path: path, root: root) else {
@@ -240,6 +245,15 @@ final class WorkspaceStore: ObservableObject {
                 return "无法读取 \(display(path))（可能是二进制文件）。"
             }
             return "\(display(path)) 的内容如下：\n\n\(text)"
+
+        case "search":
+            guard !query.isEmpty else {
+                return "检索需要提供关键词：请通过 query 参数给出要查找的内容。"
+            }
+            guard let url = Self.resolve(path: path, root: root) else {
+                return "路径不合法：\(path)"
+            }
+            return search(in: url, query: query, label: display(path))
 
         case "write":
             guard let url = Self.resolve(path: path, root: root) else {
@@ -289,8 +303,71 @@ final class WorkspaceStore: ObservableObject {
             }
 
         default:
-            return "不支持的动作：\(action)（可用：list / read / write / mkdir / delete）"
+            return "不支持的动作：\(action)（可用：list / read / search / write / mkdir / delete）"
         }
+    }
+
+    // MARK: - 工作区检索
+
+    /// 在目录（或单个文件）里按关键词检索匹配行，返回「文件:行号: 内容」。
+    /// 让模型按需求取相关片段，而不是把整个文件读进上下文（省 token 的按需取数）。
+    private func search(in url: URL, query: String, label: String) -> String {
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            return "路径不存在：\(label)"
+        }
+
+        var files: [URL] = []
+        if isDirectory.boolValue {
+            let keys: [URLResourceKey] = [.isDirectoryKey, .fileSizeKey]
+            let enumerator = fileManager.enumerator(at: url, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles])
+            while let child = enumerator?.nextObject() as? URL {
+                guard files.count < Self.maxSearchFiles else { break }
+                let values = try? child.resourceValues(forKeys: Set(keys))
+                guard values?.isDirectory != true else { continue }
+                guard (values?.fileSize ?? 0) <= Self.maxSearchFileBytes else { continue }
+                guard Self.isTextFile(child) else { continue }
+                files.append(child)
+            }
+            files.sort { $0.path < $1.path }
+        } else {
+            files = [url]
+        }
+        guard !files.isEmpty else {
+            return "\(label) 下没有可检索的文本文件。"
+        }
+
+        var lines: [String] = []
+        for file in files {
+            guard lines.count < Self.maxSearchMatches else { break }
+            guard let text = read(file) else { continue }
+            let relative = file.path.hasPrefix(root.path + "/")
+                ? String(file.path.dropFirst(root.path.count + 1))
+                : file.lastPathComponent
+            for match in Self.searchMatches(in: text, query: query, limit: Self.maxSearchMatches - lines.count) {
+                lines.append("\(relative):\(match.line): \(match.text)")
+            }
+        }
+        guard !lines.isEmpty else {
+            return "在 \(label) 中没有找到包含「\(query)」的内容（已检索 \(files.count) 个文本文件）。"
+        }
+        return "在 \(label) 中找到 \(lines.count) 处包含「\(query)」的内容：\n" + lines.joined(separator: "\n")
+    }
+
+    /// 单文件内的关键词匹配（不区分大小写，行号从 1 开始，命中行截断到上限）
+    static func searchMatches(in text: String, query: String, limit: Int) -> [(line: Int, text: String)] {
+        guard !query.isEmpty, limit > 0 else { return [] }
+        var results: [(line: Int, text: String)] = []
+        for (index, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+            guard results.count < limit else { break }
+            guard line.range(of: query, options: .caseInsensitive) != nil else { continue }
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let content = trimmed.count > searchLineCharacters
+                ? String(trimmed.prefix(searchLineCharacters)) + "…"
+                : trimmed
+            results.append((line: index + 1, text: content))
+        }
+        return results
     }
 
     // MARK: - 工具方法

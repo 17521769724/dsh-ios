@@ -81,8 +81,8 @@ enum AgentToolCatalog {
     static let sshExec = APITool(
         name: sshExecName,
         description: """
-        在用户已配置的云服务器上通过 SSH 执行一条 shell 命令，返回命令输出（stdout 与 stderr 合并，超长会截断）。\
-        适合查看服务器状态、安装软件、部署代码、修改配置等操作。执行前先用一句话说明你要做什么。
+        在用户已配置的云服务器上通过 SSH 执行一条 shell 命令，返回输出（stdout+stderr 合并，超长截断）。\
+        适合查看服务器状态、安装软件、部署代码、修改配置。执行前先用一句话说明你要做什么。
         """,
         parameters: schema("""
         {
@@ -100,7 +100,7 @@ enum AgentToolCatalog {
 
     static let browserOpen = APITool(
         name: browserOpenName,
-        description: "在 App 的内置浏览器中打开网页，用户会直接看到这个页面。参数是完整网址（http/https）。",
+        description: "在内置浏览器中打开网页（用户能看到这个页面）。参数是完整网址（http/https）。",
         parameters: schema("""
         {
           "type": "object",
@@ -117,7 +117,7 @@ enum AgentToolCatalog {
 
     static let browserRead = APITool(
         name: browserReadName,
-        description: "用内置浏览器打开并读取网页正文纯文本（用户看不到页面），适合总结文章、查询资料。参数是完整网址。",
+        description: "读取网页正文纯文本（用户看不到页面），适合查资料、总结文章。参数是完整网址。",
         parameters: schema("""
         {
           "type": "object",
@@ -137,10 +137,9 @@ enum AgentToolCatalog {
     static let screenshot = APITool(
         name: screenshotName,
         description: """
-        截取画面并识别其中的文字（本地 OCR），同时把截图作为图片发给你。\
-        target=screen 截取 App 当前界面（用户正在看的内容），target=browser 截取内置浏览器当前页面。\
-        适合用户说「你看看这个」「这页里写了什么」「帮我确认报错」这类需要你亲眼看一眼的场景；\
-        要看某个网址时先调用 browser_open 打开它，再用 target=browser 截图。
+        截取画面并识别文字（本地 OCR），同时把截图作为图片发给你。\
+        target=screen 截取 App 当前界面（默认），target=browser 截取内置浏览器页面（先用 browser_open 打开）。\
+        适合「你看看这个」「这页里写了什么」「帮我确认报错」这类需要你亲眼看一下的场景。
         """,
         parameters: schema("""
         {
@@ -148,12 +147,12 @@ enum AgentToolCatalog {
           "properties": {
             "target": {
               "type": "string",
-              "description": "要查看的位置：screen=App 当前界面（默认），browser=内置浏览器页面",
+              "description": "screen=App 当前界面（默认），browser=内置浏览器页面",
               "enum": ["screen", "browser"]
             },
             "reason": {
               "type": "string",
-              "description": "想通过画面确认什么，例如「读出页面上的价格」「确认报错提示」"
+              "description": "想通过画面确认什么（可省略）"
             }
           },
           "required": []
@@ -167,8 +166,8 @@ enum AgentToolCatalog {
         name: workspaceName,
         description: """
         读写 App 工作区里的文件（内置「文件」页与 IDE 所在的文件夹，用户也能在系统「文件」App 里看到）。\
-        可用动作：list（列出目录）、read（读取文本文件）、write（新建或覆盖文件）、mkdir（新建文件夹）、delete（删除文件或文件夹）。\
-        路径使用相对工作区的写法，例如 src/main.swift；省略 path 表示工作区根目录。
+        动作：list 列目录 / read 读文本文件 / search 按关键词检索匹配行 / write 新建或覆盖文件 / mkdir 新建文件夹 / delete 删除。\
+        路径相对工作区（例如 src/main.swift），省略表示根目录；search 用 query 给出关键词，只有相关行会进入上下文。
         """,
         parameters: schema("""
         {
@@ -176,12 +175,16 @@ enum AgentToolCatalog {
           "properties": {
             "action": {
               "type": "string",
-              "description": "操作类型：list / read / write / mkdir / delete",
-              "enum": ["list", "read", "write", "mkdir", "delete"]
+              "description": "操作类型：list / read / search / write / mkdir / delete",
+              "enum": ["list", "read", "search", "write", "mkdir", "delete"]
             },
             "path": {
               "type": "string",
-              "description": "相对工作区的路径，例如 src/main.swift；省略表示工作区根目录"
+              "description": "相对工作区的路径（文件或目录），例如 src/main.swift；省略表示工作区根目录"
+            },
+            "query": {
+              "type": "string",
+              "description": "检索关键词（search 时必填），在文本文件里查包含它的行"
             },
             "content": {
               "type": "string",
@@ -197,9 +200,8 @@ enum AgentToolCatalog {
     static let clipboard = APITool(
         name: clipboardName,
         description: """
-        读写系统剪贴板。action=read 读取剪贴板里的文本（首次读取系统会弹出「允许粘贴」确认，需要用户点允许）；\
-        action=write 把 text 写入剪贴板，用户之后可在任意 App 里粘贴。\
-        适合「把这段复制给我」「读一下我刚复制的内容」这类请求。
+        读写系统剪贴板：read 读取剪贴板文本（首次读取会弹「允许粘贴」，需要用户点允许）；\
+        write 把 text 写入剪贴板，之后可在任意 App 里粘贴。
         """,
         parameters: schema("""
         {
@@ -224,11 +226,11 @@ enum AgentToolCatalog {
     static let reminder = APITool(
         name: reminderName,
         description: """
-        读写系统「提醒事项」与「日历」（只在本机操作，不上传任何服务器；首次使用会请求系统权限）。可用动作：
-        list_reminders（列出未完成提醒，可用 days 指定往后看几天，默认 7，逾期 30 天内的也会列出）、
-        create_reminder（新建提醒，需要 title，可选 due「2026-10-10 09:00」、notes、list 清单名）、
-        list_events（列出未来日程，days 默认 7）、
-        create_event（新建日程，需要 title 与 start，可选 end、location、notes，默认时长 1 小时）。
+        读写系统「提醒事项」与「日历」（只在本机操作，不上传任何服务器；首次使用会请求系统权限）。动作：\
+        list_reminders 列出未完成提醒（days 默认 7，含逾期 30 天内）、\
+        create_reminder 新建提醒（title 必填，可选 due「2026-10-10 09:00」、notes、list）、\
+        list_events 列出未来日程（days 默认 7）、\
+        create_event 新建日程（title、start 必填，可选 end、location、notes，默认时长 1 小时）。
         """,
         parameters: schema("""
         {
@@ -245,15 +247,15 @@ enum AgentToolCatalog {
             },
             "due": {
               "type": "string",
-              "description": "提醒到期时间，例如 2026-10-10 09:00；只写日期时按当天 09:00"
+              "description": "到期时间（如 2026-10-10 09:00；只写日期按当天 09:00）"
             },
             "start": {
               "type": "string",
-              "description": "日程开始时间，例如 2026-10-10 15:00"
+              "description": "开始时间（如 2026-10-10 15:00）"
             },
             "end": {
               "type": "string",
-              "description": "日程结束时间（可省略，默认开始后 1 小时）"
+              "description": "结束时间（默认开始后 1 小时）"
             },
             "days": {
               "type": "integer",
@@ -269,7 +271,7 @@ enum AgentToolCatalog {
             },
             "list": {
               "type": "string",
-              "description": "提醒清单名称（可省略，默认用系统默认清单）"
+              "description": "提醒清单名（默认系统默认清单）"
             }
           },
           "required": ["action"]
@@ -280,8 +282,8 @@ enum AgentToolCatalog {
     static let github = APITool(
         name: githubName,
         description: """
-        操作 GitHub 仓库与 Issue。需要用户先在「设置 → 智能体工具」登录 GitHub 账号并开启 GitHub 工具。
-        可用动作：list_repos（列出账号下的仓库）、read_file（读取仓库文件）、write_file（新建或更新文件）、create_issue（创建 Issue）。
+        操作 GitHub 仓库与 Issue（需先在「设置 → 智能体工具」登录 GitHub 并开启）。\
+        动作：list_repos 列出仓库、read_file 读仓库文件、write_file 新建或更新文件、create_issue 创建 Issue。
         """,
         parameters: gitParameters
     )
@@ -289,8 +291,8 @@ enum AgentToolCatalog {
     static let gitee = APITool(
         name: giteeName,
         description: """
-        操作 Gitee 仓库与 Issue。需要用户先在「设置 → 智能体工具」登录 Gitee 账号并开启 Gitee 工具。
-        可用动作：list_repos（列出账号下的仓库）、read_file（读取仓库文件）、write_file（新建或更新文件）、create_issue（创建 Issue）。
+        操作 Gitee 仓库与 Issue（需先在「设置 → 智能体工具」登录 Gitee 并开启）。\
+        动作：list_repos 列出仓库、read_file 读仓库文件、write_file 新建或更新文件、create_issue 创建 Issue。
         """,
         parameters: gitParameters
     )
@@ -338,7 +340,7 @@ enum AgentToolCatalog {
         },
         "repo": {
           "type": "string",
-          "description": "仓库名，格式 owner/name，例如 deepseek-ai/DeepSeek-V3"
+          "description": "仓库名（owner/name，如 deepseek-ai/DeepSeek-V3）"
         },
         "path": {
           "type": "string",
@@ -346,23 +348,23 @@ enum AgentToolCatalog {
         },
         "branch": {
           "type": "string",
-          "description": "分支名，默认使用仓库默认分支"
+          "description": "分支名（默认使用仓库默认分支）"
         },
         "content": {
           "type": "string",
-          "description": "文件内容（write_file 时必填）"
+          "description": "文件内容（write_file 必填）"
         },
         "message": {
           "type": "string",
-          "description": "提交信息（write_file 时可选）"
+          "description": "提交信息（可选）"
         },
         "title": {
           "type": "string",
-          "description": "Issue 标题（create_issue 时必填）"
+          "description": "Issue 标题（create_issue 必填）"
         },
         "body": {
           "type": "string",
-          "description": "Issue 内容（create_issue 时可选）"
+          "description": "Issue 内容（可选）"
         }
       },
       "required": ["action"]

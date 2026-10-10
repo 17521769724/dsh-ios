@@ -59,6 +59,9 @@ final class ChatEngine: ObservableObject {
     private var streamFlushTask: Task<Void, Never>?
     /// 后台执行申请：进入后台时若仍在生成，用它把请求续跑一段时间
     private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+    /// 本轮已读取过的网页（url → 正文）：同一轮内重复读取直接返回「同上」，
+    /// 避免把同一份大正文反复计入上下文（省 token）
+    private var readPagesThisTurn: [URL: String] = [:]
 
     init(
         settingsStore: SettingsStore,
@@ -519,13 +522,22 @@ final class ChatEngine: ObservableObject {
             guard let self else { return }
             var currentAssistantID = assistantID
             var usage: TokenUsage?
+            // 单轮工具输出预算：压住「工具轮逐轮重发」的最坏情况（省 token）
+            var toolBudget = ToolOutputBudget()
+            // 本轮已读取过的网页：重复读取直接返回「同上」，不再重复放入完整正文
+            self.readPagesThisTurn.removeAll()
             do {
-                for _ in 0..<maxRounds {
+                for round in 0..<maxRounds {
                     if Task.isCancelled { break }
-                    let messages = self.buildAPIMessages(conversationID: conversationID, latestUserText: outgoing)
+                    // 最后一轮不再下发工具并附收尾提示：直接要结论。
+                    // 既保证一定有最终回答，又少一轮「执行工具 + 整段重发」的开销
+                    let isFinalRound = !tools.isEmpty && round == maxRounds - 1
+                    let roundTools = isFinalRound ? [] : tools
+                    var messages = self.buildAPIMessages(conversationID: conversationID, latestUserText: outgoing)
+                    if isFinalRound { messages.append(Self.finalRescueMessage) }
                     let pendingToolCalls = try await self.request(
                         messages: messages,
-                        tools: tools,
+                        tools: roundTools,
                         model: model,
                         settings: settings,
                         apiKey: apiKey,
@@ -544,7 +556,8 @@ final class ChatEngine: ObservableObject {
                         self.runningToolName = call.name
                         let output = await self.run(toolCall: call)
                         self.runningToolName = nil
-                        self.completeToolMessage(Self.limitedToolOutput(output), call: call)
+                        let limited = toolBudget.limit(Self.limitedToolOutput(output))
+                        self.completeToolMessage(limited, call: call)
                     }
 
                     if Task.isCancelled { break }
@@ -773,8 +786,14 @@ final class ChatEngine: ObservableObject {
                   let url = WebAddress.normalize(raw) else {
                 return "工具参数错误：缺少合法的 url"
             }
+            // 同一轮内重复读取同一页面：正文很贵且已经发过一次，这里只回一句「同上」
+            if readPagesThisTurn[url] != nil {
+                return "（本轮已经读取过 \(url.absoluteString)，内容与上一次结果一致，请直接使用上一次的读取结果。）"
+            }
             do {
-                return try await WebPageReader.shared.read(url: url)
+                let text = try await WebPageReader.shared.read(url: url)
+                readPagesThisTurn[url] = text
+                return text
             } catch {
                 return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             }
@@ -815,7 +834,9 @@ final class ChatEngine: ObservableObject {
             let path = ToolArguments.string("path", in: call.arguments) ?? ""
             // 文件内容原样写入：代码里的缩进与换行不能被裁掉
             let content = ToolArguments.rawString("content", in: call.arguments) ?? ""
-            return workspaceStore.perform(action: action, path: path, content: content)
+            // search 动作的关键词：只取相关行，避免把整个文件塞进上下文（省 token）
+            let query = ToolArguments.string("query", in: call.arguments) ?? ""
+            return workspaceStore.perform(action: action, path: path, content: content, query: query)
 
         case AgentToolCatalog.clipboardName:
             return clipboard(action: ToolArguments.string("action", in: call.arguments) ?? "read", call: call)

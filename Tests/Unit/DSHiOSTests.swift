@@ -1440,6 +1440,42 @@ final class WorkspaceStoreTests: XCTestCase {
         // 越界路径必须被拒绝
         XCTAssertTrue(store.perform(action: "read", path: "../state.json", content: "").contains("路径不合法"))
     }
+
+    /// 工作区检索：search 动作返回「文件:行号: 内容」，只取相关行（省 token）
+    func testAgentSearchAction() {
+        let store = WorkspaceStore(root: root)
+        _ = store.perform(action: "write", path: "notes/a.md", content: "第一行\n项目代号 DSH\n第三行\n")
+        _ = store.perform(action: "write", path: "notes/b.md", content: "无关内容\n")
+
+        let hit = store.perform(action: "search", path: "notes", content: "", query: "DSH")
+        XCTAssertTrue(hit.contains("a.md:2"), hit)
+        XCTAssertTrue(hit.contains("项目代号 DSH"), hit)
+        XCTAssertFalse(hit.contains("b.md"), hit)
+
+        let miss = store.perform(action: "search", path: "notes", content: "", query: "不存在的内容")
+        XCTAssertTrue(miss.contains("没有找到"), miss)
+
+        let empty = store.perform(action: "search", path: "notes", content: "", query: "")
+        XCTAssertTrue(empty.contains("关键词"), empty)
+    }
+
+    /// 单文件内的关键词匹配：不区分大小写、行号从 1 开始、limit 生效、命中行截断
+    func testSearchMatchesLines() {
+        let text = "第一行\nHello World\n第三行 hello 又出现\n" + String(repeating: "长", count: 300)
+        let matches = WorkspaceStore.searchMatches(in: text, query: "hello", limit: 5)
+        XCTAssertEqual(matches.map(\.line), [2, 3])
+        XCTAssertEqual(matches.first?.text, "Hello World")
+        XCTAssertEqual(WorkspaceStore.searchMatches(in: text, query: "hello", limit: 1).count, 1)
+        XCTAssertTrue(WorkspaceStore.searchMatches(in: text, query: "", limit: 5).isEmpty)
+
+        let longLine = WorkspaceStore.searchMatches(in: text, query: "长", limit: 1)
+        XCTAssertEqual(longLine.count, 1)
+        XCTAssertLessThanOrEqual(
+            longLine[0].text.count,
+            WorkspaceStore.searchLineCharacters + 1,
+            "命中行应截断到上限（含省略号）"
+        )
+    }
 }
 
 // MARK: - 查看画面（OCR 文本处理）
@@ -2281,5 +2317,26 @@ final class ToolOutputAgingTests: XCTestCase {
         let limited = ChatEngine.limitedToolOutput(long)
         XCTAssertTrue(limited.hasPrefix(String(repeating: "a", count: ChatEngine.maxToolOutputCharacters)))
         XCTAssertTrue(limited.contains("输出过长，已省略 500 字"))
+    }
+
+    /// 单轮工具输出预算：预算内原样返回；超出后收紧截断并累计，用尽后每条固定收紧
+    func testToolOutputBudget() {
+        var budget = ToolOutputBudget()
+        let small = String(repeating: "a", count: 1_000)
+        XCTAssertEqual(budget.limit(small), small)
+        XCTAssertEqual(budget.usedCharacters, 1_000)
+
+        // 一次超预算的大输出：按剩余额度截断
+        let huge = String(repeating: "b", count: 100_000)
+        let limited = budget.limit(huge)
+        XCTAssertTrue(limited.hasPrefix(String(repeating: "b", count: ToolOutputBudget.totalCharacters - 1_000)))
+        XCTAssertTrue(limited.contains("已收紧截断"))
+        XCTAssertEqual(budget.usedCharacters, ToolOutputBudget.totalCharacters)
+
+        // 预算用尽后：每条收紧到固定上限，仍会累计
+        let another = String(repeating: "c", count: 10_000)
+        let tightened = budget.limit(another)
+        XCTAssertTrue(tightened.hasPrefix(String(repeating: "c", count: ToolOutputBudget.tightenedCharacters)))
+        XCTAssertEqual(budget.usedCharacters, ToolOutputBudget.totalCharacters + ToolOutputBudget.tightenedCharacters)
     }
 }

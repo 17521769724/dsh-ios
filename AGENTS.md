@@ -89,7 +89,20 @@ xcodebuild test -project DSHiOS.xcodeproj -scheme DSHiOS -destination "platform=
 
 ## 当前状态
 
-- 版本：**2.3.0**（构建号由 CI 运行序号决定；2.2.0 已发布为 build 106）。
+- 版本：**2.4.0**（构建号由 CI 运行序号决定；2.2.0 = build 106、2.3.0 = build 107）。
+- 2.4.0 交付（继续压 token + 新功能）：
+  - **收尾轮不再下发工具**（`ChatEngine.startStreaming`）：工具轮的第 6 轮（最后一轮）改为「零工具 +
+    收尾提示」，直接要结论——既保证一定有最终回答，又省掉一轮「执行工具 + 整段重发」；
+    循环结束后的「收尾救场」继续兜底空响应；
+  - **单轮工具输出预算**（`ToolOutputBudget`，`Sources/Core/ToolOutputAging.swift`）：
+    单轮累计 3 万字符，超出后后续结果收紧截断到 2 千字符并附说明，压住「工具轮逐轮重发」的最坏情况；
+  - **同名网页去重**：同一轮内重复读取同一 URL 只回一句「同上」，不再重复放入整段正文；
+  - **工具描述精简**（`AgentTools.swift`）：10 个工具的描述与参数说明缩减约三成，每请求固定省 token，
+    功能语义不变；
+  - **新功能：工作区检索**（workspace 工具新增 `search` 动作，`WorkspaceStore.searchMatches`）：
+    按关键词在文本文件里找匹配行，返回「文件:行号: 内容」（最多 30 条、命中行截断 120 字）——
+    让模型按需只取相关片段而不是整文件读取（just-in-time 取数，同时也是省 token 的做法）；
+  - 单测：`ToolOutputBudget` 预算行为、`WorkspaceStore` search 动作与 `searchMatches` 行匹配。
 - 2.3.0 交付（省 token + 空回复修复，用户反馈「两轮对话最后模型都输出本轮没有返回内容」
   与「token 用量比其他软件大太多」）：
   - **工具结果老化**（`Sources/Core/ToolOutputAging.swift`，业界称 tool result clearing / observation
