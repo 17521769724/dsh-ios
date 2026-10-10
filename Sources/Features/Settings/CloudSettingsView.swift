@@ -51,6 +51,11 @@ struct CloudSettingsView: View {
         return CloudAgentClient(baseURL: baseURL, token: cloudStore.token)
     }
 
+    /// 当前选中的服务器（未选或已删除时回退第一台）
+    private var selectedServer: SSHServer? {
+        cloudStore.selectedServer(in: sshStore.servers)
+    }
+
     // MARK: - 总开关
 
     private var enableSection: some View {
