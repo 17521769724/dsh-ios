@@ -107,7 +107,27 @@ final class DSHiOSUITests: XCTestCase {
             target = uiElement(identifier)
             swipes += 1
         }
+        // 列表滚动有惯性：等它完全停稳再返回，重新取一次元素，
+        // 否则紧接着的 tap 可能点在已经移走的位置上（表现为「点了没进二级页」）
+        if target.exists {
+            Thread.sleep(forTimeInterval: 0.6)
+            target = uiElement(identifier)
+        }
         return target
+    }
+
+    /// 打开设置里的二级页：滚动到入口 → 点按 → 等导航栏出现；
+    /// 没打开就重取元素再点，最多三次（消除列表惯性带来的偶发点空）
+    @discardableResult
+    private func openSettingsPage(_ identifier: String, title: String, retries: Int = 3) -> Bool {
+        for attempt in 0..<retries {
+            let row = scrollTo(identifier)
+            guard row.waitForExistence(timeout: 5) else { return false }
+            if attempt > 0 { Thread.sleep(forTimeInterval: 0.5) }
+            row.tap()
+            if app.navigationBars[title].waitForExistence(timeout: 6) { return true }
+        }
+        return app.navigationBars[title].exists
     }
 
     /// 打开导航栏右上角的合并功能菜单（新对话 / 置顶 / 删除 / 会话日志 / 内置浏览器）
@@ -321,11 +341,19 @@ final class DSHiOSUITests: XCTestCase {
         openSettings()
 
         let before = averageBrightness()
-        // 点击行中间留白区域，验证整行都可点（真机反馈过点了没反应）
-        let themeRow = element("settings.theme")
-        XCTAssertTrue(themeRow.waitForExistence(timeout: 5), "未找到外观入口")
-        themeRow.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.5)).tap()
-        XCTAssertTrue(app.navigationBars["外观"].waitForExistence(timeout: 5), "外观入口点击后未进入二级页")
+        XCTAssertTrue(scrollTo("settings.theme").waitForExistence(timeout: 5), "未找到外观入口")
+        // 点击行中间留白区域，验证整行都可点（真机反馈过点了没反应）；
+        // 列表惯性可能让第一次点空，这里最多重试三次
+        var openedAppearance = false
+        for _ in 0..<3 {
+            element("settings.theme").coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.5)).tap()
+            if app.navigationBars["外观"].waitForExistence(timeout: 5) {
+                openedAppearance = true
+                break
+            }
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        XCTAssertTrue(openedAppearance, "外观入口点击后未进入二级页")
 
         element("theme.dark").tap()
         Thread.sleep(forTimeInterval: 0.6)
@@ -449,14 +477,22 @@ final class DSHiOSUITests: XCTestCase {
     func test10_连接测试以弹窗给出结果() {
         openSettings()
         // 连接测试已独立成卡片，先滚到它再点，避免受上方分组高度变化影响
-        let row = scrollTo("settings.connection")
-        XCTAssertTrue(row.waitForExistence(timeout: 5), "缺少连接测试行")
+        XCTAssertTrue(scrollTo("settings.connection").waitForExistence(timeout: 5), "缺少连接测试行")
         XCTAssertTrue(app.staticTexts["点击测试"].exists, "连接测试行应提示可点击")
-        row.tap()
 
-        // 无网络环境下会给出失败文案，但结果必须出现在弹窗里（不再行内显示）
+        // 无网络环境下会给出失败文案，但结果必须出现在弹窗里（不再行内显示）；
+        // 列表惯性可能让第一次点空，最多点三次
         let alert = app.alerts.firstMatch
-        XCTAssertTrue(alert.waitForExistence(timeout: 60), "连接测试结果没有以弹窗给出")
+        var gotAlert = false
+        for _ in 0..<3 {
+            element("settings.connection").tap()
+            if alert.waitForExistence(timeout: 25) {
+                gotAlert = true
+                break
+            }
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        XCTAssertTrue(gotAlert, "连接测试结果没有以弹窗给出")
         let title = alert.label
         XCTAssertTrue(
             title.contains("连接正常") || title.contains("连接失败"),
@@ -571,10 +607,7 @@ final class DSHiOSUITests: XCTestCase {
     /// 打开「浏览器设置」并把内置浏览器工具开关设为指定值
     /// （开关在配置页顶部，设置首页那一行只有箭头）
     private func openBrowserSettingsAndToggle(_ on: Bool) {
-        let browserRow = scrollTo("settings.browser")
-        XCTAssertTrue(browserRow.waitForExistence(timeout: 5), "缺少浏览器设置入口")
-        browserRow.tap()
-        XCTAssertTrue(app.navigationBars["浏览器设置"].waitForExistence(timeout: 5), "浏览器设置页未打开")
+        XCTAssertTrue(openSettingsPage("settings.browser", title: "浏览器设置"), "浏览器设置页未打开")
         toggleFeature("browser.agentTools", on: on)
         app.navigationBars["浏览器设置"].buttons.firstMatch.tap()
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 5), "未返回设置页")
@@ -583,10 +616,7 @@ final class DSHiOSUITests: XCTestCase {
     func test20_SSH设置页与内置浏览器入口() {
         openSettings()
 
-        let sshRow = scrollTo("settings.ssh")
-        XCTAssertTrue(sshRow.waitForExistence(timeout: 5), "缺少 SSH 云服务器入口")
-        sshRow.tap()
-        XCTAssertTrue(app.navigationBars["SSH 云服务器"].waitForExistence(timeout: 5), "SSH 设置页未打开")
+        XCTAssertTrue(openSettingsPage("settings.ssh", title: "SSH 云服务器"), "SSH 设置页未打开")
         XCTAssertTrue(element("ssh.agentTools").exists, "SSH 页顶部缺少开关")
         XCTAssertTrue(element("ssh.empty").waitForExistence(timeout: 5), "多服务器列表缺少空态提示")
 
@@ -645,14 +675,7 @@ final class DSHiOSUITests: XCTestCase {
         openSettings()
         openBrowserSettingsAndToggle(false)
         // 智能体工具分组顺序：SSH → 内置浏览器 → MCP 工具与服务器 → OCR 视觉 → 工作区文件 → 提醒 → 剪贴板
-        let mcpRow = scrollTo("settings.mcp")
-        XCTAssertTrue(mcpRow.waitForExistence(timeout: 5), "缺少「MCP 服务器」入口")
-        mcpRow.tap()
-        // 偶发第一次点按没有推入（列表动画未结束），补一次点按再判定
-        if !app.navigationBars["MCP 服务器"].waitForExistence(timeout: 6) {
-            mcpRow.tap()
-        }
-        XCTAssertTrue(app.navigationBars["MCP 服务器"].waitForExistence(timeout: 8), "MCP 服务器页未打开")
+        XCTAssertTrue(openSettingsPage("settings.mcp", title: "MCP 服务器"), "MCP 服务器页未打开")
         XCTAssertTrue(element("feature.mcpTool").waitForExistence(timeout: 5), "MCP 页顶部缺少总开关")
         // 预设服务器（GitHub 官方 MCP / DeepWiki / Context7）应可直接添加
         XCTAssertTrue(app.staticTexts["GitHub 官方 MCP"].exists, "缺少 GitHub MCP 预设")
@@ -940,17 +963,7 @@ final class DSHiOSUITests: XCTestCase {
         // MCP 已合并成一行（紧跟内置浏览器，只有箭头），开关在 MCP 页顶部
         XCTAssertTrue(scrollTo("settings.mcp").waitForExistence(timeout: 5), "缺少 MCP 入口")
         XCTAssertFalse(element("feature.mcpTool").exists, "MCP 开关应移到二级页顶部")
-        // 列表滚动刚停下时点按偶尔不生效，最多重试三次（每次重试都重新取一遍元素）
-        var mcpOpened = false
-        for _ in 0..<3 {
-            element("settings.mcp").tap()
-            if app.navigationBars["MCP 服务器"].waitForExistence(timeout: 6) {
-                mcpOpened = true
-                break
-            }
-            Thread.sleep(forTimeInterval: 0.6)
-        }
-        XCTAssertTrue(mcpOpened, "MCP 服务器页未打开")
+        XCTAssertTrue(openSettingsPage("settings.mcp", title: "MCP 服务器"), "MCP 服务器页未打开")
         XCTAssertTrue(element("feature.mcpTool").waitForExistence(timeout: 5), "MCP 页顶部缺少开关")
         capture("34-mcp-top-switch")
         app.navigationBars["MCP 服务器"].buttons
@@ -989,10 +1002,7 @@ final class DSHiOSUITests: XCTestCase {
 
         // 设置 → 关于 → 权限状态
         openSettings()
-        let permissionsRow = scrollTo("settings.permissions")
-        XCTAssertTrue(permissionsRow.waitForExistence(timeout: 5), "设置里缺少权限状态入口")
-        permissionsRow.tap()
-        XCTAssertTrue(app.navigationBars["权限状态"].waitForExistence(timeout: 5), "权限状态页未打开")
+        XCTAssertTrue(openSettingsPage("settings.permissions", title: "权限状态"), "权限状态页未打开")
         XCTAssertTrue(element("permissions.row.calendar").waitForExistence(timeout: 5), "权限状态页缺少日历行")
         // 按钮只保留「一键申请权限」（不带括号说明）
         XCTAssertTrue(
@@ -1013,13 +1023,7 @@ final class DSHiOSUITests: XCTestCase {
     func test24_MCP服务器左滑删除与GitHub未登录提示() {
         launchApp(configured: true, seed: false)
         openSettings()
-        let mcpRow = scrollTo("settings.mcp")
-        XCTAssertTrue(mcpRow.waitForExistence(timeout: 5), "缺少 MCP 服务器入口")
-        mcpRow.tap()
-        if !app.navigationBars["MCP 服务器"].waitForExistence(timeout: 6) {
-            mcpRow.tap()
-        }
-        XCTAssertTrue(app.navigationBars["MCP 服务器"].waitForExistence(timeout: 8), "MCP 服务器页未打开")
+        XCTAssertTrue(openSettingsPage("settings.mcp", title: "MCP 服务器"), "MCP 服务器页未打开")
 
         // 未登录 GitHub 时点 GitHub 官方 MCP：提示登录，不写入配置
         app.staticTexts["GitHub 官方 MCP"].firstMatch.tap()

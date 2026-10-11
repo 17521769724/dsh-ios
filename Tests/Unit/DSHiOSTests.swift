@@ -2357,11 +2357,13 @@ final class CloudAgentTests: XCTestCase {
     func testDeployScriptContainsEssentials() {
         let source = "print('hi')\n# 源码里的 DSH_AGENT_EOF 字样不会误结束"
         let script = CloudDeploy.script(source: source, port: 8931, token: "abc123")
-        XCTAssertTrue(script.contains("mkdir -p $HOME/.dsh/sandboxes"))
-        XCTAssertTrue(script.contains("cat > $HOME/.dsh/dsh-agent.py <<'DSH_AGENT_EOF'"))
+        XCTAssertTrue(script.contains(#"DSH_DIR="$HOME/.dsh""#))
+        XCTAssertTrue(script.contains(#"AGENT="$HOME/.dsh/dsh-agent.py""#))
+        XCTAssertTrue(script.contains("mkdir -p \"$DSH_DIR/sandboxes\""))
+        XCTAssertTrue(script.contains("cat > \"$AGENT\" <<'DSH_AGENT_EOF'"))
         XCTAssertTrue(script.contains(source))
         XCTAssertTrue(script.contains("command -v python3"))
-        XCTAssertTrue(script.contains("--port 8931 --token abc123"))
+        XCTAssertTrue(script.contains("--port 8931 --token 'abc123'"))
         XCTAssertTrue(script.contains("http://127.0.0.1:8931/health"))
     }
 
@@ -2426,7 +2428,15 @@ final class CloudAgentTests: XCTestCase {
     /// 不能用 pkill -f 脚本名（会杀掉执行脚本的 shell 自己）、不能依赖 curl、安装 python3 必须走国内源
     func testDeployScriptUsesPidfileMirrorAndPythonHealthCheck() {
         let script = CloudDeploy.script(source: "# demo", port: 8931, token: "token-1")
-        XCTAssertFalse(script.contains("pkill"), "不能用 pkill -f 匹配脚本名：会杀掉执行本脚本的 shell，导致自检必然失败")
+        // 注释里会解释「为什么不能用 pkill」，所以只看真正会被执行的命令行
+        let activeLines = script
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.hasPrefix("#") }
+        XCTAssertFalse(
+            activeLines.contains { $0.contains("pkill") },
+            "不能用 pkill 匹配脚本名：会杀掉执行本脚本的 shell，导致自检必然失败"
+        )
         XCTAssertTrue(script.contains("agent.pid"), "应改用 pidfile 精确停止旧实例")
         XCTAssertFalse(script.contains("curl "), "自检不应依赖 curl（精简镜像里常常没有 curl）")
         XCTAssertTrue(script.contains("urllib.request.urlopen"), "自检应由 python3 自己请求 /health")
