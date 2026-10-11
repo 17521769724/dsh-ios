@@ -129,6 +129,95 @@ enum AgentToolCatalog {
         """)
     )
 
+    // MARK: - 云端专用工具（都在云服务器上执行，本地推理不提供）
+
+    static let webSearchName = "web_search"
+    static let pythonExecName = "python_exec"
+    static let calculatorName = "calculator"
+    static let currentTimeName = "current_time"
+    static let httpRequestName = "http_request"
+
+    /// 关键词联网搜索（无需 API Key）
+    static let webSearch = APITool(
+        name: webSearchName,
+        description: "联网搜索关键词，返回标题、网址与摘要。适合查最新资料、找官方文档、确认事实。",
+        parameters: schema("""
+        {
+          "type": "object",
+          "properties": {
+            "query": { "type": "string", "description": "搜索关键词" },
+            "count": { "type": "integer", "description": "返回条数，默认 5，最多 10" }
+          },
+          "required": ["query"]
+        }
+        """)
+    )
+
+    /// 在云服务器的沙盒目录里执行一小段 Python
+    static let pythonExec = APITool(
+        name: pythonExecName,
+        description: "在云服务器上执行一小段 Python 代码并返回输出，适合计算、数据处理、格式转换。工作目录是云端沙盒。",
+        parameters: schema("""
+        {
+          "type": "object",
+          "properties": {
+            "code": { "type": "string", "description": "要执行的 Python 代码（用 print 输出结果）" },
+            "timeout": { "type": "integer", "description": "超时秒数，默认 20，最多 60" }
+          },
+          "required": ["code"]
+        }
+        """)
+    )
+
+    /// 精确算术求值（模型算数不准时的兜底）
+    static let calculator = APITool(
+        name: calculatorName,
+        description: "精确计算数学表达式（加减乘除、括号、幂、取余、abs/round/min/max/sum/sqrt 等）。",
+        parameters: schema("""
+        {
+          "type": "object",
+          "properties": {
+            "expression": { "type": "string", "description": "要计算的表达式，例如 (1+2)*3/2" }
+          },
+          "required": ["expression"]
+        }
+        """)
+    )
+
+    /// 当前时间与时区换算
+    static let currentTime = APITool(
+        name: currentTimeName,
+        description: "获取当前时间，或把某个时刻换算到指定时区（默认 Asia/Shanghai）。",
+        parameters: schema("""
+        {
+          "type": "object",
+          "properties": {
+            "timezone": { "type": "string", "description": "IANA 时区名，例如 Asia/Shanghai、UTC" },
+            "timestamp": { "type": "string", "description": "可选：要换算的时间戳（秒）或 ISO 时间字符串，不填就是现在" }
+          }
+        }
+        """)
+    )
+
+    /// 调用任意 HTTP 接口（给模型调开放 API 用）
+    static let httpRequest = APITool(
+        name: httpRequestName,
+        description: "调用一个 HTTP 接口（GET/POST 等）并返回状态码与响应内容，适合查开放 API 的 JSON 数据。",
+        parameters: schema("""
+        {
+          "type": "object",
+          "properties": {
+            "url": { "type": "string", "description": "完整网址（http/https）" },
+            "method": { "type": "string", "description": "请求方法，默认 GET" },
+            "headers": { "type": "object", "description": "可选请求头" },
+            "body": { "type": "string", "description": "可选请求体；GET 时作为查询参数拼在网址后面" },
+            "timeout": { "type": "integer", "description": "超时秒数，默认 20" }
+          },
+          "required": ["url"]
+        }
+        """)
+    )
+
     static let browserOpen = APITool(
         name: browserOpenName,
         description: "在内置浏览器中打开网页（用户能看到这个页面）。参数是完整网址（http/https）。",

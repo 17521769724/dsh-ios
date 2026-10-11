@@ -90,7 +90,28 @@ xcodebuild test -project DSHiOS.xcodeproj -scheme DSHiOS -destination "platform=
 
 ## 当前状态
 
-- 版本：**2.7.0**（构建号由 CI 运行序号决定；2.4.0 = 109、2.5.0 = 112、2.6.0 = 114、2.6.2 = 117、2.6.3 = 119）。
+- 版本：**2.8.0**（构建号由 CI 运行序号决定；2.4.0 = 109、2.5.0 = 112、2.6.0 = 114、2.6.3 = 119、2.7.0 = 121/125）。
+- 2.8.0 交付（**云端工具扩容 + 代码质量优化**，用户要求「查看全网云端推理都有哪些可调用工具并补进来 + 优化代码质量」）：
+  - 先做了联网调研（OpenAI/Anthropic/Gemini 的 server tools、Dify/Coze/百炼/Kimi 的插件、OpenHands/MCP/LangChain
+    工具集），结论是「联网检索 + 网页读取 + 代码执行」是三大平台交集；在「纯标准库 + 无付费 Key」约束下
+    可落地的就是下面这 5 个，于是按此实现；
+  - **新增 5 个服务端工具**（Agent 1.2，仅在云端模式下发）：`web_search`（Bing → DuckDuckGo lite → Wikipedia
+    三源回退，10s 超时 + 进程内 1s 限流，全失败给可读说明）、`python_exec`（沙盒 cwd 下用同一解释器执行，
+    超时杀进程、非零码标记失败、输出截断）、`calculator`（ast 白名单求值，拒绝属性/下标/lambda/比较，
+    幂指数有上限）、`current_time`（zoneinfo 时区换算，非法时区回退 UTC）、`http_request`（urllib，
+    GET 的 body 转 query、JSON 自动 pretty、仅 http/https、状态码 ≥400 标 failed、截断 8000）；
+  - **iOS**：`AgentToolCatalog` 新增 5 个云端工具定义；`CloudToolSwitches` 新增 search/code/calc/clock/http
+    五个开关（宽恕解码，旧数据默认开）；云端页「云端工具 · 云服务器执行」分组补齐 8 个开关；
+    设置首页「云端推理」卡片加分组小标题「推理方式」；
+  - **代码质量**：云端工具装配从 `ChatEngine` 抽到 `Sources/Core/CloudTools.swift`（`CloudToolBuilder`，
+    可单测：开关组合、手机端工具受本机开关与账号状态限制、MCP 工具名映射）；
+    Agent 侧把 if/elif 工具分派改成**注册表**（`ToolSpec` + `MCP_SPEC`）、抽出统一 HTTP 层
+    （`json_response/error_json/read_json_body`）、每层加异常兜底（工具报错只产生 failed 的 tool_result，
+    绝不能拖垮 run）、常量集中到顶部、加极简 logger（`--verbose`，不打 apiKey/messages）、顶部补协议与安全边界文档；
+  - 验证：本机端到端联调（假模型 SSE + 假 App 回传）**12/12 通过**：Agent 版本 1.2、calculator 精确计算、
+    current_time 上海时区含偏移、python_exec 输出正确、workspace 写入落盘、web_search 无外网时给可读说明、
+    ssh_exec 仍走手机回调并被采纳、最终文本与 run 状态正确；子代理另跑 48 条断言（含异常兜底、MCP、stop 中断、
+    向后兼容单轮）；单测覆盖开关默认值、装配过滤、MCP 下发载荷。
 - 2.7.0 交付（**云端推理具备与本地一致的智能体能力**）：
   - **架构：云端驱动工具循环 + 双执行面**。服务端 Agent（`Resources/dsh-agent.py`，版本 1.1）新增工具循环：
     流式聚合 `tool_calls` → 执行 → 追加 `role=tool` 结果 → 下一轮，最后一轮不下发工具并附收尾提示

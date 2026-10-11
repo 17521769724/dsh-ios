@@ -757,71 +757,30 @@ final class ChatEngine: ObservableObject {
         conversationStore.upsert(conversation)
     }
 
-    /// 云端推理可用的工具：与本地同一套定义，按「云端工具开关」筛选。
-    /// 服务端执行的（网页抓取 / 沙盒文件 / MCP）由云服务器直接完成；
-    /// 其余（SSH / 浏览器 / 截图 OCR / 剪贴板 / 提醒 / Git / 技能）会在需要时回调手机执行。
+    /// 云端推理可用的工具：与本地同一套定义，按「云端工具开关」与账号状态筛选。
+    /// 装配逻辑放在 `CloudToolBuilder`（可单测），这里只负责收集上下文。
     private func cloudTools() -> [APITool] {
-        let features = settingsStore.settings.features
-        let cloud = settingsStore.settings.cloudTools
-        let browser = settingsStore.settings.browser
-        var tools: [APITool] = []
-        if cloud.shell, features.sshTool, sshStore.isConfigured {
-            tools.append(AgentToolCatalog.sshExec(servers: sshStore.servers.map(\.displayName)))
-        }
-        if cloud.webFetch {
-            tools.append(AgentToolCatalog.webFetch)
-        }
-        if cloud.workspace {
-            tools.append(AgentToolCatalog.workspace)
-        }
-        if cloud.mcp, features.mcpTool {
-            tools.append(contentsOf: mcpStore.availableTools())
-        }
-        if cloud.browser, features.browserTool {
-            tools.append(AgentToolCatalog.browserOpen)
-            if browser.allowAgentRead {
-                tools.append(AgentToolCatalog.browserRead)
-            }
-        }
-        if cloud.vision, features.visionTool {
-            tools.append(AgentToolCatalog.screenshot)
-        }
-        if cloud.clipboard, features.clipboardTool {
-            tools.append(AgentToolCatalog.clipboard)
-        }
-        if cloud.reminder, features.reminderTool {
-            tools.append(AgentToolCatalog.reminder)
-        }
-        if cloud.git, features.githubTool, gitStore.isConnected(.github) {
-            tools.append(AgentToolCatalog.github)
-        }
-        if cloud.git, features.giteeTool, gitStore.isConnected(.gitee) {
-            tools.append(AgentToolCatalog.gitee)
-        }
-        if cloud.skill, !activeSkillNames.isEmpty {
-            tools.append(AgentToolCatalog.skill(names: activeSkillNames))
-        }
-        return tools
+        CloudToolBuilder.tools(for: CloudToolBuilder.Context(
+            switches: settingsStore.settings.cloudTools,
+            features: settingsStore.settings.features,
+            browser: settingsStore.settings.browser,
+            sshServerNames: sshStore.servers.map(\.displayName),
+            sshConfigured: sshStore.isConfigured,
+            mcpTools: mcpStore.availableTools(),
+            skillNames: activeSkillNames,
+            githubConnected: gitStore.isConnected(.github),
+            giteeConnected: gitStore.isConnected(.gitee)
+        ))
     }
 
     /// 手机侧配置的远程 MCP 服务器：把地址、请求头与工具名映射下发给云端 Agent，
     /// 由云服务器直接调用（工具在云端执行，结果不需要回手机）
     private func cloudMCPServers() -> [CloudMCPServerConfig] {
-        let features = settingsStore.settings.features
-        guard features.mcpTool, settingsStore.settings.cloudTools.mcp else { return [] }
-        return mcpStore.servers
-            .filter { $0.isEnabled && $0.url != nil && !$0.tools.isEmpty }
-            .map { server in
-                let alias = server.alias.isEmpty ? "server" : server.alias
-                return CloudMCPServerConfig(
-                    name: alias,
-                    url: server.urlString,
-                    headers: server.headers,
-                    tools: server.tools.map { tool in
-                        (modelName: MCPStore.modelToolName(alias: alias, tool: tool.name), name: tool.name)
-                    }
-                )
-            }
+        CloudToolBuilder.mcpServers(
+            switches: settingsStore.settings.cloudTools,
+            features: settingsStore.settings.features,
+            servers: mcpStore.servers
+        )
     }
 
     /// 通知云端停止当前任务（本地取消即可，云端要显式停止，避免服务器继续消耗）

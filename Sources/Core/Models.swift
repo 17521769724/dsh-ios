@@ -590,8 +590,18 @@ struct AppSettings: Codable, Equatable {
 struct CloudToolSwitches: Codable, Equatable {
     /// 网页抓取（服务端直接读网页正文）
     var webFetch: Bool = true
+    /// 联网搜索（服务端，无需 API Key）
+    var search: Bool = true
     /// 沙盒文件（云端工作目录里读写文件 / 检索）
     var workspace: Bool = true
+    /// 在云端执行 Python（计算、数据处理、格式转换）
+    var code: Bool = true
+    /// 精确计算器
+    var calc: Bool = true
+    /// 当前时间与时区换算
+    var clock: Bool = true
+    /// 调用任意 HTTP 接口
+    var http: Bool = true
     /// MCP 服务器（云端直接调用你配置的远程 MCP 服务器）
     var mcp: Bool = true
     /// SSH 命令（在手机上执行，使用「SSH 云服务器」里的配置）
@@ -616,7 +626,12 @@ struct CloudToolSwitches: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let fallback = CloudToolSwitches()
         self.webFetch = try container.decodeIfPresent(Bool.self, forKey: .webFetch) ?? fallback.webFetch
+        self.search = try container.decodeIfPresent(Bool.self, forKey: .search) ?? fallback.search
         self.workspace = try container.decodeIfPresent(Bool.self, forKey: .workspace) ?? fallback.workspace
+        self.code = try container.decodeIfPresent(Bool.self, forKey: .code) ?? fallback.code
+        self.calc = try container.decodeIfPresent(Bool.self, forKey: .calc) ?? fallback.calc
+        self.clock = try container.decodeIfPresent(Bool.self, forKey: .clock) ?? fallback.clock
+        self.http = try container.decodeIfPresent(Bool.self, forKey: .http) ?? fallback.http
         self.mcp = try container.decodeIfPresent(Bool.self, forKey: .mcp) ?? fallback.mcp
         self.shell = try container.decodeIfPresent(Bool.self, forKey: .shell) ?? fallback.shell
         self.browser = try container.decodeIfPresent(Bool.self, forKey: .browser) ?? fallback.browser

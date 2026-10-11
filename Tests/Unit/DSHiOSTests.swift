@@ -2549,11 +2549,86 @@ final class CloudAgentTests: XCTestCase {
         XCTAssertTrue(decoded.shell)
         XCTAssertTrue(decoded.browser)
         XCTAssertTrue(decoded.skill)
+        // 2.8.0 新增的五个服务端工具同样默认开启
+        XCTAssertTrue(decoded.search)
+        XCTAssertTrue(decoded.code)
+        XCTAssertTrue(decoded.calc)
+        XCTAssertTrue(decoded.clock)
+        XCTAssertTrue(decoded.http)
 
         // 老设置（没有 cloudTools 字段）解码后同样拿到默认值
         let legacy = #"{"baseURL":"https://api.deepseek.com","defaultModel":"deepseek-flash","temperature":0.7,"systemPrompt":"","streamEnabled":true,"requestTimeout":120,"hapticsEnabled":true,"appTheme":"system","thinkingEnabled":true,"reasoningEffort":"high","features":{},"styleSuffix":"x"}"#
         let settings = try JSONDecoder().decode(AppSettings.self, from: Data(legacy.utf8))
         XCTAssertTrue(settings.cloudTools.browser)
+        XCTAssertTrue(settings.cloudTools.search)
+    }
+
+    /// 云端工具装配：开关全部打开时下发全部服务端工具；关掉某个就不再下发；
+    /// 手机端工具还要受本机功能开关与账号状态限制
+    func testCloudToolBuilderRespectsSwitches() {
+        var features = FeatureFlags()
+        features.sshTool = true
+        features.mcpTool = true
+        features.browserTool = true
+        features.githubTool = true
+        var context = CloudToolBuilder.Context(
+            switches: CloudToolSwitches(),
+            features: features,
+            browser: BrowserSettings.default,
+            sshServerNames: ["生产机"],
+            sshConfigured: true,
+            mcpTools: [],
+            skillNames: [],
+            githubConnected: true,
+            giteeConnected: false
+        )
+        var names = CloudToolBuilder.tools(for: context).map(\.name)
+        // 服务端工具（v1.2 共 8 个：抓取/搜索/文件/Python/计算器/时间/HTTP/MCP）
+        for name in ["web_fetch", "web_search", "workspace", "python_exec", "calculator", "current_time", "http_request"] {
+            XCTAssertTrue(names.contains(name), "全开时应下发 \(name)")
+        }
+        // 手机端工具
+        XCTAssertTrue(names.contains(AgentToolCatalog.sshExecName))
+        XCTAssertTrue(names.contains(AgentToolCatalog.browserOpenName))
+        XCTAssertTrue(names.contains(AgentToolCatalog.githubName))
+        XCTAssertFalse(names.contains(AgentToolCatalog.giteeName), "未连接 Gitee 时不应下发")
+
+        // 关掉若干开关后不再下发对应工具
+        context.switches.search = false
+        context.switches.code = false
+        context.switches.calc = false
+        context.switches.clock = false
+        context.switches.http = false
+        context.switches.browser = false
+        features.sshTool = false
+        context.features = features
+        names = CloudToolBuilder.tools(for: context).map(\.name)
+        for name in ["web_search", "python_exec", "calculator", "current_time", "http_request"] {
+            XCTAssertFalse(names.contains(name), "关掉开关后不应下发 \(name)")
+        }
+        XCTAssertTrue(names.contains("web_fetch"), "没关的开关应继续下发")
+        XCTAssertFalse(names.contains(AgentToolCatalog.browserOpenName), "关掉浏览器后不下发")
+        XCTAssertFalse(names.contains(AgentToolCatalog.sshExecName), "本机关掉 SSH 工具后不下发")
+    }
+
+    /// MCP 服务器下发：只带启用且有工具的服务器，且工具名映射为「模型侧 → 真实名」
+    func testCloudMCPServersPayload() throws {
+        var server = MCPServerConfig(name: "DeepWiki", urlString: "https://mcp.deepwiki.com/mcp", alias: "deepwiki")
+        server.tools = [MCPToolInfo(name: "ask", description: "问题", schemaJSON: "{\"type\":\"object\"}")]
+        let payload = CloudToolBuilder.mcpServers(
+            switches: CloudToolSwitches(),
+            features: FeatureFlags(),
+            servers: [server]
+        )
+        let first = try XCTUnwrap(payload.first)
+        XCTAssertEqual(first.name, "deepwiki")
+        XCTAssertEqual(first.tools.first?.name, "ask")
+        XCTAssertEqual(first.tools.first?.modelName, MCPStore.modelToolName(alias: "deepwiki", tool: "ask"))
+
+        // 关掉 MCP 开关后不下发
+        var switches = CloudToolSwitches()
+        switches.mcp = false
+        XCTAssertTrue(CloudToolBuilder.mcpServers(switches: switches, features: FeatureFlags(), servers: [server]).isEmpty)
     }
 }
 

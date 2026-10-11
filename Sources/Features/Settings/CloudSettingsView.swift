@@ -109,10 +109,35 @@ struct CloudSettingsView: View {
                 }
                 .accessibilityIdentifier("cloud.tool.webFetch")
 
+                Toggle(isOn: $settingsStore.settings.cloudTools.search) {
+                    SettingsRowLabel(symbol: "magnifyingglass", color: .blue, title: "联网搜索（服务器执行）")
+                }
+                .accessibilityIdentifier("cloud.tool.search")
+
                 Toggle(isOn: $settingsStore.settings.cloudTools.workspace) {
                     SettingsRowLabel(symbol: "folder.fill", color: .brown, title: "沙盒文件（服务器执行）")
                 }
                 .accessibilityIdentifier("cloud.tool.workspace")
+
+                Toggle(isOn: $settingsStore.settings.cloudTools.code) {
+                    SettingsRowLabel(symbol: "chevron.left.forwardslash.chevron.right", color: .indigo, title: "Python 执行（服务器执行）")
+                }
+                .accessibilityIdentifier("cloud.tool.code")
+
+                Toggle(isOn: $settingsStore.settings.cloudTools.calc) {
+                    SettingsRowLabel(symbol: "plus.forwardslash.minus", color: .green, title: "计算器（服务器执行）")
+                }
+                .accessibilityIdentifier("cloud.tool.calc")
+
+                Toggle(isOn: $settingsStore.settings.cloudTools.clock) {
+                    SettingsRowLabel(symbol: "clock.fill", color: .orange, title: "时间与时区（服务器执行）")
+                }
+                .accessibilityIdentifier("cloud.tool.clock")
+
+                Toggle(isOn: $settingsStore.settings.cloudTools.http) {
+                    SettingsRowLabel(symbol: "arrow.left.arrow.right.circle.fill", color: .cyan, title: "HTTP 调用（服务器执行）")
+                }
+                .accessibilityIdentifier("cloud.tool.http")
 
                 Toggle(isOn: $settingsStore.settings.cloudTools.mcp) {
                     SettingsRowLabel(symbol: "puzzlepiece.extension", color: .green, title: "MCP 服务器（服务器执行）")
@@ -121,7 +146,7 @@ struct CloudSettingsView: View {
             } header: {
                 Text("云端工具 · 云服务器执行")
             } footer: {
-                Text("这三类由云服务器直接完成：网页抓取读正文、沙盒文件在云端工作目录里读写与检索、MCP 由云端直连你配置的远程服务器（地址与请求头会随请求下发）。")
+                Text("这些由云服务器直接完成：网页抓取读正文、联网搜索（无需 Key）、沙盒文件读写与检索、Python 执行（适合计算与数据处理）、精确计算器、时间与时区、调用任意 HTTP 接口、MCP 直连你配置的远程服务器（地址与请求头会随请求下发）。")
             }
 
             Section {

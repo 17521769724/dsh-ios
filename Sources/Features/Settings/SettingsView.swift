@@ -105,6 +105,8 @@ struct SettingsView: View {
                 )
             }
             .accessibilityIdentifier("settings.cloud")
+        } header: {
+            Text("推理方式")
         } footer: {
             Text("开启后会话交给云服务器上的 Agent 推理、流式返回本机；App 退到后台也不会中断。本机直连模式保持不变。")
         }
