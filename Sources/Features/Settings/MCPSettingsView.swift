@@ -86,11 +86,13 @@ struct MCPSettingsView: View {
                                 .truncationMode(.tail)
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            // 左滑删除固定用红色（否则会被页面的品牌蓝染色）
                             Button(role: .destructive) {
                                 mcpStore.delete(id: server.id)
                             } label: {
                                 Label("删除服务器", systemImage: "trash")
                             }
+                            .tint(DSHTheme.danger)
                         }
                         .accessibilityIdentifier("mcp.row")
                     }
