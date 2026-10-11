@@ -685,7 +685,7 @@ final class ChatEngine: ObservableObject {
                             // 云端智能体要调用工具：把调用记进会话（界面可见），
                             // 需要手机执行的立刻本地执行，并把结果回传给云端
                             if let call = event.toolCall {
-                                self.appendCloudToolCall(call, assistantID: currentAssistantID)
+                                self.appendCloudToolCall(call, assistantID: assistantID)
                                 self.ensureToolMessagePlaceholder(call: call, model: self.activeModelID)
                                 if event.isClientToolCall {
                                     self.runningToolName = call.name

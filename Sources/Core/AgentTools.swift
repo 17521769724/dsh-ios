@@ -330,7 +330,7 @@ enum AgentToolCatalog {
 
     /// 技能工具：把用户自己写的技能全文取回来照着做。
     /// 入参带上当前已启用的技能名，模型就能准确选中要用的那一个。
-    private static func skill(names: [String]) -> APITool {
+    static func skill(names: [String]) -> APITool {
         let list = names.map { "「\($0)」" }.joined(separator: "、")
         let escaped = names
             .map { $0.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") }
