@@ -95,25 +95,39 @@ final class DSHiOSUITests: XCTestCase {
         return toggle.exists ? toggle : element(identifier)
     }
 
-    /// 设置页为懒加载列表，首屏之外的开关需先滚动到位；
-    /// 滚动带惯性，需等其停下再操作，否则点击会落到其他行
+    /// 设置页为懒加载列表，首屏之外的行需先滚动到位。
+    /// 关键点：不能只看 `isHittable`——只露出一半的行也算 hittable，
+    /// 但点按落在屏幕外等于没点（CI 上表现为「点了入口没进二级页」）。
+    /// 因此这里把目标滚进屏幕中间的安全区（约 20%～82% 高度）再返回。
     @discardableResult
     private func scrollTo(_ identifier: String, maxSwipes: Int = 10) -> XCUIElement {
         var target = uiElement(identifier)
         var swipes = 0
-        while !(target.exists && target.isHittable) && swipes < maxSwipes {
-            app.swipeUp()
+        while swipes < maxSwipes {
+            guard target.exists else {
+                app.swipeUp()
+                Thread.sleep(forTimeInterval: 0.5)
+                target = uiElement(identifier)
+                swipes += 1
+                continue
+            }
+            let screen = app.frame
+            let midY = target.frame.midY
+            if midY < screen.height * 0.2 {
+                // 跑到顶部导航栏下面了：把内容往下拉一点
+                app.swipeDown()
+            } else if midY > screen.height * 0.82 {
+                app.swipeUp()
+            } else {
+                break
+            }
             Thread.sleep(forTimeInterval: 0.5)
             target = uiElement(identifier)
             swipes += 1
         }
-        // 列表滚动有惯性：等它完全停稳再返回，重新取一次元素，
-        // 否则紧接着的 tap 可能点在已经移走的位置上（表现为「点了没进二级页」）
-        if target.exists {
-            Thread.sleep(forTimeInterval: 0.6)
-            target = uiElement(identifier)
-        }
-        return target
+        // 列表滚动有惯性：等它停稳再重新取一次元素，避免点按落在已经移走的位置
+        Thread.sleep(forTimeInterval: 0.4)
+        return uiElement(identifier)
     }
 
     /// 打开设置里的二级页：滚动到入口 → 点按 → 等导航栏出现；
