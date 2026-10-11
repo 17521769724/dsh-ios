@@ -14,6 +14,8 @@ enum AgentToolCatalog {
     static let screenshotName = "screenshot"
     /// 工作区文件：读写内置文件管理器与 IDE 所在的文件夹
     static let workspaceName = "workspace"
+    /// 网页抓取：云端推理专用，由云服务器直接抓取网页正文（本地推理用内置浏览器承担）
+    static let webFetchName = "web_fetch"
     /// 系统剪贴板：读写复制内容
     static let clipboardName = "clipboard"
     /// 提醒事项与日历：本地读写待办与日程
@@ -108,6 +110,24 @@ enum AgentToolCatalog {
             """)
         )
     }
+
+    /// 云端推理专用：在云服务器上直接抓取网页正文（本地推理由内置浏览器承担同样的活）
+    static let webFetch = APITool(
+        name: webFetchName,
+        description: "抓取一个网页的正文并返回纯文本，适合读文档、查资料、看接口说明。参数是完整网址。",
+        parameters: schema("""
+        {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string",
+              "description": "要抓取的完整网址（http/https）"
+            }
+          },
+          "required": ["url"]
+        }
+        """)
+    )
 
     static let browserOpen = APITool(
         name: browserOpenName,

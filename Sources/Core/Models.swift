@@ -508,6 +508,8 @@ struct AppSettings: Codable, Equatable {
     var browser: BrowserSettings
     /// 「回答风格约束」插件追加在每条用户消息末尾的强调指令，可在设置里编辑
     var styleSuffix: String
+    /// 云端推理可用的智能体工具（与本地同一套工具，逐项可开关）
+    var cloudTools: CloudToolSwitches
 
     /// 强调指令的默认内容
     static let defaultStyleSuffix = "[约束] 请用简洁的中文回答，先给结论再给要点。"
@@ -525,7 +527,8 @@ struct AppSettings: Codable, Equatable {
         reasoningEffort: .high,
         features: FeatureFlags(),
         browser: BrowserSettings.default,
-        styleSuffix: AppSettings.defaultStyleSuffix
+        styleSuffix: AppSettings.defaultStyleSuffix,
+        cloudTools: CloudToolSwitches()
     )
 
     init(
@@ -541,7 +544,8 @@ struct AppSettings: Codable, Equatable {
         reasoningEffort: ReasoningEffort,
         features: FeatureFlags,
         browser: BrowserSettings = .default,
-        styleSuffix: String = AppSettings.defaultStyleSuffix
+        styleSuffix: String = AppSettings.defaultStyleSuffix,
+        cloudTools: CloudToolSwitches = CloudToolSwitches()
     ) {
         self.baseURL = baseURL
         self.defaultModel = defaultModel
@@ -556,6 +560,7 @@ struct AppSettings: Codable, Equatable {
         self.features = features
         self.browser = browser
         self.styleSuffix = styleSuffix
+        self.cloudTools = cloudTools
     }
 
     /// 宽容解码：旧版本写入的设置缺少新增字段时按默认值补齐，避免升级后偏好被整体重置
@@ -575,6 +580,51 @@ struct AppSettings: Codable, Equatable {
         self.features = try container.decodeIfPresent(FeatureFlags.self, forKey: .features) ?? fallback.features
         self.browser = try container.decodeIfPresent(BrowserSettings.self, forKey: .browser) ?? fallback.browser
         self.styleSuffix = try container.decodeIfPresent(String.self, forKey: .styleSuffix) ?? fallback.styleSuffix
+        self.cloudTools = try container.decodeIfPresent(CloudToolSwitches.self, forKey: .cloudTools) ?? fallback.cloudTools
+    }
+}
+
+/// 云端推理可用的智能体工具：与本地同一套工具定义，可在「设置 → 云端推理」里逐项开关。
+/// 服务端执行的工具（网页抓取 / 沙盒文件 / MCP）由云服务器直接完成；
+/// 手机端执行的工具（SSH / 浏览器 / 截图 OCR / 剪贴板 / 提醒 / Git / 技能）由云端 Agent 回调手机执行。
+struct CloudToolSwitches: Codable, Equatable {
+    /// 网页抓取（服务端直接读网页正文）
+    var webFetch: Bool = true
+    /// 沙盒文件（云端工作目录里读写文件 / 检索）
+    var workspace: Bool = true
+    /// MCP 服务器（云端直接调用你配置的远程 MCP 服务器）
+    var mcp: Bool = true
+    /// SSH 命令（在手机上执行，使用「SSH 云服务器」里的配置）
+    var shell: Bool = true
+    /// 内置浏览器（在手机上打开页面，用户能看到）
+    var browser: Bool = true
+    /// 查看画面（手机截图 + 本地 OCR）
+    var vision: Bool = true
+    /// 剪贴板读写（手机端）
+    var clipboard: Bool = true
+    /// 提醒事项与日历（手机端）
+    var reminder: Bool = true
+    /// GitHub / Gitee（手机端，用本机登录的账号）
+    var git: Bool = true
+    /// 技能库（手机端按需取回技能说明）
+    var skill: Bool = true
+
+    init() {}
+
+    /// 宽容解码：新增开关在旧数据中缺失时取默认值
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let fallback = CloudToolSwitches()
+        self.webFetch = try container.decodeIfPresent(Bool.self, forKey: .webFetch) ?? fallback.webFetch
+        self.workspace = try container.decodeIfPresent(Bool.self, forKey: .workspace) ?? fallback.workspace
+        self.mcp = try container.decodeIfPresent(Bool.self, forKey: .mcp) ?? fallback.mcp
+        self.shell = try container.decodeIfPresent(Bool.self, forKey: .shell) ?? fallback.shell
+        self.browser = try container.decodeIfPresent(Bool.self, forKey: .browser) ?? fallback.browser
+        self.vision = try container.decodeIfPresent(Bool.self, forKey: .vision) ?? fallback.vision
+        self.clipboard = try container.decodeIfPresent(Bool.self, forKey: .clipboard) ?? fallback.clipboard
+        self.reminder = try container.decodeIfPresent(Bool.self, forKey: .reminder) ?? fallback.reminder
+        self.git = try container.decodeIfPresent(Bool.self, forKey: .git) ?? fallback.git
+        self.skill = try container.decodeIfPresent(Bool.self, forKey: .skill) ?? fallback.skill
     }
 }
 

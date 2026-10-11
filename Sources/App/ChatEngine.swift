@@ -642,7 +642,11 @@ final class ChatEngine: ObservableObject {
             baseURL: settings.baseURL,
             temperature: settings.temperature,
             thinking: settings.thinkingEnabled,
-            reasoningEffort: settings.reasoningEffort.rawValue
+            reasoningEffort: settings.reasoningEffort.rawValue,
+            tools: cloudTools(),
+            mcpServers: cloudMCPServers(),
+            maxToolRounds: 6,
+            toolTimeout: 180
         )
 
         isStreaming = true
@@ -677,6 +681,31 @@ final class ChatEngine: ObservableObject {
                             if let text = event.text { self.appendReasoning(text, assistantID: assistantID) }
                         case "usage":
                             if let value = event.usage { usage = value.tokenUsage }
+                        case "tool_call":
+                            // 云端智能体要调用工具：把调用记进会话（界面可见），
+                            // 需要手机执行的立刻本地执行，并把结果回传给云端
+                            if let call = event.toolCall {
+                                self.appendCloudToolCall(call, assistantID: currentAssistantID)
+                                self.ensureToolMessagePlaceholder(call: call, model: self.activeModelID)
+                                if event.isClientToolCall {
+                                    self.runningToolName = call.name
+                                    let output = await self.run(toolCall: call)
+                                    self.runningToolName = nil
+                                    let limited = Self.limitedToolOutput(output)
+                                    self.completeToolMessage(limited, call: call)
+                                    try? await client.sendToolResult(
+                                        sandbox: sandbox,
+                                        runID: runID,
+                                        callID: call.id,
+                                        output: limited
+                                    )
+                                }
+                            }
+                        case "tool_result":
+                            // 服务端自己执行的工具：把结果显示到会话里（手机端执行的上面已写入）
+                            if event.source != "client", let callID = event.callId, let output = event.output {
+                                self.completeCloudToolMessage(callID: callID, output: output)
+                            }
                         default:
                             break
                         }
@@ -700,6 +729,99 @@ final class ChatEngine: ObservableObject {
                 }
             }
         }
+    }
+
+    /// 云端：把一次工具调用追加到当前助手消息（一轮多次调用不会互相覆盖，
+    /// 也不结束该消息——云端的正文可能在同一轮继续输出）
+    private func appendCloudToolCall(_ call: ToolCall, assistantID: UUID) {
+        guard var conversation = currentConversation else { return }
+        guard let index = conversation.messages.firstIndex(where: { $0.id == assistantID }) else { return }
+        var calls = conversation.messages[index].toolCalls ?? []
+        guard !calls.contains(where: { $0.id == call.id }) else { return }
+        calls.append(call)
+        conversation.messages[index].toolCalls = calls
+        conversation.updatedAt = Date()
+        currentConversation = conversation
+        conversationStore.upsert(conversation)
+    }
+
+    /// 云端：服务端自己执行的工具，按调用 id 把结果写进工具消息（手机端已写入的不覆盖）
+    private func completeCloudToolMessage(callID: String, output: String) {
+        guard var conversation = currentConversation else { return }
+        guard let index = conversation.messages.lastIndex(where: { $0.toolCallID == callID }) else { return }
+        guard conversation.messages[index].content.isEmpty else { return }
+        conversation.messages[index].content = output
+        conversation.messages[index].isStreaming = false
+        conversation.updatedAt = Date()
+        currentConversation = conversation
+        conversationStore.upsert(conversation)
+    }
+
+    /// 云端推理可用的工具：与本地同一套定义，按「云端工具开关」筛选。
+    /// 服务端执行的（网页抓取 / 沙盒文件 / MCP）由云服务器直接完成；
+    /// 其余（SSH / 浏览器 / 截图 OCR / 剪贴板 / 提醒 / Git / 技能）会在需要时回调手机执行。
+    private func cloudTools() -> [APITool] {
+        let features = settingsStore.settings.features
+        let cloud = settingsStore.settings.cloudTools
+        let browser = settingsStore.settings.browser
+        var tools: [APITool] = []
+        if cloud.shell, features.sshTool, sshStore.isConfigured {
+            tools.append(AgentToolCatalog.sshExec(servers: sshStore.servers.map(\.displayName)))
+        }
+        if cloud.webFetch {
+            tools.append(AgentToolCatalog.webFetch)
+        }
+        if cloud.workspace {
+            tools.append(AgentToolCatalog.workspace)
+        }
+        if cloud.mcp, features.mcpTool {
+            tools.append(contentsOf: mcpStore.availableTools())
+        }
+        if cloud.browser, features.browserTool {
+            tools.append(AgentToolCatalog.browserOpen)
+            if browser.allowAgentRead {
+                tools.append(AgentToolCatalog.browserRead)
+            }
+        }
+        if cloud.vision, features.visionTool {
+            tools.append(AgentToolCatalog.screenshot)
+        }
+        if cloud.clipboard, features.clipboardTool {
+            tools.append(AgentToolCatalog.clipboard)
+        }
+        if cloud.reminder, features.reminderTool {
+            tools.append(AgentToolCatalog.reminder)
+        }
+        if cloud.git, features.githubTool, gitStore.isConnected(.github) {
+            tools.append(AgentToolCatalog.github)
+        }
+        if cloud.git, features.giteeTool, gitStore.isConnected(.gitee) {
+            tools.append(AgentToolCatalog.gitee)
+        }
+        if cloud.skill, !activeSkillNames.isEmpty {
+            tools.append(AgentToolCatalog.skill(names: activeSkillNames))
+        }
+        return tools
+    }
+
+    /// 手机侧配置的远程 MCP 服务器：把地址、请求头与工具名映射下发给云端 Agent，
+    /// 由云服务器直接调用（工具在云端执行，结果不需要回手机）
+    private func cloudMCPServers() -> [CloudMCPServerConfig] {
+        let features = settingsStore.settings.features
+        guard features.mcpTool, settingsStore.settings.cloudTools.mcp else { return [] }
+        return mcpStore.servers
+            .filter { $0.isEnabled && $0.url != nil && !$0.tools.isEmpty }
+            .map { server in
+                let alias = server.alias.isEmpty ? "server" : server.alias
+                return CloudMCPServerConfig(
+                    name: alias,
+                    url: server.urlString,
+                    headers: server.headers,
+                    tools: server.tools.map { tool in
+                        (modelName: MCPStore.modelToolName(alias: alias, tool: tool.name), name: tool.name)
+                    }
+                )
+            }
     }
 
     /// 通知云端停止当前任务（本地取消即可，云端要显式停止，避免服务器继续消耗）

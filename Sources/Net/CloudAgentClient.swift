@@ -37,10 +37,32 @@ struct CloudFileItem: Codable, Identifiable, Hashable {
 /// 推理事件（服务端按序号缓存，客户端用 after 游标续取，断线重连不丢内容）
 struct CloudRunEvent: Codable, Hashable {
     let i: Int
-    let type: String   // content / reasoning / usage / error
+    /// content / reasoning / usage / tool_call / tool_result / error
+    let type: String
     let text: String?
     let usage: CloudUsage?
     let error: String?
+    /// tool_call / tool_result：调用 id
+    let callId: String?
+    /// tool_call / tool_result：工具名
+    let name: String?
+    /// tool_call：模型给出的原始参数 JSON 字符串
+    let arguments: String?
+    /// tool_result：工具输出
+    let output: String?
+    /// tool_call / tool_result：执行面（server = 云服务器自己执行，client = 回调手机执行）
+    let source: String?
+    /// tool_result：是否执行失败
+    let failed: Bool?
+
+    /// 转成模型工具调用（云端要求手机执行的调用）
+    var toolCall: ToolCall? {
+        guard type == "tool_call", let callId, let name else { return nil }
+        return ToolCall(id: callId, name: name, arguments: arguments ?? "{}")
+    }
+
+    var isClientToolCall: Bool { type == "tool_call" && source == "client" }
+    var isServerToolCall: Bool { type == "tool_call" && source != "client" }
 }
 
 struct CloudUsage: Codable, Hashable {
@@ -68,8 +90,26 @@ struct CloudMessage: Codable, Hashable {
     let content: String
 }
 
+/// 下发给云端 Agent 的一台远程 MCP 服务器（由云服务器直接调用，手机只提供地址与令牌）
+struct CloudMCPServerConfig {
+    let name: String
+    let url: String
+    let headers: [String: String]
+    /// 模型侧工具名 ↔ 服务器上的真实工具名
+    let tools: [(modelName: String, name: String)]
+
+    var jsonObject: [String: Any] {
+        [
+            "name": name,
+            "url": url,
+            "headers": headers,
+            "tools": tools.map { ["modelName": $0.modelName, "name": $0.name] }
+        ]
+    }
+}
+
 /// 一次云端推理请求（模型 Key 随请求下发，服务器不保存）
-struct CloudChatRequest: Codable {
+struct CloudChatRequest {
     let messages: [CloudMessage]
     let model: String
     let apiKey: String
@@ -77,6 +117,35 @@ struct CloudChatRequest: Codable {
     let temperature: Double
     let thinking: Bool
     let reasoningEffort: String
+    /// 下发给模型的工具；为空则退化为单轮推理（与云端 v1 行为一致）
+    var tools: [APITool] = []
+    /// 手机侧配置的远程 MCP 服务器（云端 Agent 直接调用）
+    var mcpServers: [CloudMCPServerConfig] = []
+    /// 工具轮上限（与本地一致，默认 6）
+    var maxToolRounds: Int = 6
+    /// 云端等手机端工具结果的超时（秒）
+    var toolTimeout: Int = 180
+
+    var jsonObject: [String: Any] {
+        var object: [String: Any] = [
+            "messages": messages.map { ["role": $0.role, "content": $0.content] },
+            "model": model,
+            "apiKey": apiKey,
+            "baseURL": baseURL,
+            "temperature": temperature,
+            "thinking": thinking,
+            "reasoningEffort": reasoningEffort
+        ]
+        if !tools.isEmpty {
+            object["tools"] = tools.map(\.jsonObject)
+            object["maxToolRounds"] = maxToolRounds
+            object["toolTimeout"] = toolTimeout
+        }
+        if !mcpServers.isEmpty {
+            object["mcpServers"] = mcpServers.map(\.jsonObject)
+        }
+        return object
+    }
 }
 
 // MARK: - 错误
@@ -242,13 +311,23 @@ struct CloudAgentClient {
 
     /// 发起一次推理，返回任务 id；推理在服务器上后台执行，客户端随后按游标取事件
     func startChat(sandbox: String, request chatRequest: CloudChatRequest) async throws -> String {
-        let body = try JSONEncoder().encode(chatRequest)
+        let body = try JSONSerialization.data(withJSONObject: chatRequest.jsonObject)
         let data = try await send(request("POST", path: "sandboxes/\(sandbox)/chat", body: body))
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let runID = object["runId"] as? String else {
             throw CloudError.server("推理启动返回格式不正确")
         }
         return runID
+    }
+
+    /// 把手机端执行完的工具结果回传给云端 Agent（它正在等待这个结果才能继续推理）
+    func sendToolResult(sandbox: String, runID: String, callID: String, output: String) async throws {
+        let body = try JSONSerialization.data(withJSONObject: ["id": callID, "output": output])
+        _ = try await send(request(
+            "POST",
+            path: "sandboxes/\(sandbox)/runs/\(runID)/tool_result",
+            body: body
+        ))
     }
 
     /// 取 after 之后的新增事件（长轮询：没有新事件时在服务端等待，最多 timeout 秒）

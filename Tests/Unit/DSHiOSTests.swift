@@ -2453,6 +2453,98 @@ final class CloudAgentTests: XCTestCase {
         XCTAssertFalse(tail.contains("__DSH_LOG"), "标记本身不应出现在正文里")
         XCTAssertNil(CloudDeploy.logTail("没有任何标记的输出"))
     }
+
+    /// 云端推理的请求体：带工具时下发 tools / maxToolRounds / toolTimeout 与 mcpServers；
+    /// 不带工具时保持云端 v1 的字段（向后兼容）
+    func testCloudChatRequestEncodesToolsAndMCPServers() throws {
+        let tool = APITool(
+            name: "web_fetch",
+            description: "抓网页",
+            parameters: ["type": "any", "properties": [:] as [String: Any]]
+        )
+        let request = CloudChatRequest(
+            messages: [CloudMessage(role: "user", content: "你好")],
+            model: "deepseek-flash",
+            apiKey: "sk-1",
+            baseURL: "https://api.deepseek.com",
+            temperature: 0.7,
+            thinking: true,
+            reasoningEffort: "high",
+            tools: [tool],
+            mcpServers: [CloudMCPServerConfig(
+                name: "deepwiki",
+                url: "https://mcp.deepwiki.com/mcp",
+                headers: ["Authorization": "Bearer t"],
+                tools: [(modelName: "mcp_deepwiki_ask", name: "ask")]
+            )],
+            maxToolRounds: 6,
+            toolTimeout: 180
+        )
+        let object = request.jsonObject
+        let tools = try XCTUnwrap(object["tools"] as? [[String: Any]])
+        XCTAssertEqual(tools.count, 1)
+        XCTAssertEqual((tools[0]["function"] as? [String: Any])?["name"] as? String, "web_fetch")
+        XCTAssertEqual(object["maxToolRounds"] as? Int, 6)
+        XCTAssertEqual(object["toolTimeout"] as? Int, 180)
+        let servers = try XCTUnwrap(object["mcpServers"] as? [[String: Any]])
+        XCTAssertEqual(servers.first?["name"] as? String, "deepwiki")
+        let mapping = try XCTUnwrap((servers.first?["tools"] as? [[String: Any]])?.first)
+        XCTAssertEqual(mapping["modelName"] as? String, "mcp_deepwiki_ask")
+        XCTAssertEqual(mapping["name"] as? String, "ask")
+
+        // 不带工具的请求不应出现新字段（旧服务器也能正常处理）
+        let legacy = CloudChatRequest(
+            messages: [CloudMessage(role: "user", content: "你好")],
+            model: "deepseek-flash", apiKey: "sk-1", baseURL: "https://api.deepseek.com",
+            temperature: 0.7, thinking: false, reasoningEffort: "high"
+        ).jsonObject
+        XCTAssertNil(legacy["tools"])
+        XCTAssertNil(legacy["mcpServers"])
+        XCTAssertEqual(legacy["model"] as? String, "deepseek-flash")
+    }
+
+    /// 云端工具事件解码：tool_call / tool_result 的字段与 ToolCall 映射
+    func testCloudToolEventsDecoding() throws {
+        let callJSON = #"{"i":3,"type":"tool_call","callId":"call_1","name":"ssh_exec","arguments":"{\"command\":\"ls\"}","source":"client"}"#
+        let call = try JSONDecoder().decode(CloudRunEvent.self, from: Data(callJSON.utf8))
+        XCTAssertTrue(call.isClientToolCall)
+        XCTAssertEqual(call.toolCall?.id, "call_1")
+        XCTAssertEqual(call.toolCall?.name, "ssh_exec")
+        XCTAssertEqual(call.toolCall?.arguments, #"{"command":"ls"}"#)
+
+        let serverJSON = #"{"i":4,"type":"tool_call","callId":"call_2","name":"web_fetch","arguments":"{}","source":"server"}"#
+        let server = try JSONDecoder().decode(CloudRunEvent.self, from: Data(serverJSON.utf8))
+        XCTAssertTrue(server.isServerToolCall)
+        XCTAssertFalse(server.isClientToolCall)
+
+        let resultJSON = #"{"i":5,"type":"tool_result","callId":"call_2","name":"web_fetch","output":"正文","source":"server","failed":false}"#
+        let result = try JSONDecoder().decode(CloudRunEvent.self, from: Data(resultJSON.utf8))
+        XCTAssertEqual(result.output, "正文")
+        XCTAssertEqual(result.source, "server")
+        XCTAssertNil(result.toolCall, "tool_result 不是工具调用")
+
+        // 旧版事件（没有新字段）仍能解码
+        let legacyJSON = #"{"i":0,"type":"content","text":"你好"}"#
+        let legacy = try JSONDecoder().decode(CloudRunEvent.self, from: Data(legacyJSON.utf8))
+        XCTAssertEqual(legacy.text, "你好")
+        XCTAssertNil(legacy.callId)
+    }
+
+    /// 云端工具开关：旧设置里没有这个字段时全部默认开启
+    func testCloudToolSwitchesDefaultOn() throws {
+        let decoded = try JSONDecoder().decode(CloudToolSwitches.self, from: Data("{}".utf8))
+        XCTAssertTrue(decoded.webFetch)
+        XCTAssertTrue(decoded.workspace)
+        XCTAssertTrue(decoded.mcp)
+        XCTAssertTrue(decoded.shell)
+        XCTAssertTrue(decoded.browser)
+        XCTAssertTrue(decoded.skill)
+
+        // 老设置（没有 cloudTools 字段）解码后同样拿到默认值
+        let legacy = #"{"baseURL":"https://api.deepseek.com","defaultModel":"deepseek-flash","temperature":0.7,"systemPrompt":"","streamEnabled":true,"requestTimeout":120,"hapticsEnabled":true,"appTheme":"system","thinkingEnabled":true,"reasoningEffort":"high","features":{},"styleSuffix":"x"}"#
+        let settings = try JSONDecoder().decode(AppSettings.self, from: Data(legacy.utf8))
+        XCTAssertTrue(settings.cloudTools.browser)
+    }
 }
 
 // MARK: - SSH 多服务器

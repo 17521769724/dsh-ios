@@ -21,6 +21,7 @@ struct CloudSettingsView: View {
     var body: some View {
         List {
             enableSection
+            toolSection
             deploySection
             deployActionSection
             sandboxSection
@@ -92,7 +93,77 @@ struct CloudSettingsView: View {
         } header: {
             Text("推理方式")
         } footer: {
-            Text("开启后，新消息交由云服务器上的 Agent 推理并流式返回本机；App 退到后台推理不会中断，回到前台自动补全内容。关闭则保持本机直连模型。云端模式暂不支持图片与智能体工具（工具仍可在本机模式使用）。")
+            Text("开启后，新消息交由云服务器上的 Agent 推理并流式返回本机；具备与本地一致的智能体工具（见下方「云端工具」开关）。App 退到后台推理不会中断，回到前台自动补全内容。图片暂不支持（仍在本机直连模式可用）。")
+        }
+    }
+
+    // MARK: - 云端工具
+
+    /// 云端推理可用的智能体工具：与本地同一套工具，逐项可开关。
+    /// 一部分在云服务器上直接执行，一部分会回调手机执行（手机端还需对应功能本身已开启）。
+    private var toolSection: some View {
+        Group {
+            Section {
+                Toggle(isOn: $settingsStore.settings.cloudTools.webFetch) {
+                    SettingsRowLabel(symbol: "doc.text.magnifyingglass", color: .teal, title: "网页抓取（服务器执行）")
+                }
+                .accessibilityIdentifier("cloud.tool.webFetch")
+
+                Toggle(isOn: $settingsStore.settings.cloudTools.workspace) {
+                    SettingsRowLabel(symbol: "folder.fill", color: .brown, title: "沙盒文件（服务器执行）")
+                }
+                .accessibilityIdentifier("cloud.tool.workspace")
+
+                Toggle(isOn: $settingsStore.settings.cloudTools.mcp) {
+                    SettingsRowLabel(symbol: "puzzlepiece.extension", color: .green, title: "MCP 服务器（服务器执行）")
+                }
+                .accessibilityIdentifier("cloud.tool.mcp")
+            } header: {
+                Text("云端工具 · 云服务器执行")
+            } footer: {
+                Text("这三类由云服务器直接完成：网页抓取读正文、沙盒文件在云端工作目录里读写与检索、MCP 由云端直连你配置的远程服务器（地址与请求头会随请求下发）。")
+            }
+
+            Section {
+                Toggle(isOn: $settingsStore.settings.cloudTools.shell) {
+                    SettingsRowLabel(symbol: "terminal.fill", color: .black, title: "SSH 命令（手机执行）")
+                }
+                .accessibilityIdentifier("cloud.tool.shell")
+
+                Toggle(isOn: $settingsStore.settings.cloudTools.browser) {
+                    SettingsRowLabel(symbol: "globe", color: .teal, title: "内置浏览器（手机执行）")
+                }
+                .accessibilityIdentifier("cloud.tool.browser")
+
+                Toggle(isOn: $settingsStore.settings.cloudTools.vision) {
+                    SettingsRowLabel(symbol: "eye.fill", color: .purple, title: "查看画面（手机执行）")
+                }
+                .accessibilityIdentifier("cloud.tool.vision")
+
+                Toggle(isOn: $settingsStore.settings.cloudTools.clipboard) {
+                    SettingsRowLabel(symbol: "doc.on.clipboard", color: .indigo, title: "剪贴板读写（手机执行）")
+                }
+                .accessibilityIdentifier("cloud.tool.clipboard")
+
+                Toggle(isOn: $settingsStore.settings.cloudTools.reminder) {
+                    SettingsRowLabel(symbol: "calendar", color: .red, title: "提醒事项与日历（手机执行）")
+                }
+                .accessibilityIdentifier("cloud.tool.reminder")
+
+                Toggle(isOn: $settingsStore.settings.cloudTools.git) {
+                    SettingsRowLabel(symbol: "chevron.left.forwardslash.chevron.right", color: .orange, title: "GitHub / Gitee（手机执行）")
+                }
+                .accessibilityIdentifier("cloud.tool.git")
+
+                Toggle(isOn: $settingsStore.settings.cloudTools.skill) {
+                    SettingsRowLabel(symbol: "sparkles", color: .orange, title: "技能库（手机执行）")
+                }
+                .accessibilityIdentifier("cloud.tool.skill")
+            } header: {
+                Text("云端工具 · 手机执行")
+            } footer: {
+                Text("这些能力在手机上：云端 Agent 需要时会「回调」手机执行，再把结果送回服务器继续推理（需要 App 在运行）。它们还受「智能体工具」里对应开关与本机账号状态限制。")
+            }
         }
     }
 

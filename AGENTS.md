@@ -90,7 +90,28 @@ xcodebuild test -project DSHiOS.xcodeproj -scheme DSHiOS -destination "platform=
 
 ## 当前状态
 
-- 版本：**2.6.3**（构建号由 CI 运行序号决定；2.4.0 = 109、2.5.0 = 112、2.6.0 = 114、2.6.1 = 116、2.6.2 = 117）。
+- 版本：**2.7.0**（构建号由 CI 运行序号决定；2.4.0 = 109、2.5.0 = 112、2.6.0 = 114、2.6.2 = 117、2.6.3 = 119）。
+- 2.7.0 交付（**云端推理具备与本地一致的智能体能力**）：
+  - **架构：云端驱动工具循环 + 双执行面**。服务端 Agent（`Resources/dsh-agent.py`，版本 1.1）新增工具循环：
+    流式聚合 `tool_calls` → 执行 → 追加 `role=tool` 结果 → 下一轮，最后一轮不下发工具并附收尾提示
+    （与本地 `ChatEngine` 的 6 轮策略一致）；单轮最多 6 次调用、单个输出截断 16000 字符；
+  - **服务端执行的工具**：`web_fetch`（urllib 抓正文、去 script/style、8000 字符）、
+    `workspace`（沙盒内 list/read/write/mkdir/delete/search，沿用 `safe_path` 防越界）、
+    `mcp_*`（MCP Streamable HTTP 2025-03-26：initialize → notifications/initialized → tools/call，
+    兼容 JSON 与 SSE 响应、带 `Mcp-Session-Id` 与自定义请求头）；
+  - **手机端执行的工具**（云端回调手机）：`ssh_exec`、`browser_open/read`、`screenshot`、`clipboard`、
+    `reminder`、`github`、`gitee`、`skill`。协议：服务端发 `tool_call`（source=client）事件后等待，
+    客户端执行完 POST `/sandboxes/<sid>/runs/<rid>/tool_result` 回传（默认等 180 秒，可配）；
+    run 被 stop / 沙盒暂停时等待立即中断；
+  - **iOS 侧**：`CloudToolSwitches`（设置里两组开关，默认全开）+ `CloudChatRequest.jsonObject`
+    （带工具时下发 `tools`/`maxToolRounds`/`toolTimeout`/`mcpServers`，不带工具时字段与 v1 完全一致）；
+    `CloudRunEvent` 新增 callId/name/arguments/output/source/failed 与新事件类型；
+    `ChatEngine` 处理 `tool_call`（记进会话 + 手机执行回传）与 `tool_result`（服务端结果写回会话）；
+    `CloudAgentClient.sendToolResult`；`AgentToolCatalog.webFetch`（云端专用抓网页）；
+    「设置 → 云端推理」新增「云端工具 · 云服务器执行 / 手机执行」两组开关；
+  - 验证：本机联调脚本（假模型 SSE + 假网页 + 假 App 长轮询与回传）跑通 11/11：
+    服务端执行 web_fetch、手机端收到 ssh_exec 回调并回传、第二轮模型请求、最终文本与 run 状态正确、
+    未知 callId 回 404；单测覆盖请求体编码、事件解码、开关默认值与旧数据兼容。
 - 2.6.3 交付（一键部署修复 + 列表行样式 + 设置页统一）：
   - **修复「一键创建云端 Agent 工作环境」失败**（用户实测报「部署脚本已执行，但服务没有通过自检」）：
     旧脚本里的 `pkill -f dsh-agent.py` 会**把正在执行该脚本的 shell 自己一起杀掉**——因为命令是
