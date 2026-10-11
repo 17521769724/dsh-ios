@@ -96,38 +96,49 @@ final class DSHiOSUITests: XCTestCase {
     }
 
     /// 设置页为懒加载列表，首屏之外的行需先滚动到位。
-    /// 关键点：不能只看 `isHittable`——只露出一半的行也算 hittable，
+    /// 两步走：先用整屏上滑把它找出来（可能过冲），再用小幅拖动把它的中心
+    /// 调到屏幕中间的安全区——只露出一半的行 `isHittable` 仍为真，
     /// 但点按落在屏幕外等于没点（CI 上表现为「点了入口没进二级页」）。
-    /// 因此这里把目标滚进屏幕中间的安全区（约 20%～82% 高度）再返回。
     @discardableResult
     private func scrollTo(_ identifier: String, maxSwipes: Int = 10) -> XCUIElement {
         var target = uiElement(identifier)
         var swipes = 0
-        while swipes < maxSwipes {
-            guard target.exists else {
-                app.swipeUp()
-                Thread.sleep(forTimeInterval: 0.5)
-                target = uiElement(identifier)
-                swipes += 1
-                continue
-            }
-            let screen = app.frame
-            let midY = target.frame.midY
-            if midY < screen.height * 0.2 {
-                // 跑到顶部导航栏下面了：把内容往下拉一点
-                app.swipeDown()
-            } else if midY > screen.height * 0.82 {
-                app.swipeUp()
-            } else {
-                break
-            }
+        while !(target.exists && target.isHittable) && swipes < maxSwipes {
+            app.swipeUp()
             Thread.sleep(forTimeInterval: 0.5)
             target = uiElement(identifier)
             swipes += 1
         }
-        // 列表滚动有惯性：等它停稳再重新取一次元素，避免点按落在已经移走的位置
-        Thread.sleep(forTimeInterval: 0.4)
+        centerOnScreen(identifier)
+        Thread.sleep(forTimeInterval: 0.3)
         return uiElement(identifier)
+    }
+
+    /// 小幅拖动把目标滚进屏幕中间的安全区（20%～82% 高度内）
+    private func centerOnScreen(_ identifier: String, maxSteps: Int = 6) {
+        var steps = 0
+        while steps < maxSteps {
+            let target = uiElement(identifier)
+            guard target.exists else { return }
+            let height = app.frame.height
+            let midY = target.frame.midY
+            if midY < height * 0.2 {
+                dragList(up: false)
+            } else if midY > height * 0.82 {
+                dragList(up: true)
+            } else {
+                return
+            }
+            Thread.sleep(forTimeInterval: 0.4)
+            steps += 1
+        }
+    }
+
+    /// 在列表内部做一次小幅拖动（整屏 swipe 步长太大，容易反复过冲）
+    private func dragList(up: Bool, distance: CGFloat = 180) {
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.62 : 0.38))
+        let end = start.withOffset(CGVector(dx: 0, dy: up ? -distance : distance))
+        start.press(forDuration: 0.05, thenDragTo: end)
     }
 
     /// 打开设置里的二级页：滚动到入口 → 点按 → 等导航栏出现；
